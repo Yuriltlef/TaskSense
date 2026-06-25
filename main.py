@@ -1,4 +1,5 @@
 import flet as ft
+import langchain
 
 def main(page: ft.Page):
     page.title = "Flet counter example"
