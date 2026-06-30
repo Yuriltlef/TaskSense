@@ -1,11 +1,28 @@
-"""文本向量化 — 使用 sentence-transformers 本地模型."""
+"""文本向量化 — 使用 sentence-transformers 本地模型，自动检测 CUDA."""
+
+
+def _detect_device():
+    """检测最佳计算设备：CUDA > MPS > CPU。"""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda", torch.cuda.get_device_name(0)
+    except ImportError:
+        pass
+    try:
+        import torch
+        if torch.backends.mps.is_available():
+            return "mps", "Apple MPS"
+    except Exception:
+        pass
+    return "cpu", "CPU"
 
 
 class Embedder:
     """文本向量化器。
 
-    默认: BAAI/bge-m3（1024 维，中英多语，MTEB 高分）。
-    BGE 模型查询时需要添加 instruction 前缀。
+    默认: BAAI/bge-m3（1024 维，中英多语）。
+    自动检测 CUDA/MPS/CPU。
     """
 
     QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
@@ -15,12 +32,20 @@ class Embedder:
         self._model = None
         self._dim = None
         self._is_bge = "bge" in model_name.lower()
+        self._device, self._device_name = _detect_device()
+
+    @property
+    def device_info(self) -> tuple[str, str]:
+        return self._device, self._device_name
 
     @property
     def model(self):
         if self._model is None:
             from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer(self.model_name)
+            self._model = SentenceTransformer(
+                self.model_name,
+                device=self._device,
+            )
         return self._model
 
     @property

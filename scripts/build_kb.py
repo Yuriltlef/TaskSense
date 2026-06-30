@@ -216,9 +216,14 @@ def phase_embed(force=False, incremental=False):
     if not all_chunks: secho("  [ERROR] No chunks."); return False
 
     secho(f"\n  --- Embedding ---")
-    secho("  Loading model...")
     embedder = Embedder()
-    secho(f"  Model: {embedder.model_name} | Dims: {embedder.dimension}")
+    dev, dev_name = embedder.device_info
+    secho(f"  Model : {embedder.model_name}")
+    secho(f"  Device: {dev_name} ({dev})")
+    secho(f"  Dims  : {embedder.dimension}")
+    if dev == "cpu":
+        secho(f"  [WARN] No GPU detected. Embedding will be slow. "
+              f"Install CUDA PyTorch: pip install torch --index-url https://download.pytorch.org/whl/cu121")
 
     texts = [c["text"] for c in all_chunks]
     batch_size = 64; embeddings = []; total = len(texts); t0 = time.time()
