@@ -156,8 +156,8 @@ def phase_extract(workers: int = DEFAULT_WORKERS):
 # Phase 2: Embed
 # ═══════════════════════════════════════════
 
-def phase_embed(force=False, incremental=False):
-    header("PHASE 2: Text -> Chunks -> Embeddings -> Store")
+def phase_embed(force=False, incremental=False, collection="kb_static"):
+    header(f"PHASE 2: Embed -> [{collection}]")
 
     PROJECT = Path(__file__).parent.parent
     sys.path.insert(0, str(PROJECT))
@@ -166,7 +166,7 @@ def phase_embed(force=False, incremental=False):
     from app.knowledge.store import VectorStore
 
     store_path = PROJECT / "data" / "vector_store"
-    store = VectorStore(str(store_path))
+    store = VectorStore(str(store_path), collection_name=collection)
     state_file = store_path / "embedded.json"
 
     if force and store.count() > 0:
@@ -260,6 +260,9 @@ def main():
     parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
                         help=f"Workers (default: cpu-2={DEFAULT_WORKERS})")
     parser.add_argument("--incremental", action="store_true")
+    parser.add_argument("--collection", default="kb_static",
+                        choices=["kb_static", "kb_live"],
+                        help="Which collection to build (default: kb_static)")
     args = parser.parse_args()
 
     t0 = time.time()
@@ -271,7 +274,8 @@ def main():
     if args.command in ("extract", "build"):
         ok = phase_extract(workers=args.workers) and ok
     if args.command in ("embed", "build"):
-        ok = phase_embed(force=args.force, incremental=args.incremental) and ok
+        ok = phase_embed(force=args.force, incremental=args.incremental,
+                         collection=args.collection) and ok
 
     if ok:
         print(f"\n{'=' * 60}")

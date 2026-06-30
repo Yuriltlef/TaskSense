@@ -1,90 +1,67 @@
-"""向量存储 — ChromaDB 后端."""
+"""向量存储 — ChromaDB 后端，支持多 Collection."""
 
 import os
 import uuid
 from typing import Optional
 
-import chromadb
-from chromadb.config import Settings as ChromaSettings
-
 
 class VectorStore:
-    """ChromaDB 向量存储。
-
-    管理文档块的嵌入向量和元数据。
-    """
+    """ChromaDB 向量存储。支持多 Collection（冷热分离）。"""
 
     def __init__(self, persist_dir: str = "data/vector_store",
-                 collection_name: str = "aviation_knowledge"):
+                 collection_name: str = "kb_static"):
         self.persist_dir = persist_dir
         self.collection_name = collection_name
-        self._client: Optional[chromadb.PersistentClient] = None
-        self._collection = None
+        self._client: Optional["chromadb.PersistentClient"] = None
 
     @property
-    def client(self) -> chromadb.PersistentClient:
+    def client(self):
         if self._client is None:
+            import chromadb
             os.makedirs(self.persist_dir, exist_ok=True)
             self._client = chromadb.PersistentClient(
                 path=self.persist_dir,
-                settings=ChromaSettings(anonymized_telemetry=False),
+                settings=chromadb.config.Settings(anonymized_telemetry=False),
             )
         return self._client
 
-    @property
-    def collection(self):
-        if self._collection is None:
-            self._collection = self.client.get_or_create_collection(
-                name=self.collection_name,
-                metadata={"hnsw:space": "cosine"},
-            )
-        return self._collection
+    def get_collection(self, name: str = None):
+        """获取或创建 collection。"""
+        return self.client.get_or_create_collection(
+            name=name or self.collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
 
     def add_chunks(self, chunks: list[dict],
-                   embeddings: list[list[float]]) -> int:
-        """批量添加文档块。
-
-        Args:
-            chunks: [{text, metadata}, ...]
-            embeddings: 对应的嵌入向量
-
-        Returns:
-            添加的块数量
-        """
+                   embeddings: list[list[float]],
+                   collection: str = None) -> int:
+        """追加块到指定 collection（增量，不清除已有数据）。"""
         if not chunks:
             return 0
 
+        coll = self.get_collection(collection or self.collection_name)
         ids = [str(uuid.uuid4()) for _ in chunks]
         texts = [c["text"] for c in chunks]
         metadatas = [c["metadata"] for c in chunks]
 
-        # 分批添加（Chroma 有批大小限制）
         batch_size = 500
         for i in range(0, len(chunks), batch_size):
             end = min(i + batch_size, len(chunks))
-            self.collection.add(
+            coll.add(
                 ids=ids[i:end],
                 embeddings=embeddings[i:end],
                 documents=texts[i:end],
                 metadatas=metadatas[i:end],
             )
-
         return len(chunks)
 
     def search(self, query_embedding: list[float],
                top_k: int = 10,
+               collection: str = None,
                where: Optional[dict] = None) -> list[dict]:
-        """语义搜索。
-
-        Args:
-            query_embedding: 查询向量
-            top_k: 返回结果数
-            where: Chroma 过滤条件
-
-        Returns:
-            [{id, text, metadata, score}, ...]
-        """
-        results = self.collection.query(
+        """语义搜索单个 collection。"""
+        coll = self.get_collection(collection or self.collection_name)
+        results = coll.query(
             query_embeddings=[query_embedding],
             n_results=top_k,
             where=where,
@@ -100,18 +77,22 @@ class VectorStore:
                 "id": results["ids"][0][i],
                 "text": results["documents"][0][i],
                 "metadata": results["metadatas"][0][i] or {},
-                "score": 1.0 - results["distances"][0][i],  # cosine → similarity
+                "score": 1.0 - results["distances"][0][i],
             })
         return items
 
-    def count(self) -> int:
-        """当前存储的块数量。"""
-        return self.collection.count()
-
-    def clear(self):
-        """清空存储。"""
+    def count(self, collection: str = None) -> int:
         try:
-            self.client.delete_collection(self.collection_name)
+            return self.get_collection(collection or self.collection_name).count()
+        except Exception:
+            return 0
+
+    def list_collections(self) -> list[str]:
+        return [c.name for c in self.client.list_collections()]
+
+    def clear(self, collection: str = None):
+        name = collection or self.collection_name
+        try:
+            self.client.delete_collection(name)
         except Exception:
             pass
-        self._collection = None
