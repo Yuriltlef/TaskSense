@@ -223,7 +223,7 @@ def phase_embed(force=False, incremental=False):
     secho(f"  Dims  : {embedder.dimension}")
 
     if dev == "cuda":
-        import torch; gb = torch.cuda.get_device_properties(0).total_mem / 1024**3
+        import torch; gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
         secho(f"  VRAM  : {gb:.1f} GB")
     elif dev == "cpu":
         secho("  [WARN] No GPU. Install CUDA torch.")
