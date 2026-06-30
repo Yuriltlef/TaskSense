@@ -225,25 +225,41 @@ def phase_embed(force=False, incremental=False):
         secho(f"  [WARN] No GPU detected. Embedding will be slow. "
               f"Install CUDA PyTorch: pip install torch --index-url https://download.pytorch.org/whl/cu121")
 
-    texts = [c["text"] for c in all_chunks]
-    batch_size = 64; embeddings = []; total = len(texts); t0 = time.time()
+    total = len(all_chunks)
+    store_batch = 500  # 每攒够 500 条写一次 Chroma
+    embed_buffer_chunks = []
+    embed_buffer_embs = []
+    embed_total = 0
+    t0 = time.time()
 
-    for start in range(0, total, batch_size):
-        end = min(start + batch_size, total)
-        batch = texts[start:end]
+    # 不手动切片 — embedder 内部按设备自行选择 batch_size 和推理路径
+    for i in range(0, total, store_batch):
+        end = min(i + store_batch, total)
+        batch = all_chunks[i:end]
+        batch_texts = [c["text"] for c in batch]
+
+        emb = embedder.embed_documents(batch_texts)
+
+        embed_buffer_chunks.extend(batch)
+        embed_buffer_embs.extend(emb)
+        embed_total += len(batch)
+
         elapsed = time.time() - t0
-        rate = end / max(elapsed, 0.1)
-        secho(f"  {bar(end, total)} {end}/{total} | {fmt_time(elapsed)} | {rate:.0f} ch/s", end="")
-        emb = embedder.embed_documents(batch)
-        embeddings.extend(emb)
-        secho("")
+        rate = embed_total / max(elapsed, 0.1)
+        secho(f"  {bar(embed_total, total)} {embed_total}/{total} | "
+              f"{fmt_time(elapsed)} | {rate:.0f} ch/s")
+
+        # 每批写盘，释放内存
+        store.add_chunks(embed_buffer_chunks, embed_buffer_embs)
+        embed_buffer_chunks.clear()
+        embed_buffer_embs.clear()
 
     embed_time = time.time() - t0
-    secho(f"\n  Done: {total} chunks in {fmt_time(embed_time)} ({total / embed_time:.0f} ch/s)")
+    secho(f"\n  Done: {total} chunks in {fmt_time(embed_time)} "
+          f"({total / embed_time:.0f} ch/s)")
 
-    secho(f"\n  --- Storing ---"); t0 = time.time()
-    added = store.add_chunks(all_chunks, embeddings)
-    secho(f"  Stored {added} chunks in {fmt_time(time.time() - t0)}")
+    added = store.count()
+    secho(f"  Total stored: {added} chunks")
 
     for tf in to_process:
         embedded_state[tf.name] = {"mtime": tf.stat().st_mtime, "size": tf.stat().st_size, "embedded_at": time.time()}
