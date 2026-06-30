@@ -54,8 +54,6 @@ class AISidebar(ft.Container):
         # ── 标题栏 ──
         header = ft.Container(
             content=ft.Row([
-                ft.Icon(ft.Icons.PSYCHOLOGY_OUTLINED, size=theme.font_xl,
-                        color=theme.type_removal_install),
                 ft.Text("AI 助手", size=theme.font_lg, weight=ft.FontWeight.W_600,
                         color=theme.text_primary, font_family=ff),
                 ft.Container(expand=True),

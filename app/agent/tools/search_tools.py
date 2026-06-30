@@ -32,11 +32,10 @@ def search_knowledge_base(query: str, top_k: int = 5) -> str:
     pipeline = get_pipeline()
 
     stats = pipeline.get_stats()
-    if stats.get("chunks_stored", 0) == 0:
-        # 尝试构建
-        result = pipeline.build_knowledge_base()
-        if result["status"] != "built":
-            return f"知识库未就绪: {result.get('message', '未知错误')}"
+    total_chunks = stats.get("total", sum(
+        v for k, v in stats.items() if isinstance(v, int)))
+    if total_chunks == 0:
+        return "知识库为空。请先运行: python scripts/build_kb.py embed --force"
 
     results = pipeline.search(query, top_k=top_k)
     if not results:
@@ -68,8 +67,10 @@ def lookup_ata_chapter(ata_code: str) -> str:
     pipeline = get_pipeline()
 
     stats = pipeline.get_stats()
-    if stats.get("chunks_stored", 0) == 0:
-        pipeline.build_knowledge_base()
+    total_chunks = stats.get("total", sum(
+        v for k, v in stats.items() if isinstance(v, int)))
+    if total_chunks == 0:
+        return "知识库为空。请先运行: python scripts/build_kb.py embed --force"
 
     results = pipeline.search(
         f"ATA {ata_code} maintenance procedures",

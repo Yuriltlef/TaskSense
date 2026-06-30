@@ -15,6 +15,7 @@ from app.ui.components.ai_suggestion import FleetStatusBar
 from app.ui.components.command_bar import CommandBar
 from app.ui.components.kanban_board import KanbanBoard
 from app.ui.components.side_panel import SidePanel
+from app.ui.components.ai_chat import AIChatPanel
 from app.ui.widgets.toast import Toast
 
 
@@ -23,6 +24,7 @@ class BoardPage:
         self.api_ready = api_ready
         self.kanban_board: KanbanBoard | None = None
         self.side_panel: SidePanel | None = None
+        self.ai_chat: AIChatPanel | None = None
         self.command_bar: CommandBar | None = None
         self.fleet_status: FleetStatusBar | None = None
         self._page: ft.Page | None = None
@@ -40,6 +42,7 @@ class BoardPage:
             on_column_menu=self._on_column_menu,
         )
         self.side_panel = SidePanel(on_close=self._on_side_panel_close)
+        self.ai_chat = AIChatPanel(on_close=self._on_side_panel_close)
         self.command_bar = CommandBar(on_execute=self._on_command_execute)
         self.fleet_status = FleetStatusBar()
 
@@ -143,6 +146,7 @@ class BoardPage:
                         on_horizontal_drag_update=self._on_panel_resize,
                     ),
                     self.side_panel,
+                    self.ai_chat,
                 ], spacing=0, expand=True),
             ], spacing=0, expand=True),
             expand=True, bgcolor=theme.bg,
@@ -234,18 +238,29 @@ class BoardPage:
         self.fleet_status.update_summary(board_service.get_fleet_summary())
 
     def _on_panel_resize(self, e):
-        if self.side_panel and hasattr(e, 'primary_delta'):
-            new_w = self.side_panel.width - (e.primary_delta or 0)
+        if not hasattr(e, 'primary_delta'): return
+        delta = e.primary_delta or 0
+        # 调整可见的面板
+        if self.ai_chat and self.ai_chat.is_open:
+            self.ai_chat.resize(delta)
+        elif self.side_panel and self.side_panel.is_open:
+            new_w = self.side_panel.width - delta
             if 280 <= new_w <= 1000:
                 self.side_panel.width = new_w
                 self.side_panel.update()
 
     def _on_card_click(self, tid):
         t = state.get_task(tid)
-        if t and self.side_panel: self.side_panel.toggle_task(t); self._page.update()
+        if t and self.side_panel:
+            if self.ai_chat and self.ai_chat.is_open: self.ai_chat.close()
+            self.side_panel.toggle_task(t)
+            self._page.update()
 
     def _open_ai_panel(self):
-        if self.side_panel: self.side_panel.open_ai(); self._page.update()
+        if self.ai_chat:
+            if self.side_panel and self.side_panel.is_open: self.side_panel.close()
+            self.ai_chat.toggle()
+            self._page.update()
 
     def _on_side_panel_close(self):
         if self._page: self._page.update()
@@ -356,9 +371,9 @@ class BoardPage:
             Toast.show(self._page, f"AI 未就绪: {e}", "warning")
 
     def _show_ai_in_panel(self, title: str, content: str):
-        """在右侧面板显示 AI 结果。"""
-        if self.side_panel:
-            self.side_panel.show_ai_result(title, content)
+        if self.ai_chat:
+            if self.side_panel and self.side_panel.is_open: self.side_panel.close()
+            self.ai_chat.open()
             self._page.update()
 
     def _card_action(self, tid, action):

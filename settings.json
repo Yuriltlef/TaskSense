@@ -1,9 +1,9 @@
 {
   "llm": {
-    "provider": "anthropic",
+    "provider": "openai",
     "model": "deepseek-v4-flash",
     "api_key": "sk-efd1c0e6269e42bb86a1a9ec7badd771",
-    "base_url": "https://api.anthropic.com",
+    "base_url": "https://api.deepseek.com",
     "temperature": 0.0,
     "max_tokens": 10000
   },

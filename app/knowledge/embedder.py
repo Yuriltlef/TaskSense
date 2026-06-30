@@ -1,4 +1,7 @@
-"""文本向量化 — 自动检测 CUDA/CPU，优化显存与批处理."""
+"""文本向量化 — 自动检测 CUDA/CPU，优化显存与批处理。
+
+离线模式由 main.py 在最早阶段设置环境变量保证。
+"""
 
 
 def _detect_device():
@@ -14,16 +17,17 @@ def _detect_device():
 
 
 class Embedder:
-    """文本向量化器。默认 BAAI/bge-m3，自动 CUDA/MPS/CPU。"""
+    """文本向量化器。默认 BAAI/bge-m3，离线加载，自动 CUDA/MPS/CPU。"""
 
     QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
-    def __init__(self, model_name: str = "BAAI/bge-m3"):
+    def __init__(self, model_name: str = "BAAI/bge-m3", local_files_only: bool = True):
         self.model_name = model_name
         self._model = None
         self._dim = None
         self._is_bge = "bge" in model_name.lower()
         self._device, self._device_name = _detect_device()
+        self._local_only = local_files_only
 
     @property
     def device_info(self) -> tuple[str, str]:
@@ -33,7 +37,10 @@ class Embedder:
     def model(self):
         if self._model is None:
             from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer(self.model_name, device=self._device)
+            self._model = SentenceTransformer(
+                self.model_name, device=self._device,
+                local_files_only=self._local_only,
+            )
         return self._model
 
     @property

@@ -36,56 +36,99 @@ class AgentOrchestrator:
     # ── 知识库查询 ──
 
     def ask(self, question: str) -> str:
-        """用户提问 → RAG 检索 + LLM 综合回答。
+        """用户提问 → RAG 检索 + LLM 综合回答 + 引用来源。
 
         流程：
-        1. 从知识库检索相关文档
-        2. 将检索结果作为上下文，由 LLM 生成回答
-        3. 若 LLM 不可用，回退到纯 RAG 结果
+        1. 从知识库检索相关文档（结构化）
+        2. LLM 基于检索结果综合回答，附引用
+        3. LLM 不可用时回退
         """
         from app.agent.llm_client import llm as llm_client
 
-        # 1. RAG 检索
-        kb_result = search_knowledge_base.invoke({"query": question, "top_k": 5})
-        has_kb = "未找到" not in kb_result and "未就绪" not in kb_result
+        # 1. 结构化 RAG 检索
+        kb_results = self.pipeline.search(question, top_k=5)
 
-        # 2. 如果 LLM 可用，让 LLM 基于 RAG 结果回答
-        if llm_client.is_available and has_kb:
-            system = (
-                "你是航空维护专家助手。请根据以下知识库检索结果，用中文回答用户问题。"
-                "如果知识库结果不够充分，请如实说明。"
-                "回答要专业、简洁、有引用来源。"
-                "如果用户只是打招呼（如'你好'），请友好回复并介绍你的功能。"
-                "不要编造知识库中没有的内容。"
-            )
-            user_msg = f"用户问题: {question}\n\n知识库检索结果:\n{kb_result}"
-            llm_response = llm_client.chat(system, user_msg)
-            if not llm_response.startswith("[Error]"):
-                return llm_response
+        # 2. 格式化上下文 + LLM 回答
+        if llm_client.is_available and kb_results:
+            return self._llm_answer(question, kb_results, llm_client)
 
-        # 3. LLM 不可用 — 回退
-        if has_kb:
-            return kb_result
+        # 3. LLM 不可用 — 纯 RAG 展示
+        if kb_results:
+            return self._format_rag_results(question, kb_results)
 
-        # 4. 处理打招呼等非专业问题
-        greetings = ["你好", "hello", "hi", "hey", "你是谁", "who are you"]
-        if any(g in question.lower() for g in greetings):
+        # 4. 打招呼
+        if any(g in question.lower() for g in
+               ["你好", "hello", "hi", "hey", "你是谁", "who are you"]):
             if llm_client.is_available:
                 return llm_client.chat(
-                    "你是航空维护专家助手 TaskSense AI。请友好打招呼并介绍你的功能。",
+                    "你是 TaskSense 航空维护专家助手。请用中文友好打招呼，简短介绍你可以帮用户做什么。",
                     question)
             return (
                 "你好！我是 TaskSense AI 助手。\n\n"
                 "我可以帮你:\n"
-                "- 检索航空维护知识库（AMM、FIM、AD/SB 等）\n"
-                "- 回答维护流程和排故步骤问题\n"
+                "- 检索航空维护知识库（AMM/FIM/AD 等）并推理回答\n"
+                "- 解答维护流程和排故步骤\n"
                 "- 生成每日维护报告\n"
-                "- 检查任务合规性\n"
-                "- 建议任务 ATA 分类\n\n"
-                "请提问具体的航空维护问题。🔧"
-            )
+                "- 检查任务合规性\n\n"
+                "请提问具体的航空维护问题。")
 
-        return f"未找到相关知识。你可以尝试:\n- 提供 ATA 章节号\n- 提供更具体的机型或部件名称"
+        return "未找到相关知识。请尝试提供 ATA 章节号、机型名称或更具体的关键词。"
+
+    def _format_rag_results(self, question: str, results: list[dict]) -> str:
+        """纯 RAG 结果格式化（无 LLM）。"""
+        lines = [f"搜索: {question}\n"]
+        for i, r in enumerate(results, 1):
+            meta = r.get("metadata", {})
+            src = meta.get("filename", "unknown")
+            coll = r.get("collection", "")
+            score = r.get("score", 0)
+            text = r.get("text", "")[:400]
+            tag = f"[{coll}] " if coll else ""
+            lines.append(
+                f"--- 来源 {i}: {tag}{src} (相关度 {score:.0%}) ---\n{text}...\n")
+        return "\n".join(lines)
+
+    def _llm_answer(self, question: str, results: list[dict], llm_client) -> str:
+        """LLM 基于 RAG 上下文推理回答，附引用。"""
+        # 构建上下文（带编号引用）
+        context_parts = []
+        for i, r in enumerate(results, 1):
+            meta = r.get("metadata", {})
+            src = meta.get("filename", "?")
+            coll = r.get("collection", "")
+            text = r.get("text", "")[:600]
+            context_parts.append(f"[{i}] 来源: {src} ({coll})\n{text}")
+
+        context = "\n\n".join(context_parts)
+
+        system = (
+            "你是航空维护专家助手。请根据【知识库】回答用户问题。\n\n"
+            "要求：\n"
+            "1. 简洁回答核心问题（定义/解释/步骤）\n"
+            "2. 补充详细说明（如有）\n"
+            "3. 正文中用 [1] [2] 标注引用\n"
+            "4. 末尾用精确格式列出参考：\n"
+            "---REFERENCES---\n"
+            "1 | 文件名 | 相关度%\n"
+            "2 | 文件名 | 相关度%\n\n"
+            "用中文回答。知识库不足时如实说明。"
+        )
+
+        scores = "\n".join(
+            f"{i+1} | {r.get('metadata',{}).get('filename','?')} | {r.get('score',0):.0%}"
+            for i, r in enumerate(results))
+
+        user_msg = (
+            f"【知识库检索结果】\n{context}\n\n"
+            f"【来源列表（用于 ---REFERENCES---）】\n{scores}\n\n"
+            f"【用户问题】\n{question}"
+        )
+
+        resp = llm_client.chat(system, user_msg)
+        if resp.startswith("[Error]"):
+            return self._format_rag_results(question, results)
+
+        return resp
 
     # ── 任务建议 ──
 
