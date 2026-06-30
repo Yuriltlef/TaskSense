@@ -64,6 +64,10 @@ class KanbanColumn(ft.Container):
                 ft.IconButton(
                     icon=ft.Icons.MORE_HORIZ, icon_size=theme.font_lg,
                     icon_color=theme.text_disabled,
+                    tooltip=ft.Tooltip(
+                        message=f"{col.title} — 排序/折叠",
+                        bgcolor=theme.card,
+                        text_style=ft.TextStyle(font_family=theme.font_family)),
                     on_click=lambda e: self._on_cm
                     and self._on_cm(col.id)),
             ], spacing=theme.spacing_sm),

@@ -19,16 +19,19 @@ from app.ui.widgets.toast import Toast
 
 
 class BoardPage:
-    def __init__(self):
+    def __init__(self, api_ready: bool = False):
+        self.api_ready = api_ready
         self.kanban_board: KanbanBoard | None = None
         self.side_panel: SidePanel | None = None
         self.command_bar: CommandBar | None = None
         self.fleet_status: FleetStatusBar | None = None
         self._page: ft.Page | None = None
+        self._search_field: ft.TextField | None = None
         state.subscribe(self._on_state_changed)
 
     def build(self, page: ft.Page) -> ft.Container:
         self._page = page
+        ff = theme.font_family
 
         self.kanban_board = KanbanBoard(
             on_card_click=self._on_card_click,
@@ -40,103 +43,126 @@ class BoardPage:
         self.command_bar = CommandBar(on_execute=self._on_command_execute)
         self.fleet_status = FleetStatusBar()
 
+        # ── 内联搜索输入 ──
+        self._search_field = ft.TextField(
+            hint_text="搜索任务...",
+            border_color=ft.Colors.TRANSPARENT,
+            focused_border_color=ft.Colors.TRANSPARENT,
+            text_style=ft.TextStyle(color=theme.text_primary,
+                                    size=theme.font_sm, font_family=ff),
+            hint_style=ft.TextStyle(color=theme.text_disabled,
+                                    size=theme.font_xs, font_family=ff),
+            content_padding=ft.padding.only(left=8, top=2, right=8, bottom=2),
+            dense=True,
+            width=180,
+            bgcolor=theme.card,
+            border_radius=theme.radius_sm,
+            on_change=self._on_search_input,
+            on_submit=self._on_search_submit,
+        )
+
         # ── 顶栏 ──
         top_bar = ft.Row(
             controls=[
                 ft.ElevatedButton(
                     content=ft.Row([
                         ft.Icon(ft.Icons.ADD, size=theme.font_lg),
-                        ft.Text("新建任务", size=theme.font_sm,
-                                font_family=theme.font_family),
-                    ], spacing=theme.spacing_xs),
+                        ft.Text("新建任务", size=theme.font_sm, font_family=ff),
+                    ], spacing=4),
                     style=ft.ButtonStyle(
-                        bgcolor=theme.info,
-                        color=theme.text_primary,
-                        padding=ft.padding.only(
-                            left=theme.pad_md, top=theme.pad_sm,
-                            right=theme.pad_md, bottom=theme.pad_sm),
+                        bgcolor=theme.info, color=theme.text_primary,
+                        padding=ft.padding.only(left=12, top=6, right=12, bottom=6),
                         shape=ft.RoundedRectangleBorder(radius=theme.radius_sm),
                     ),
                     on_click=self._on_create_task,
                 ),
-                ft.Container(width=theme.spacing_sm),
+                ft.Container(width=6),
                 ft.IconButton(
                     icon=ft.Icons.REFRESH, icon_size=theme.font_lg,
                     icon_color=theme.text_secondary,
-                    tooltip="刷新",
+                    tooltip=ft.Tooltip(message="刷新看板", bgcolor=theme.card),
                     on_click=lambda e: self._refresh_board(),
+                    hover_color=ft.Colors.GREY_800,
                 ),
                 ft.IconButton(
                     icon=ft.Icons.FILTER_LIST, icon_size=theme.font_lg,
                     icon_color=theme.text_secondary,
-                    tooltip="筛选",
+                    tooltip=ft.Tooltip(message="筛选任务", bgcolor=theme.card),
                     on_click=self._on_filter_click,
+                    hover_color=ft.Colors.GREY_800,
+                ),
+                ft.Container(width=4),
+                # 内联搜索框
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.SEARCH, size=14, color=theme.text_disabled),
+                        self._search_field,
+                    ], spacing=4),
+                    padding=ft.padding.only(left=8, top=3, right=8, bottom=3),
+                    bgcolor=theme.card,
+                    border_radius=theme.radius_sm,
+                    border=ft.border.all(1, theme.border),
                 ),
                 ft.Container(expand=True),
-                ft.Text(
-                    "Ctrl+K  命令面板", size=theme.font_xs,
-                    color=theme.text_disabled,
-                    font_family=theme.font_family,
+                ft.IconButton(
+                    icon=ft.Icons.PSYCHOLOGY_OUTLINED, icon_size=theme.font_lg,
+                    icon_color=theme.type_removal_install,
+                    tooltip=ft.Tooltip(message="AI 助手", bgcolor=theme.card),
+                    on_click=lambda e: self._open_ai_panel(),
+                    hover_color=ft.Colors.GREY_800,
                 ),
+                ft.IconButton(
+                    icon=ft.Icons.SETTINGS_OUTLINED, icon_size=theme.font_lg,
+                    icon_color=theme.text_secondary,
+                    tooltip=ft.Tooltip(message="设置", bgcolor=theme.card),
+                    on_click=self._on_settings_click,
+                    hover_color=ft.Colors.GREY_800,
+                ),
+                ft.Text("Ctrl+K", size=10,
+                        color=theme.text_disabled, font_family=ff),
             ],
             spacing=0,
-            alignment=ft.MainAxisAlignment.START,
         )
 
         # ── 主布局 ──
         main = ft.Container(
-            content=ft.Column(
-                controls=[
-                    ft.Container(
-                        content=top_bar,
-                        padding=ft.padding.only(
-                            left=theme.pad_md, top=theme.pad_sm,
-                            right=theme.pad_md, bottom=theme.pad_sm),
-                        bgcolor=theme.surface,
-                        border=ft.border.only(
-                            bottom=ft.BorderSide(1, theme.border)),
+            content=ft.Column([
+                ft.Container(
+                    content=top_bar,
+                    padding=ft.padding.only(left=12, top=6, right=12, bottom=6),
+                    bgcolor=theme.surface,
+                    border=ft.border.only(bottom=ft.BorderSide(1, theme.border)),
+                ),
+                self.fleet_status,
+                ft.Row([
+                    ft.Container(content=self.kanban_board, expand=True,
+                                 bgcolor=theme.bg),
+                    ft.GestureDetector(
+                        content=ft.Container(width=5, bgcolor=theme.border),
+                        mouse_cursor=ft.MouseCursor.RESIZE_LEFT_RIGHT,
+                        on_horizontal_drag_update=self._on_panel_resize,
                     ),
-                    self.fleet_status,
-                    ft.Row(
-                        controls=[
-                            ft.Container(content=self.kanban_board, expand=True,
-                                         bgcolor=theme.bg),
-                            ft.GestureDetector(
-                                content=ft.Container(
-                                    width=5,
-                                    bgcolor=theme.border,
-                                    on_hover=lambda e: None,
-                                ),
-                                mouse_cursor=ft.MouseCursor.RESIZE_LEFT_RIGHT,
-                                on_horizontal_drag_update=self._on_panel_resize,
-                            ),
-                            self.side_panel,
-                        ],
-                        spacing=0, expand=True,
-                    ),
-                ],
-                spacing=0, expand=True,
-            ),
+                    self.side_panel,
+                ], spacing=0, expand=True),
+            ], spacing=0, expand=True),
             expand=True, bgcolor=theme.bg,
         )
         self._fill_board_from_state()
         return main
 
+    # ═══════════════════════ 数据 ═══════════════════════
+
     def _fill_board_from_state(self):
-        """从 state 填充看板（不调用 update，给初始渲染用）。"""
-        if not self.kanban_board:
-            return
+        if not self.kanban_board: return
         bs = board_service.get_board()
         tasks_map = {}
         for ids in bs.tasks.values():
             for tid in ids:
                 t = state.get_task(tid)
-                if t:
-                    tasks_map[tid] = t
+                if t: tasks_map[tid] = t
         self.kanban_board.render_board(bs, tasks_map, do_update=False)
         s = board_service.get_fleet_summary()
-        if self.fleet_status:
-            self.fleet_status._build(s)
+        if self.fleet_status: self.fleet_status._build(s)
 
     def load_demo_data(self):
         demo_aircraft = [
@@ -150,75 +176,65 @@ class BoardPage:
                      status=AircraftStatus.AOG, total_hours=32100,
                      current_location="Hangar 1", open_defects=1),
         ]
-        for ac in demo_aircraft:
-            state.add_aircraft(ac)
+        for ac in demo_aircraft: state.add_aircraft(ac)
 
         now = datetime.now()
         demo_tasks = [
-            ("backlog",     "APU 启动时间超限检查",        "B-5823", "49-11-01", "aog",   "inspection",      "张", 3.0,  "310"),
-            ("backlog",     "右发滑油消耗率偏高",           "B-9076", "79-21-01", "aog",   "troubleshoot",    "李", 5.0,  "420"),
-            ("backlog",     "客舱空调出风口异响",           "B-2518", "21-51-01", "cat_c", "troubleshoot",    "王", 2.0,  "510"),
-            ("triage",      "前起落架转向异响排查",         "B-5823", "32-41-03", "cat_a", "troubleshoot",    "张", 4.5,  "710"),
-            ("triage",      "左发 N1 振动指示异常",         "B-9076", "77-11-01", "cat_b", "troubleshoot",    "赵", 6.0,  "420"),
-            ("scheduled",   "A 检 — 飞行控制面功能检查",     "B-5823", "27-10-00", "cat_b", "inspection",      "李", 8.0,  "210"),
-            ("scheduled",   "发动机滑油更换",                "B-2518", "79-00-01", "cat_c", "servicing",       "王", 2.0,  "420"),
-            ("ready",       "机翼前缘防冰管路测试",         "B-5823", "30-11-01", "cat_c", "test",            "张", 4.0,  "610"),
-            ("ready",       "APU 滑油勤务",                 "B-5823", "49-91-01", "cat_c", "servicing",       "赵", 1.5,  "310"),
-            ("in_progress", "起落架收放功能测试",           "B-5823", "32-31-01", "cat_b", "test",            "张", 3.0,  "710"),
-            ("in_progress", "右发燃油滤更换",               "B-9076", "73-11-03", "cat_a", "removal_install", "李", 4.0,  "420"),
-            ("inspection",  "C 检 — 机身结构详细检查",       "B-5823", "53-10-01", "cat_c", "inspection",      "王", 48.0, "100"),
-            ("parts_hold",  "左发点火电嘴更换",             "B-9076", "74-11-03", "cat_a", "removal_install", "赵", 3.0,  "420"),
-            ("completed",   "驾驶舱仪表灯光检查",           "B-2518", "33-11-01", "cat_d", "inspection",      "李", 1.0,  "110"),
-            ("completed",   "APU 进气门清洁",               "B-5823", "49-11-01", "cat_d", "servicing",       "张", 2.0,  "310"),
+            ("backlog", "APU 启动时间超限检查", "B-5823", "49-11-01", "aog", "inspection", "张", 3.0, "310"),
+            ("backlog", "右发滑油消耗率偏高", "B-9076", "79-21-01", "aog", "troubleshoot", "李", 5.0, "420"),
+            ("backlog", "客舱空调出风口异响", "B-2518", "21-51-01", "cat_c", "troubleshoot", "王", 2.0, "510"),
+            ("triage", "前起落架转向异响排查", "B-5823", "32-41-03", "cat_a", "troubleshoot", "张", 4.5, "710"),
+            ("triage", "左发 N1 振动指示异常", "B-9076", "77-11-01", "cat_b", "troubleshoot", "赵", 6.0, "420"),
+            ("scheduled", "A 检 — 飞行控制面功能检查", "B-5823", "27-10-00", "cat_b", "inspection", "李", 8.0, "210"),
+            ("scheduled", "发动机滑油更换", "B-2518", "79-00-01", "cat_c", "servicing", "王", 2.0, "420"),
+            ("ready", "机翼前缘防冰管路测试", "B-5823", "30-11-01", "cat_c", "test", "张", 4.0, "610"),
+            ("ready", "APU 滑油勤务", "B-5823", "49-91-01", "cat_c", "servicing", "赵", 1.5, "310"),
+            ("in_progress", "起落架收放功能测试", "B-5823", "32-31-01", "cat_b", "test", "张", 3.0, "710"),
+            ("in_progress", "右发燃油滤更换", "B-9076", "73-11-03", "cat_a", "removal_install", "李", 4.0, "420"),
+            ("inspection", "C 检 — 机身结构详细检查", "B-5823", "53-10-01", "cat_c", "inspection", "王", 48.0, "100"),
+            ("parts_hold", "左发点火电嘴更换", "B-9076", "74-11-03", "cat_a", "removal_install", "赵", 3.0, "420"),
+            ("completed", "驾驶舱仪表灯光检查", "B-2518", "33-11-01", "cat_d", "inspection", "李", 1.0, "110"),
+            ("completed", "APU 进气门清洁", "B-5823", "49-11-01", "cat_d", "servicing", "张", 2.0, "310"),
         ]
         status_order = ["backlog", "triage", "scheduled", "ready",
                         "in_progress", "inspection", "parts_hold", "completed"]
         due_map = {"aog": 4, "cat_a": 24, "cat_b": 72, "cat_c": 168, "cat_d": 720}
-
         for col_target, title, reg, ata, pri, ttype, who, hrs, zone in demo_tasks:
             task = task_service.create_task(
-                title=title,
-                description=f"{title}。ATA {ata}，飞机 {reg}。",
-                aircraft_reg=reg, ata_chapter=ata, priority=pri,
-                task_type=ttype, assignee=who, estimated_hours=hrs,
-                zone=zone, due_date=now + timedelta(hours=due_map.get(pri, 72)),
+                title=title, description=f"{title}。ATA {ata}，飞机 {reg}。",
+                aircraft_reg=reg, ata_chapter=ata, priority=pri, task_type=ttype,
+                assignee=who, estimated_hours=hrs, zone=zone,
+                due_date=now + timedelta(hours=due_map.get(pri, 72)),
             )
-            if not task:
-                continue
+            if not task: continue
             if col_target != "backlog":
                 try:
                     idx = status_order.index(col_target)
                     for i in range(1, idx + 1):
                         mid = status_order[i]
                         if mid == "parts_hold":
-                            task_service.update_task(
-                                task.id, parts_available=False,
-                                parts_required=["PN-REQUIRED"])
+                            task_service.update_task(task.id, parts_available=False,
+                                                     parts_required=["PN-REQUIRED"])
                         task_service.move_task(task.id, mid, changed_by="demo")
-                except Exception:
-                    pass
-        # 数据已加载，build() 中会调用 _fill_board_from_state 渲染
+                except Exception: pass
 
     # ═══════════════════════ 事件 ═══════════════════════
 
-    def _on_state_changed(self):
-        self._refresh_board()
+    def _on_state_changed(self): self._refresh_board()
 
     def _refresh_board(self):
-        if not self.kanban_board:
-            return
+        if not self.kanban_board: return
         bs = board_service.get_board()
         tasks_map = {}
         for ids in bs.tasks.values():
             for tid in ids:
                 t = state.get_task(tid)
-                if t:
-                    tasks_map[tid] = t
+                if t: tasks_map[tid] = t
         self.kanban_board.render_board(bs, tasks_map)
         self.fleet_status.update_summary(board_service.get_fleet_summary())
 
     def _on_panel_resize(self, e):
-        if self.side_panel:
+        if self.side_panel and hasattr(e, 'primary_delta'):
             new_w = self.side_panel.width - (e.primary_delta or 0)
             if 280 <= new_w <= 1000:
                 self.side_panel.width = new_w
@@ -226,8 +242,10 @@ class BoardPage:
 
     def _on_card_click(self, tid):
         t = state.get_task(tid)
-        if t and self.side_panel:
-            self.side_panel.toggle(t); self._page.update()
+        if t and self.side_panel: self.side_panel.toggle_task(t); self._page.update()
+
+    def _open_ai_panel(self):
+        if self.side_panel: self.side_panel.open_ai(); self._page.update()
 
     def _on_side_panel_close(self):
         if self._page: self._page.update()
@@ -258,6 +276,11 @@ class BoardPage:
         Toast.show(self._page, f"列操作: {cid}", "info")
 
     def _on_create_task(self, e): self._dlg_create()
+
+    def _on_settings_click(self, e):
+        from app.ui.pages.settings_window import open_settings_window
+        open_settings_window()
+
     def _on_filter_click(self, e):
         f = board_service.get_board().filters
         if f.is_active:
@@ -266,23 +289,77 @@ class BoardPage:
         else:
             self._dlg_filter()
 
+    # ── 内联搜索 ──
+
+    def _on_search_input(self, e):
+        val = (e.control.value or "").strip()
+        if len(val) >= 1:
+            board_service.set_filters(FilterState(search_query=val))
+        else:
+            board_service.set_filters(FilterState())
+
+    def _on_search_submit(self, e):
+        val = (e.control.value or "").strip()
+        if val.startswith(">"):
+            # AI query
+            self._do_agent_query(val[1:].strip())
+        elif val.startswith("/"):
+            parts = val.split(maxsplit=1)
+            self._do_command(parts[0].lower(), parts[1] if len(parts) > 1 else "")
+        elif val:
+            board_service.set_filters(FilterState(search_query=val))
+            Toast.show(self._page, f"搜索: {val}", "info")
+
+    # ── 命令面板 ──
+
     def _on_command_execute(self, action, value):
         if action == "create_task": self._dlg_create()
-        elif action == "generate_report":
-            s = board_service.get_stats()
-            Toast.show(self._page,
-                       f"今日: {s['total']} 任务, {s['aog_count']} AOG", "success")
-        elif action == "check_compliance":
-            Toast.show(self._page, "AD 合规: 无违规项", "success")
+        elif action == "generate_report": self._do_command("/report", "")
+        elif action == "check_compliance": self._do_command("/compliance", "")
         elif action.startswith("filter_ata_"):
             ata = action.replace("filter_ata_", "")
             board_service.set_filters(FilterState(ata_chapters=[ata]))
             Toast.show(self._page, f"已筛选 ATA {ata}", "info")
         elif action == "nl_query":
-            Toast.show(self._page,
-                       f"找到 {len(board_service.search_tasks(value))} 个结果", "info")
+            self._do_agent_query(value)
         else:
             Toast.show(self._page, f"操作: {action}", "info")
+
+    def _do_command(self, cmd, arg):
+        if cmd == "/report":
+            try:
+                from app.ui.services.agent_service import AgentService
+                report = AgentService.get_daily_report()
+                self._show_ai_in_panel("每日维护报告", report)
+            except Exception as e:
+                Toast.show(self._page, f"报告生成失败: {e}", "warning")
+        elif cmd == "/compliance":
+            self._show_ai_in_panel("合规检查", "正在检查 AD/SB 状态...")
+        elif cmd == "/kb":
+            try:
+                from app.ui.services.agent_service import AgentService
+                result = AgentService.search_knowledge(arg or "aviation maintenance")
+                self._show_ai_in_panel(f"知识库: {arg}", result)
+            except Exception as e:
+                Toast.show(self._page, f"检索失败: {e}", "warning")
+        else:
+            Toast.show(self._page, f"未知命令: {cmd}", "warning")
+
+    def _do_agent_query(self, question):
+        if not question:
+            Toast.show(self._page, "请输入问题", "warning"); return
+        try:
+            from app.ui.services.agent_service import AgentService
+            result = AgentService.ask(question)
+            self._show_ai_in_panel(f"AI: {question[:50]}", result)
+        except Exception as e:
+            Toast.show(self._page, f"AI 未就绪: {e}", "warning")
+
+    def _show_ai_in_panel(self, title: str, content: str):
+        """在右侧面板显示 AI 结果。"""
+        if self.side_panel:
+            self.side_panel.show_ai_result(title, content)
+            self._page.update()
 
     def _card_action(self, tid, action):
         if action == "delete":
@@ -291,7 +368,10 @@ class BoardPage:
             Toast.show(self._page, "已删除", "info")
         elif action == "search":
             t = state.get_task(tid)
-            if t: Toast.show(self._page, f"AI 检索 ATA {t.ata_chapter}", "info")
+            if t:
+                # 用任务信息搜索知识库
+                query = f"{t.title} ATA {t.ata_chapter}"
+                self._do_agent_query(query)
 
     def handle_keyboard(self, e: ft.KeyboardEvent, page: ft.Page):
         k = e.key.lower()
@@ -307,16 +387,43 @@ class BoardPage:
     # ═══════════════════════ 对话框 ═══════════════════════
 
     def _dlg_create(self):
-        tf = lambda label, hint, w=None: ft.TextField(
-            label=label, hint_text=hint, width=w,
+        ff = theme.font_family
+        title_f = ft.TextField(
+            label="任务标题", hint_text="描述故障或维护需求...",
             border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md,
-                                    font_family=theme.font_family),
+            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
             bgcolor=theme.card,
         )
-        title_f = tf("任务标题", "描述故障或维护需求...")
-        reg_f = tf("飞机注册号", "如 B-5823", 200)
-        ata_f = tf("ATA 章节", "如 32-41-03", 200)
+        reg_f = ft.TextField(
+            label="飞机注册号", hint_text="如 B-5823", width=200,
+            border_color=theme.border, focused_border_color=theme.info,
+            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
+            bgcolor=theme.card,
+        )
+        ata_f = ft.TextField(
+            label="ATA 章节", hint_text="如 32-41-03", width=200,
+            border_color=theme.border, focused_border_color=theme.info,
+            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
+            bgcolor=theme.card,
+        )
+        ghost_hint = ft.Text("", size=theme.font_xs, color=theme.type_removal_install,
+                             font_family=ff, italic=True)
+
+        def on_title_change(e):
+            val = (e.control.value or "").strip()
+            if len(val) >= 3:
+                try:
+                    from app.ui.services.agent_service import AgentService
+                    sug = AgentService.get_suggestions(val)
+                    ata = sug.get("ata_chapter", "")
+                    if ata and not ata_f.value:
+                        ata_f.value = ata; ata_f.update()
+                    ghost_hint.value = f"AI: ATA {ata}" if ata else ""
+                    ghost_hint.update()
+                except Exception:
+                    ghost_hint.value = ""
+        title_f.on_change = on_title_change
+
         pri_dd = ft.Dropdown(
             label="优先级", value="cat_c",
             options=[ft.dropdown.Option(k, v) for k, v in [
@@ -329,8 +436,7 @@ class BoardPage:
 
         def create(_):
             t = (title_f.value or "").strip()
-            if not t:
-                Toast.show(self._page, "请输入标题", "warning"); return
+            if not t: Toast.show(self._page, "请输入标题", "warning"); return
             task_service.create_task(
                 title=t, aircraft_reg=(reg_f.value or "").strip(),
                 ata_chapter=(ata_f.value or "").strip(),
@@ -339,20 +445,16 @@ class BoardPage:
             Toast.show(self._page, f"已创建: {t}", "success")
 
         dlg = ft.AlertDialog(
-            title=ft.Text("新建维护任务", size=theme.font_lg,
-                          weight=ft.FontWeight.W_600, color=theme.text_primary,
-                          font_family=theme.font_family),
+            title=ft.Text("新建维护任务", size=theme.font_lg, weight=ft.FontWeight.W_600,
+                          color=theme.text_primary, font_family=ff),
             content=ft.Column(
-                [title_f, ft.Row([reg_f, ata_f], spacing=theme.pad_md), pri_dd],
-                spacing=theme.pad_md, tight=True, width=round(400 * 1.5)),
+                [title_f, ghost_hint, ft.Row([reg_f, ata_f], spacing=12), pri_dd],
+                spacing=12, tight=True, width=420),
             actions=[
-                ft.TextButton("取消",
-                              on_click=lambda e: setattr(dlg, 'open', False)),
-                ft.ElevatedButton("创建", on_click=create,
-                                  style=ft.ButtonStyle(bgcolor=theme.info)),
+                ft.TextButton("取消", on_click=lambda e: setattr(dlg, 'open', False)),
+                ft.ElevatedButton("创建", on_click=create, style=ft.ButtonStyle(bgcolor=theme.info)),
             ],
-            bgcolor=theme.surface,
-            shape=ft.RoundedRectangleBorder(radius=theme.radius_md),
+            bgcolor=theme.surface, shape=ft.RoundedRectangleBorder(radius=theme.radius_md),
         )
         self._page.dialog = dlg; dlg.open = True; self._page.update()
 
@@ -360,16 +462,14 @@ class BoardPage:
         ata_dd = ft.Dropdown(
             label="ATA 章节",
             options=[ft.dropdown.Option(k, v) for k, v in [
-                ("21", "21 - 空调"), ("24", "24 - 电源"),
-                ("27", "27 - 飞行控制"), ("28", "28 - 燃油"),
-                ("32", "32 - 起落架"), ("49", "49 - APU"),
+                ("21", "21 - 空调"), ("24", "24 - 电源"), ("27", "27 - 飞行控制"),
+                ("28", "28 - 燃油"), ("32", "32 - 起落架"), ("49", "49 - APU"),
                 ("72", "72 - 发动机"), ("79", "79 - 滑油")]],
             border_color=theme.border, bgcolor=theme.card)
         pri_dd = ft.Dropdown(
             label="优先级",
             options=[ft.dropdown.Option(k, v) for k, v in [
-                ("aog", "AOG"), ("cat_a", "Cat A"),
-                ("cat_b", "Cat B"), ("cat_c", "Cat C")]],
+                ("aog", "AOG"), ("cat_a", "Cat A"), ("cat_b", "Cat B"), ("cat_c", "Cat C")]],
             border_color=theme.border, bgcolor=theme.card)
 
         def apply(_):
@@ -383,16 +483,13 @@ class BoardPage:
         dlg = ft.AlertDialog(
             title=ft.Text("筛选", size=theme.font_lg, weight=ft.FontWeight.W_600,
                           color=theme.text_primary, font_family=theme.font_family),
-            content=ft.Column([ata_dd, pri_dd], spacing=theme.pad_md,
-                              tight=True, width=round(300 * 1.5)),
+            content=ft.Column([ata_dd, pri_dd], spacing=12, tight=True, width=300),
             actions=[
                 ft.TextButton("清除", on_click=lambda e: (
                     board_service.set_filters(FilterState()),
                     setattr(dlg, 'open', False), self._page.update())),
-                ft.ElevatedButton("应用", on_click=apply,
-                                  style=ft.ButtonStyle(bgcolor=theme.info)),
+                ft.ElevatedButton("应用", on_click=apply, style=ft.ButtonStyle(bgcolor=theme.info)),
             ],
-            bgcolor=theme.surface,
-            shape=ft.RoundedRectangleBorder(radius=theme.radius_md),
+            bgcolor=theme.surface, shape=ft.RoundedRectangleBorder(radius=theme.radius_md),
         )
         self._page.dialog = dlg; dlg.open = True; self._page.update()

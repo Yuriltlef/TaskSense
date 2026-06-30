@@ -19,12 +19,24 @@ class TaskSenseApp:
         self._setup_fonts()
         self._create_ui()
 
+        # ── 加载设置、检查 API ──
+        from app.config.settings_manager import SettingsManager
+        mgr = SettingsManager()
+        mgr.load()
+        api_ready = bool(mgr.get("llm", "api_key", ""))
+
         from app.ui.pages.board_page import BoardPage
-        self.board_page = BoardPage()
-        self.board_page.load_demo_data()  # 先加载数据到 state
-        self.main_content.content = self.board_page.build(page)  # build 时渲染数据
+        self.board_page = BoardPage(api_ready=api_ready)
+        self.board_page.load_demo_data()
+
+        self.main_content.content = self.board_page.build(page)
         self._setup_keyboard(page)
-        page.update()  # 一次性渲染
+        page.update()
+
+        # 启动后提示
+        from app.ui.widgets.toast import Toast
+        if not api_ready:
+            Toast.show(page, "API Key 未配置，AI 功能不可用。请在设置中配置 LLM API Key。", "warning", 0)
 
     def _setup_window(self):
         self.page.title = "TaskSense — 航空维护智能看板"

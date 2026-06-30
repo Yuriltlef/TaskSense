@@ -16,12 +16,22 @@ class TaskCard(ft.Container):
         pc = theme.priority_color(task.priority.value)
         pd = theme.pad_md
 
+        priorities = {"aog": "AOG-立即", "cat_a": "Cat A-当日", "cat_b": "Cat B-72h",
+                      "cat_c": "Cat C-10天", "cat_d": "Cat D-120天"}
         super().__init__(
             content=self._build(pc, pd),
             width=theme.card_width,
             bgcolor=theme.card,
             border_radius=theme.radius_md,
             padding=ft.padding.all(pd),
+            tooltip=ft.Tooltip(
+                message=f"[{priorities.get(task.priority.value, task.priority.value)}] "
+                        f"{task.title}\n"
+                        f"{task.aircraft_reg} | ATA {task.ata_chapter}\n"
+                        f"{'RII必检 | ' if task.is_rii else ''}"
+                        f"点击查看详情，右键更多操作",
+                bgcolor=theme.card,
+                text_style=ft.TextStyle(font_family=theme.font_family)),
             shadow=ft.BoxShadow(spread_radius=0, blur_radius=4,
                                 color="#00000030", offset=ft.Offset(0, 1)),
             on_click=lambda e: self._on_click and self._on_click(task.id),

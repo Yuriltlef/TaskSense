@@ -28,12 +28,26 @@ class FleetStatusBar(ft.Container):
         ], spacing=round(20*1.5))
 
     def _stat(self, label, value, color):
-        return ft.Row([
-            ft.Text(str(value), size=theme.font_xl, weight=ft.FontWeight.W_700,
-                    color=color, font_family=theme.font_family),
-            ft.Text(label, size=theme.font_xs, color=theme.text_disabled,
-                    font_family=theme.font_family),
-        ], spacing=theme.spacing_sm)
+        tips = {
+            "机队": "机队飞机总数",
+            "运行中": "当前适航、正常运行的飞机",
+            "维修中": "正在执行维护的飞机",
+            "AOG": "Aircraft on Ground — 停飞待修",
+            "逾期任务": "已超过截止日期的任务数",
+            "未关闭故障": "尚未修复的故障报告数",
+        }
+        return ft.Container(
+            content=ft.Row([
+                ft.Text(str(value), size=theme.font_xl, weight=ft.FontWeight.W_700,
+                        color=color, font_family=theme.font_family),
+                ft.Text(label, size=theme.font_xs, color=theme.text_disabled,
+                        font_family=theme.font_family),
+            ], spacing=theme.spacing_sm),
+            tooltip=ft.Tooltip(
+                message=tips.get(label, label),
+                bgcolor=theme.card,
+                text_style=ft.TextStyle(font_family=theme.font_family)),
+        )
 
     def update_summary(self, summary):
         self._build(summary); self.update()
