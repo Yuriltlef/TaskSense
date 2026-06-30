@@ -8,7 +8,7 @@
     "max_tokens": 10000
   },
   "rag": {
-    "embedding_model": "all-MiniLM-L6-v2",
+    "embedding_model": "BAAI/bge-m3",
     "vector_store": "chroma",
     "chunk_size": 800,
     "chunk_overlap": 120,

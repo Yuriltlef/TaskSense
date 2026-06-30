@@ -18,9 +18,14 @@ from pathlib import Path
 
 DEFAULT_WORKERS = max(4, os.cpu_count() or 8)
 
-# Windows spawn: 子进程也需要 sys.path
 _SCRIPT_DIR = Path(__file__).parent
 _PROJECT_DIR = _SCRIPT_DIR.parent
+
+# 模型缓存到项目目录，避免重复下载
+_MODEL_CACHE = _PROJECT_DIR / ".model_cache"
+os.environ.setdefault("HF_HOME", str(_MODEL_CACHE))
+_MODEL_CACHE.mkdir(parents=True, exist_ok=True)
+
 if str(_PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(_PROJECT_DIR))
 if str(_SCRIPT_DIR) not in sys.path:
@@ -145,55 +150,6 @@ def phase_extract(workers: int = DEFAULT_WORKERS):
 
     secho(f"\n  [DONE] Extracted: {processed}  |  Skipped: {skipped}  |  Empty: {empty}  |  Chars: {total_chars:,}")
     return True
-
-
-def _pool_extract(args: tuple) -> dict:
-    """Pool worker — 所有逻辑内联。"""
-    try:
-        return _do_extract(args)
-    except Exception as e:
-        import traceback
-        return {"name": args[0], "chars": 0, "pages": 0, "elapsed": 0,
-                "status": f"error: {e}\n{traceback.format_exc()}"}
-
-
-def _do_extract(args):
-    fp_str, out_dir_str, project_root = args
-    import sys as _sys, json as _json, time as _time
-    from pathlib import Path as _Path
-
-    if project_root not in _sys.path:
-        _sys.path.insert(0, project_root)
-
-    fp = _Path(fp_str)
-    out_dir = _Path(out_dir_str)
-    txt_path = out_dir / f"{fp.stem}.txt"
-    meta_path = out_dir / f"{fp.stem}.json"
-
-    if txt_path.exists() and meta_path.exists():
-        existing = txt_path.read_text(encoding="utf-8")
-        if len(existing) > 100:
-            return {"name": fp.name, "chars": len(existing), "pages": 0,
-                    "elapsed": 0, "status": "skip"}
-
-    t0 = _time.time()
-    from app.knowledge.loader import PDFLoader
-    loader = PDFLoader(str(fp.parent))
-    doc = loader.load_file(fp)
-    elapsed = _time.time() - t0
-
-    if doc and doc.get("text") and len(doc["text"]) > 50:
-        txt_path.write_text(doc["text"], encoding="utf-8")
-        meta_path.write_text(_json.dumps({
-            "filename": doc["filename"], "title": doc["title"],
-            "pages": doc["pages"], "chars": len(doc["text"]),
-            "size_bytes": doc.get("size_bytes", 0),
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
-        return {"name": fp.name, "chars": len(doc["text"]),
-                "pages": doc["pages"], "elapsed": elapsed, "status": "ok"}
-
-    return {"name": fp.name, "chars": 0, "pages": 0,
-            "elapsed": elapsed, "status": "empty"}
 
 
 # ═══════════════════════════════════════════
