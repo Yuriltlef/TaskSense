@@ -1,29 +1,20 @@
-"""文本向量化 — 使用 sentence-transformers 本地模型，自动检测 CUDA."""
+"""文本向量化 — 自动检测 CUDA/CPU，优化显存与批处理."""
 
 
 def _detect_device():
-    """检测最佳计算设备：CUDA > MPS > CPU。"""
     try:
         import torch
         if torch.cuda.is_available():
             return "cuda", torch.cuda.get_device_name(0)
-    except ImportError:
-        pass
-    try:
-        import torch
         if torch.backends.mps.is_available():
             return "mps", "Apple MPS"
-    except Exception:
+    except ImportError:
         pass
     return "cpu", "CPU"
 
 
 class Embedder:
-    """文本向量化器。
-
-    默认: BAAI/bge-m3（1024 维，中英多语）。
-    自动检测 CUDA/MPS/CPU。
-    """
+    """文本向量化器。默认 BAAI/bge-m3，自动 CUDA/MPS/CPU。"""
 
     QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
@@ -42,10 +33,7 @@ class Embedder:
     def model(self):
         if self._model is None:
             from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer(
-                self.model_name,
-                device=self._device,
-            )
+            self._model = SentenceTransformer(self.model_name, device=self._device)
         return self._model
 
     @property
@@ -54,25 +42,63 @@ class Embedder:
             self._dim = self.model.get_sentence_embedding_dimension() or 1024
         return self._dim
 
+    def _auto_batch_size(self) -> int:
+        """根据设备自动选择 batch size。"""
+        if self._device == "cuda":
+            try:
+                import torch
+                gb = torch.cuda.get_device_properties(0).total_mem / 1024**3
+                return max(1, min(64, int((gb - 2.5) * 8)))
+            except Exception:
+                return 16
+        return 64  # CPU
+
     def embed_documents(self, texts: list[str],
-                        batch_size: int = 32) -> list[list[float]]:
-        """批量向量化文档（不带 instruction 前缀）。"""
+                        batch_size: int = None,
+                        show_progress: bool = True) -> list[list[float]]:
+        """批量向量化文档。自动选择 batch_size 和优化。"""
         if not texts:
             return []
+
+        if batch_size is None:
+            batch_size = self._auto_batch_size()
+
+        if self._device == "cuda":
+            import torch
+            with torch.no_grad():
+                embeddings = self.model.encode(
+                    texts, batch_size=batch_size,
+                    show_progress_bar=show_progress,
+                    normalize_embeddings=True,
+                    convert_to_tensor=True,
+                )
+                if embeddings.device.type == "cuda":
+                    embeddings = embeddings.cpu()
+                torch.cuda.empty_cache()
+                return embeddings.float().tolist()
+
+        # CPU / MPS
         embeddings = self.model.encode(
-            texts,
-            batch_size=batch_size,
-            show_progress_bar=True,
+            texts, batch_size=batch_size,
+            show_progress_bar=show_progress,
             normalize_embeddings=True,
         )
         return embeddings.tolist()
 
     def embed_query(self, text: str) -> list[float]:
-        """向量化查询文本（BGE 模型添加 instruction 前缀）。"""
+        """向量化查询。BGE 模型添加 instruction 前缀。"""
         if self._is_bge:
             text = self.QUERY_INSTRUCTION + text
-        result = self.model.encode(
-            [text],
-            normalize_embeddings=True,
-        )
+
+        if self._device == "cuda":
+            import torch
+            with torch.no_grad():
+                result = self.model.encode(
+                    [text], normalize_embeddings=True, convert_to_tensor=True)
+                if result.device.type == "cuda":
+                    result = result.cpu()
+                torch.cuda.empty_cache()
+                return result.float().tolist()[0]
+
+        result = self.model.encode([text], normalize_embeddings=True)
         return result[0].tolist()

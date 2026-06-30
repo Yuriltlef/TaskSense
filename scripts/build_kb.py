@@ -221,25 +221,21 @@ def phase_embed(force=False, incremental=False):
     secho(f"  Model : {embedder.model_name}")
     secho(f"  Device: {dev_name} ({dev})")
     secho(f"  Dims  : {embedder.dimension}")
-    if dev == "cpu":
-        secho(f"  [WARN] No GPU detected. Embedding will be slow. "
-              f"Install CUDA PyTorch: pip install torch --index-url https://download.pytorch.org/whl/cu121")
+
+    if dev == "cuda":
+        import torch; gb = torch.cuda.get_device_properties(0).total_mem / 1024**3
+        secho(f"  VRAM  : {gb:.1f} GB")
+    elif dev == "cpu":
+        secho("  [WARN] No GPU. Install CUDA torch.")
 
     texts = [c["text"] for c in all_chunks]
-    batch_size = 64; embeddings = []; total = len(texts); t0 = time.time()
-
-    for start in range(0, total, batch_size):
-        end = min(start + batch_size, total)
-        batch = texts[start:end]
-        elapsed = time.time() - t0
-        rate = end / max(elapsed, 0.1)
-        secho(f"  {bar(end, total)} {end}/{total} | {fmt_time(elapsed)} | {rate:.0f} ch/s", end="")
-        emb = embedder.embed_documents(batch)
-        embeddings.extend(emb)
-        secho("")
-
+    total = len(texts)
+    secho(f"  Chunks: {total}")
+    secho("  Encoding...")
+    t0 = time.time()
+    embeddings = embedder.embed_documents(texts)
     embed_time = time.time() - t0
-    secho(f"\n  Done: {total} chunks in {fmt_time(embed_time)} ({total / embed_time:.0f} ch/s)")
+    secho(f"  Done: {total} chunks in {fmt_time(embed_time)} ({total / embed_time:.0f} ch/s)")
 
     secho(f"\n  --- Storing ---"); t0 = time.time()
     added = store.add_chunks(all_chunks, embeddings)
