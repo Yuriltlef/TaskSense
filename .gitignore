@@ -218,3 +218,6 @@ __marimo__/
 .streamlit/secrets.toml
 
 .idea
+data/vector_store
+data/knowledge_base/processed/
+*.db
