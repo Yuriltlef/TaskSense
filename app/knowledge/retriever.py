@@ -71,7 +71,7 @@ class HybridRetriever:
 
         return unique
 
-    def _rrf_fusion(self, ranked_lists: list[list[dict]], k: int = 60) -> list[dict]:
+    def _rrf_fusion(self, ranked_lists: list[list[dict]], k: int = 10) -> list[dict]:
         """Reciprocal Rank Fusion: score = sum(1 / (k + rank))"""
         scores = {}
         for lst in ranked_lists:
@@ -90,9 +90,12 @@ class HybridRetriever:
         return result
 
     def _extract_keywords(self, query: str) -> list[str]:
+        """从查询中提取关键词：ATA 编号 + 英文缩写 + 中文词汇。"""
         kw = []
         kw.extend(re.findall(r"\d{2}[-.]?\d{2}[-.]?\d{2}", query))
         kw.extend(re.findall(r"\b[A-Z]{2,6}\b", query))
+        # 中文：提取 2-4 字连续序列作为关键词（CJK 统一表意文字 U+4E00..U+9FA5）
+        kw.extend(re.findall(r'[一-龥]{2,4}', query))
         return kw
 
     def _keyword_match_score(self, text: str, keywords: list[str]) -> float:

@@ -29,6 +29,8 @@ class BoardPage:
         self.fleet_status: FleetStatusBar | None = None
         self._page: ft.Page | None = None
         self._search_field: ft.TextField | None = None
+        self._drag_start_width: float | None = None
+        self._drag_start_x: float | None = None
         state.subscribe(self._on_state_changed)
 
     def build(self, page: ft.Page) -> ft.Container:
@@ -143,6 +145,7 @@ class BoardPage:
                     ft.GestureDetector(
                         content=ft.Container(width=5, bgcolor=theme.border),
                         mouse_cursor=ft.MouseCursor.RESIZE_LEFT_RIGHT,
+                        on_horizontal_drag_start=self._on_drag_start,
                         on_horizontal_drag_update=self._on_panel_resize,
                     ),
                     self.side_panel,
@@ -237,14 +240,32 @@ class BoardPage:
         self.kanban_board.render_board(bs, tasks_map)
         self.fleet_status.update_summary(board_service.get_fleet_summary())
 
-    def _on_panel_resize(self, e):
-        if not hasattr(e, 'primary_delta'): return
-        delta = e.primary_delta or 0
-        # 调整可见的面板
+    def _on_drag_start(self, e):
+        """记录拖拽起始状态（面板宽度 + 光标绝对位置）。"""
+        self._drag_start_x = e.global_x
         if self.ai_chat and self.ai_chat.is_open:
-            self.ai_chat.resize(delta)
+            self._drag_start_width = self.ai_chat.width
         elif self.side_panel and self.side_panel.is_open:
-            new_w = self.side_panel.width - delta
+            self._drag_start_width = self.side_panel.width
+        else:
+            self._drag_start_width = None
+
+    def _on_panel_resize(self, e):
+        """基于绝对坐标位移调整面板宽度，消除增量 delta 的累积漂移。"""
+        if self._drag_start_width is None or self._drag_start_x is None:
+            return
+        # 用 global_x 的绝对位移，不受布局重排影响
+        delta = self._drag_start_x - e.global_x
+        if self.ai_chat and self.ai_chat.is_open:
+            new_w = max(self.ai_chat.MIN_W,
+                       min(self.ai_chat.MAX_W,
+                           self._drag_start_width + delta))
+            if new_w != self.ai_chat.width:
+                self.ai_chat.width = new_w
+                self.ai_chat._rebuild_bubbles()
+                self.ai_chat.update()
+        elif self.side_panel and self.side_panel.is_open:
+            new_w = self._drag_start_width + delta
             if 280 <= new_w <= 1000:
                 self.side_panel.width = new_w
                 self.side_panel.update()

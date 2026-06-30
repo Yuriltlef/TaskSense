@@ -208,13 +208,11 @@ class AIChatPanel(ft.Container):
         txt, ts, idx = self._txt, self._ts, self._load_idx
         self._busy = False
 
+        # 将所有阻塞工作（RAG 检索 + LLM 调用）移到线程池，
+        # 释放事件循环以处理窗口拖拽、面板缩放、动画等 UI 事件。
+        import asyncio
         try:
-            from app.ui.services.agent_service import AgentService
-            if txt.startswith("/report"): r = AgentService.get_daily_report()
-            elif txt.startswith("/kb "): r = AgentService.search_knowledge(txt[4:])
-            elif txt.startswith("/compliance"): r = "合规检查: 符合 AD/SB。"
-            elif txt.startswith("/summary"): r = AgentService.get_board_summary()
-            else: r = self._ask(txt)
+            r = await asyncio.to_thread(self._do_work, txt)
         except Exception as ex:
             r = f"Error: {ex}"
 
@@ -231,6 +229,15 @@ class AIChatPanel(ft.Container):
         self._msg_pairs.append((txt, r, ts))
         self._chat.update()
         await self._scroll_to_bottom_async()
+
+    def _do_work(self, txt: str) -> str:
+        """所有同步阻塞工作：命令路由 + RAG 检索 + LLM 调用。"""
+        from app.ui.services.agent_service import AgentService
+        if txt.startswith("/report"): return AgentService.get_daily_report()
+        elif txt.startswith("/kb "): return AgentService.search_knowledge(txt[4:])
+        elif txt.startswith("/compliance"): return "合规检查: 符合 AD/SB。"
+        elif txt.startswith("/summary"): return AgentService.get_board_summary()
+        else: return self._ask(txt)
 
     def _ask(self, q: str) -> str:
         from app.config.settings_manager import SettingsManager

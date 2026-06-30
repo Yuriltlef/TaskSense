@@ -107,7 +107,7 @@ class KnowledgePipeline:
         embeddings = self.embedder.embed_documents(texts)
         return self.store.add_chunks(chunks, embeddings, "kb_live")
 
-    def search(self, query: str, top_k: int = 5,
+    def search(self, query: str, top_k: int = 10,
                collections: list[str] = None,
                ata_filter: str = None) -> list[dict]:
         """多源检索。"""

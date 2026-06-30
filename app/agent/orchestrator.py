@@ -46,7 +46,7 @@ class AgentOrchestrator:
         from app.agent.llm_client import llm as llm_client
 
         # 1. 结构化 RAG 检索
-        kb_results = self.pipeline.search(question, top_k=5)
+        kb_results = self.pipeline.search(question, top_k=10)
 
         # 2. 格式化上下文 + LLM 回答
         if llm_client.is_available and kb_results:
@@ -85,7 +85,7 @@ class AgentOrchestrator:
             src = meta.get("filename", "unknown")
             coll = r.get("collection", "")
             score = r.get("score", 0)
-            text = r.get("text", "")[:400]
+            text = r.get("text", "")[:1200]
             tag = f"[{coll}] " if coll else ""
             lines.append(
                 f"--- 来源 {i}: {tag}{src} (相关度 {score:.0%}) ---\n{text}...\n")
@@ -99,7 +99,7 @@ class AgentOrchestrator:
             meta = r.get("metadata", {})
             src = meta.get("filename", "?")
             coll = r.get("collection", "")
-            text = r.get("text", "")[:600]
+            text = r.get("text", "")[:2000]
             context_parts.append(f"[{i}] 来源: {src} ({coll})\n{text}")
 
         context = "\n\n".join(context_parts)

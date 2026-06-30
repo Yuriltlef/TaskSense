@@ -113,15 +113,15 @@ class TextChunker:
 
             if current_len + sent_len > self.chunk_size * 4 and current:
                 chunks.append(" ".join(current))
-                # 重叠：保留最后几句
-                overlap_len = 0
+                # 重叠：保留上一个 chunk 末尾的句子作为新 chunk 的开头
+                prev = list(current)         # 先保存再清空
                 current = []
-                for s in reversed(current):
+                overlap_len = 0
+                for s in reversed(prev):
                     overlap_len += len(s)
                     current.insert(0, s)
                     if overlap_len > self.chunk_overlap * 4:
                         break
-                current = current[-2:] if len(current) > 2 else current
 
             current.append(sent)
             current_len += sent_len
