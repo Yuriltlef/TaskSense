@@ -2,8 +2,8 @@
 """Build knowledge base from PDFs — two-phase: text extraction then embedding.
 
 Usage:
-    python scripts/build_kb.py extract         # Phase 1: PDF -> text files
-    python scripts/build_kb.py embed           # Phase 2: text -> chunks -> embeddings -> store
+    python scripts/build_kb.py extract         # Phase 1: PDF -> text (multi-process)
+    python scripts/build_kb.py embed           # Phase 2: text -> chunks -> embed -> store
     python scripts/build_kb.py build           # Both phases
     python scripts/build_kb.py build --force   # Force rebuild
 """
@@ -11,19 +11,20 @@ Usage:
 import sys
 import os
 import json
+import subprocess
 import time
 import argparse
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parent.parent
-os.chdir(PROJECT_ROOT)
-sys.path.insert(0, str(PROJECT_ROOT))
+DEFAULT_WORKERS = max(4, os.cpu_count() or 8)
 
-from app.knowledge.loader import PDFLoader
-from app.knowledge.chunker import TextChunker
-from app.knowledge.embedder import Embedder
-from app.knowledge.store import VectorStore
-
+# Windows spawn: 子进程也需要 sys.path
+_SCRIPT_DIR = Path(__file__).parent
+_PROJECT_DIR = _SCRIPT_DIR.parent
+if str(_PROJECT_DIR) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_DIR))
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
 
 # ── Helpers ──
 
@@ -50,15 +51,21 @@ def secho(msg, end="\n", **kw):
     print(msg, end=end, flush=True)
 
 
-# ── Phase 1: Extract ──
+# ═══════════════════════════════════════════
+# Phase 1: Extract (multi-process)
+# ═══════════════════════════════════════════
 
-def phase_extract():
-    header("PHASE 1: PDF -> Text Files")
+def phase_extract(workers: int = DEFAULT_WORKERS):
+    header("PHASE 1: PDF -> Text Files (multi-process)")
 
-    src_dir = PROJECT_ROOT / "data" / "knowledge_base"
-    out_dir = PROJECT_ROOT / "data" / "knowledge_base" / "processed"
+    PROJECT = Path(__file__).parent.parent
+    src_dir = PROJECT / "data" / "knowledge_base"
+    out_dir = PROJECT / "data" / "knowledge_base" / "processed"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # 避免在子进程中重复导入主模块的 setup
+    sys.path.insert(0, str(PROJECT))
+    from app.knowledge.loader import PDFLoader
     loader = PDFLoader(str(src_dir))
     pdf_files = loader.list_files()
 
@@ -66,169 +73,206 @@ def phase_extract():
         secho("  [ERROR] No PDF files found.")
         return False
 
-    secho(f"  Source: {src_dir}")
-    secho(f"  Output: {out_dir}")
-    secho(f"  Files:  {len(pdf_files)}\n")
+    secho(f"  Source : {src_dir}")
+    secho(f"  Files  : {len(pdf_files)}")
+    secho(f"  Workers: {workers}\n")
 
-    processed = 0
-    skipped = 0
-    total_chars = 0
-    manifest = []
+    processed = 0; skipped = 0; empty = 0; total_chars = 0; done = 0
 
-    for i, fp in enumerate(pdf_files, 1):
-        size_mb = fp.stat().st_size / (1024 * 1024)
-        txt_path = out_dir / f"{fp.stem}.txt"
-        meta_path = out_dir / f"{fp.stem}.json"
+    # 将文件均匀分配给 workers
+    chunks = [[] for _ in range(workers)]
+    for i, fp in enumerate(pdf_files):
+        chunks[i % workers].append(str(fp))
 
-        # 检查是否已有
-        if txt_path.exists() and meta_path.exists():
-            existing_text = txt_path.read_text(encoding="utf-8")
-            if len(existing_text) > 100:
-                secho(f"  {bar(i, len(pdf_files))} [{i}/{len(pdf_files)}] SKIP {fp.name} (already extracted)")
-                skipped += 1
-                total_chars += len(existing_text)
-                manifest.append({"file": fp.name, "chars": len(existing_text), "reused": True})
-                continue
+    worker_script = str(PROJECT / "scripts" / "extract_worker.py")
+    # 使用项目 venv 的 Python
+    venv_python = str(PROJECT / ".venv" / "Scripts" / "python.exe")
+    if not Path(venv_python).exists():
+        venv_python = sys.executable  # fallback
 
-        secho(f"  {bar(i, len(pdf_files))} [{i}/{len(pdf_files)}] {fp.name} ({fmt_size(size_mb)})",
-              end="", flush=True)
+    procs = []
+    for i, chunk in enumerate(chunks):
+        if not chunk:
+            continue
+        cmd = [venv_python, worker_script, str(PROJECT), str(out_dir)] + chunk
+        procs.append(subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8",
+            cwd=str(PROJECT),
+        ))
 
-        t0 = time.time()
-        doc = loader.load_file(fp)
+    secho(f"  Launched {len(procs)} worker processes\n")
 
-        if doc and doc.get("text") and len(doc["text"]) > 50:
-            # 保存文本
-            txt_path.write_text(doc["text"], encoding="utf-8")
-            meta_path.write_text(json.dumps({
-                "filename": doc["filename"],
-                "title": doc["title"],
-                "pages": doc["pages"],
-                "chars": len(doc["text"]),
-                "size_bytes": doc.get("size_bytes", 0),
-            }, ensure_ascii=False, indent=2), encoding="utf-8")
+    for i, proc in enumerate(procs):
+        secho(f"  Worker {i+1}/{len(procs)} running...", end="", flush=True)
+        try:
+            out, err = proc.communicate(timeout=300)
+        except subprocess.TimeoutExpired:
+            proc.kill(); out, err = proc.communicate()
+            secho(f" TIMEOUT")
+            continue
+        if proc.returncode != 0 or not out.strip():
+            secho(f" FAILED (rc={proc.returncode}, err={err[:100]})")
+            continue
+        secho(" OK")
 
-            secho(f" -> {doc['pages']}pg, {len(doc['text']):,} chars, {fmt_time(time.time() - t0)}")
-            processed += 1
-            total_chars += len(doc["text"])
-            manifest.append({"file": fp.name, "chars": len(doc["text"]), "pages": doc["pages"]})
-        else:
-            secho(" -> EMPTY (no extractable text)")
-            skipped += 1
+        try:
+            results = json.loads(out)
+            for r in results:
+                done += 1
+                name, chars, pages, elapsed = r.get("name","?"), r.get("chars",0), r.get("pages",0), r.get("elapsed",0)
+                status = r.get("status","?")
+                if status == "skip":
+                    skipped += 1; total_chars += chars
+                    secho(f"    {bar(done, len(pdf_files))} [{done}/{len(pdf_files)}] SKIP {name}")
+                elif status == "ok":
+                    processed += 1; total_chars += chars
+                    secho(f"    {bar(done, len(pdf_files))} [{done}/{len(pdf_files)}] {name} -> {pages}pg, {chars:,} chars, {fmt_time(elapsed)}")
+                elif status.startswith("error"):
+                    empty += 1
+                    secho(f"    {bar(done, len(pdf_files))} [{done}/{len(pdf_files)}] ERROR {name}: {status[7:50]}")
+                else:
+                    empty += 1
+                    secho(f"    {bar(done, len(pdf_files))} [{done}/{len(pdf_files)}] EMPTY {name}")
+        except json.JSONDecodeError:
+            secho(f"  Worker {i+1} returned invalid JSON: {out[:200]}")
 
-    # 保存 manifest
     manifest_path = out_dir / "manifest.json"
     manifest_path.write_text(json.dumps({
-        "total_files": len(pdf_files),
-        "extracted": processed,
-        "skipped": skipped,
-        "total_chars": total_chars,
-        "files": manifest,
+        "total_files": len(pdf_files), "extracted": processed,
+        "skipped": skipped, "empty": empty, "total_chars": total_chars,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    secho(f"\n  [DONE] Extracted: {processed}  |  Skipped: {skipped}  |  Chars: {total_chars:,}")
-    secho(f"  Manifest: {manifest_path}")
+    secho(f"\n  [DONE] Extracted: {processed}  |  Skipped: {skipped}  |  Empty: {empty}  |  Chars: {total_chars:,}")
     return True
 
 
-# ── Phase 2: Embed ──
+def _pool_extract(args: tuple) -> dict:
+    """Pool worker — 所有逻辑内联。"""
+    try:
+        return _do_extract(args)
+    except Exception as e:
+        import traceback
+        return {"name": args[0], "chars": 0, "pages": 0, "elapsed": 0,
+                "status": f"error: {e}\n{traceback.format_exc()}"}
+
+
+def _do_extract(args):
+    fp_str, out_dir_str, project_root = args
+    import sys as _sys, json as _json, time as _time
+    from pathlib import Path as _Path
+
+    if project_root not in _sys.path:
+        _sys.path.insert(0, project_root)
+
+    fp = _Path(fp_str)
+    out_dir = _Path(out_dir_str)
+    txt_path = out_dir / f"{fp.stem}.txt"
+    meta_path = out_dir / f"{fp.stem}.json"
+
+    if txt_path.exists() and meta_path.exists():
+        existing = txt_path.read_text(encoding="utf-8")
+        if len(existing) > 100:
+            return {"name": fp.name, "chars": len(existing), "pages": 0,
+                    "elapsed": 0, "status": "skip"}
+
+    t0 = _time.time()
+    from app.knowledge.loader import PDFLoader
+    loader = PDFLoader(str(fp.parent))
+    doc = loader.load_file(fp)
+    elapsed = _time.time() - t0
+
+    if doc and doc.get("text") and len(doc["text"]) > 50:
+        txt_path.write_text(doc["text"], encoding="utf-8")
+        meta_path.write_text(_json.dumps({
+            "filename": doc["filename"], "title": doc["title"],
+            "pages": doc["pages"], "chars": len(doc["text"]),
+            "size_bytes": doc.get("size_bytes", 0),
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"name": fp.name, "chars": len(doc["text"]),
+                "pages": doc["pages"], "elapsed": elapsed, "status": "ok"}
+
+    return {"name": fp.name, "chars": 0, "pages": 0,
+            "elapsed": elapsed, "status": "empty"}
+
+
+# ═══════════════════════════════════════════
+# Phase 2: Embed
+# ═══════════════════════════════════════════
 
 def phase_embed(force=False, incremental=False):
     header("PHASE 2: Text -> Chunks -> Embeddings -> Store")
 
-    store_path = PROJECT_ROOT / "data" / "vector_store"
+    PROJECT = Path(__file__).parent.parent
+    sys.path.insert(0, str(PROJECT))
+    from app.knowledge.chunker import TextChunker
+    from app.knowledge.embedder import Embedder
+    from app.knowledge.store import VectorStore
+
+    store_path = PROJECT / "data" / "vector_store"
     store = VectorStore(str(store_path))
     state_file = store_path / "embedded.json"
 
-    # Force rebuild
     if force and store.count() > 0:
         secho(f"  [CLEAR] Removing {store.count()} chunks...")
         store.clear()
-        if state_file.exists():
-            state_file.unlink()
+        if state_file.exists(): state_file.unlink()
 
-    # Load processed text files
-    txt_dir = PROJECT_ROOT / "data" / "knowledge_base" / "processed"
+    txt_dir = PROJECT / "data" / "knowledge_base" / "processed"
     txt_files = sorted(txt_dir.glob("*.txt"))
 
     if not txt_files:
-        secho(f"  [ERROR] No processed text files in {txt_dir}")
+        secho("  [ERROR] No processed text files.")
         return False
 
-    # Incremental: check which files already embedded
     embedded_state = {}
     if state_file.exists():
         embedded_state = json.loads(state_file.read_text(encoding="utf-8"))
 
-    to_process = []
-    skipped = 0
+    to_process = []; skipped_count = 0
     for tf in txt_files:
-        key = tf.name
-        mtime = tf.stat().st_mtime
-        if incremental and key in embedded_state:
-            prev_mtime = embedded_state[key].get("mtime", 0)
-            if mtime <= prev_mtime:
-                skipped += 1
-                continue
+        if incremental and tf.name in embedded_state:
+            if tf.stat().st_mtime <= embedded_state[tf.name].get("mtime", 0):
+                skipped_count += 1; continue
         to_process.append(tf)
 
-    if incremental and skipped > 0:
-        secho(f"  Incremental: {skipped} unchanged files skipped, {len(to_process)} to process")
+    if incremental and skipped_count:
+        secho(f"  Incremental: {skipped_count} skipped, {len(to_process)} to process")
     else:
         secho(f"  Text files: {len(txt_files)} (processing all)")
 
     if incremental and not to_process:
-        secho(f"  [OK] All files up to date. Nothing to do.")
+        secho("  [OK] All up to date.")
         return True
 
-    # ── Chunk ──
     secho(f"\n  --- Chunking ---")
     chunker = TextChunker(chunk_size=800, chunk_overlap=120)
     all_chunks = []
-
-    for i, tf in enumerate(to_process or txt_files, 1):
-        meta_path = tf.with_suffix(".json")
-        meta = {}
-        if meta_path.exists():
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-
+    for i, tf in enumerate(to_process, 1):
+        meta = json.loads(tf.with_suffix(".json").read_text(encoding="utf-8")) if tf.with_suffix(".json").exists() else {}
         text = tf.read_text(encoding="utf-8")
-        doc = {"text": text, "filename": meta.get("filename", tf.name),
-               "title": meta.get("title", tf.stem)}
-
-        secho(f"  {bar(i, len(to_process or txt_files))} [{i}/{len(to_process or txt_files)}] {tf.name} ({len(text):,} chars)",
-              end="")
-
-        chunks = chunker.chunk_document(doc)
+        chunks = chunker.chunk_document({"text": text, "filename": meta.get("filename", tf.name), "title": meta.get("title", tf.stem)})
         all_chunks.extend(chunks)
         ata = sum(1 for c in chunks if c["metadata"].get("ata_chapter"))
-        secho(f" -> {len(chunks)} chunks (ATA: {ata})")
+        secho(f"  {bar(i, len(to_process))} [{i}/{len(to_process)}] {tf.name} -> {len(chunks)} chunks (ATA: {ata})")
 
-    secho(f"\n  Total chunks to add: {len(all_chunks)}")
-    if not all_chunks:
-        secho("  [OK] No new chunks to embed.")
-        return True
+    secho(f"\n  Total chunks: {len(all_chunks)}")
+    if not all_chunks: secho("  [ERROR] No chunks."); return False
 
-    # ── Embed ──
     secho(f"\n  --- Embedding ---")
-    secho(f"  Loading model (first run downloads ~80MB)...")
-
+    secho("  Loading model...")
     embedder = Embedder()
-    secho(f"  Model: {embedder.model_name}  |  Dims: {embedder.dimension}")
+    secho(f"  Model: {embedder.model_name} | Dims: {embedder.dimension}")
 
     texts = [c["text"] for c in all_chunks]
-    batch_size = 64
-    embeddings = []
-    total = len(texts)
-    t0 = time.time()
+    batch_size = 64; embeddings = []; total = len(texts); t0 = time.time()
 
     for start in range(0, total, batch_size):
         end = min(start + batch_size, total)
         batch = texts[start:end]
         elapsed = time.time() - t0
-        rate = (start + len(batch)) / max(elapsed, 0.1)
-        secho(f"  {bar(end, total)} {end}/{total} | {fmt_time(elapsed)} | {rate:.0f} ch/s",
-              end="", flush=True)
-
+        rate = end / max(elapsed, 0.1)
+        secho(f"  {bar(end, total)} {end}/{total} | {fmt_time(elapsed)} | {rate:.0f} ch/s", end="")
         emb = embedder.embed_documents(batch)
         embeddings.extend(emb)
         secho("")
@@ -236,58 +280,48 @@ def phase_embed(force=False, incremental=False):
     embed_time = time.time() - t0
     secho(f"\n  Done: {total} chunks in {fmt_time(embed_time)} ({total / embed_time:.0f} ch/s)")
 
-    # ── Store ──
-    secho(f"\n  --- Storing ---")
-    t0 = time.time()
+    secho(f"\n  --- Storing ---"); t0 = time.time()
     added = store.add_chunks(all_chunks, embeddings)
     secho(f"  Stored {added} chunks in {fmt_time(time.time() - t0)}")
-    secho(f"  Path: {store_path}")
 
-    # Save incremental state
-    for tf in (to_process if incremental else txt_files):
-        embedded_state[tf.name] = {
-            "mtime": tf.stat().st_mtime,
-            "size": tf.stat().st_size,
-            "embedded_at": time.time(),
-        }
+    for tf in to_process:
+        embedded_state[tf.name] = {"mtime": tf.stat().st_mtime, "size": tf.stat().st_size, "embedded_at": time.time()}
     state_file.write_text(json.dumps(embedded_state, indent=2), encoding="utf-8")
 
     return True
 
 
-# ── Main ──
+# ═══════════════════════════════════════════
+# Main
+# ═══════════════════════════════════════════
 
 def main():
     parser = argparse.ArgumentParser(description="Build aviation knowledge base")
     parser.add_argument("command", nargs="?", default="build",
-                        choices=["extract", "embed", "build"],
-                        help="extract: PDF->text | embed: text->vectordb | build: both")
-    parser.add_argument("--force", action="store_true",
-                        help="Force rebuild (clear existing vector data)")
-    parser.add_argument("--incremental", action="store_true",
-                        help="Only embed new or changed text files")
+                        choices=["extract", "embed", "build"])
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
+                        help=f"Workers (default: cpu-2={DEFAULT_WORKERS})")
+    parser.add_argument("--incremental", action="store_true")
     args = parser.parse_args()
 
-    t_total = time.time()
-
+    t0 = time.time()
     print("=" * 60)
     print("  TaskSense — Knowledge Base Builder")
     print("=" * 60)
 
     ok = True
     if args.command in ("extract", "build"):
-        ok = phase_extract() and ok
-
+        ok = phase_extract(workers=args.workers) and ok
     if args.command in ("embed", "build"):
         ok = phase_embed(force=args.force, incremental=args.incremental) and ok
 
     if ok:
         print(f"\n{'=' * 60}")
-        print(f"  ALL DONE — {fmt_time(time.time() - t_total)}")
+        print(f"  ALL DONE — {fmt_time(time.time() - t0)}")
         print(f"{'=' * 60}\n")
     else:
-        print(f"\n  [FAILED] See errors above.")
-        sys.exit(1)
+        print("\n  [FAILED]"); sys.exit(1)
 
 
 if __name__ == "__main__":
