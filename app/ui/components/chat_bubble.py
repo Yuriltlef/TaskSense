@@ -1,9 +1,10 @@
 """对话气泡组件 — 单 Text(spans) 选区不可断裂。
 
-三个公开控件：
+四个公开控件：
 - timestamp_label(text)    独立的日期时间行（居中、灰色）
 - user_bubble(text, max_w, on_copy, on_refresh)   用户气泡（蓝色、靠右）
 - ai_bubble(markdown, max_w, on_copy, on_refresh)  AI 气泡（卡片、靠左）
+- error_bubble(error_text, max_w, on_copy, on_refresh)  错误气泡（红色调、左侧红色边框）
 
 max_w 应由父容器传入（如 panel.width），保证响应式跟随父容器而非 page。
 """
@@ -25,6 +26,11 @@ USER_BG = "#1565c0"
 USER_TEXT_COLOR = "#ffffff"
 AI_BG = theme.card
 AI_BORDER = theme.border
+ERROR_BG = "#1a0d0d"
+ERROR_BORDER_LEFT = theme.error           # "#c62828" 红色左边框
+ERROR_BORDER_OTHER = "#3a1a1a"            # 暗红其余三边
+ERROR_HEADER_COLOR = theme.error          # 错误标题色
+ERROR_TEXT_COLOR = "#c89090"              # 错误正文色（柔红，暗底可读）
 ACCENT = theme.info
 DISABLED = theme.text_disabled
 RADIUS = theme.radius_md
@@ -178,6 +184,66 @@ def ai_bubble(
                         width=bw,
                         bgcolor=AI_BG, border_radius=RADIUS,
                         border=ft.border.all(1, AI_BORDER),
+                        padding=ft.padding.only(left=PAD, top=PAD, right=PAD, bottom=PAD),
+                    ),
+                    ft.Container(expand=True, width=40),
+                ],
+            ),
+            ft.Row([_btn_row(plain, _copy, _reflash), ft.Container(expand=True)]),
+        ],
+        spacing=2, tight=True,
+    )
+
+
+def error_bubble(
+    error_text: str,
+    max_w: float,
+    on_copy=None,
+    on_refresh=None,
+) -> ft.Control:
+    """错误气泡 — 深红底色 + 左侧红色粗边框 + ⚠️ 图标，靠左。
+
+    样式明确区分于正常 AI 回复：
+    - 背景色   : 深红黑 (#1a0d0d)
+    - 左边框   : 3px 实色错误红 (#c62828)
+    - 其余边框 : 1px 暗红 (#3a1a1a)
+    - 错误标题 : ⚠️ 图标 + 红色标题文字
+    - 正文     : 柔红色 (#c89090)，暗底可读
+
+    max_w: 父容器可用宽度（如 panel.width）。
+    """
+    spans = parse_markdown_to_spans(error_text)
+    plain = _spans_to_plain(spans)
+    bw = min(_line_max_width(plain) + PAD * 2 + 4, max_w)
+    _copy = on_copy or _noop_copy
+    _reflash = on_refresh or _noop_refresh
+
+    _error_text_style = ft.TextStyle(
+        color=ERROR_TEXT_COLOR, size=theme.font_md, font_family=_ff, height=1.6,
+    )
+
+    return ft.Column(
+        [
+            ft.Row(
+                [
+                    ft.Container(
+                        ft.Column([
+                            ft.Row([
+                                ft.Icon(ft.Icons.ERROR_OUTLINE, size=15, color=ERROR_HEADER_COLOR),
+                                ft.Text("AI 响应出错", size=12, weight=ft.FontWeight.W_600,
+                                        color=ERROR_HEADER_COLOR, font_family=_ff),
+                            ], spacing=6),
+                            ft.Container(height=6),  # 标题与正文间距
+                            ft.Text(spans=spans, selectable=True, style=_error_text_style),
+                        ], spacing=0, tight=True),
+                        width=bw,
+                        bgcolor=ERROR_BG, border_radius=RADIUS,
+                        border=ft.border.only(
+                            left=ft.BorderSide(3, ERROR_BORDER_LEFT),
+                            top=ft.BorderSide(1, ERROR_BORDER_OTHER),
+                            right=ft.BorderSide(1, ERROR_BORDER_OTHER),
+                            bottom=ft.BorderSide(1, ERROR_BORDER_OTHER),
+                        ),
                         padding=ft.padding.only(left=PAD, top=PAD, right=PAD, bottom=PAD),
                     ),
                     ft.Container(expand=True, width=40),

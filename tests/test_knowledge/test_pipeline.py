@@ -18,12 +18,14 @@ class TestKnowledgePipeline:
 
     def test_get_stats(self, pipeline):
         stats = pipeline.get_stats()
-        assert "total_files" in stats
-        assert "chunks_stored" in stats
+        assert "total" in stats
+        assert "collections" in stats
 
-    def test_search_empty(self, pipeline):
+    @pytest.mark.slow
+    @pytest.mark.needs_kb
+    def test_search(self, pipeline):
+        """搜索需加载嵌入模型（需 --run-slow + 已构建 KB）。"""
         results = pipeline.search("landing gear")
-        # 知识库可能为空或已有数据
         assert isinstance(results, list)
 
 
@@ -33,7 +35,10 @@ class TestAgentOrchestrator:
         a = AgentOrchestrator()
         assert a is not None
 
+    @pytest.mark.slow
+    @pytest.mark.needs_kb
     def test_ask(self):
+        """完整 RAG+LLM 流程（需 --run-slow + 已构建 KB）。"""
         from app.agent.orchestrator import agent
         result = agent.ask("landing gear maintenance")
         assert isinstance(result, str)

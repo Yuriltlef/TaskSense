@@ -7,21 +7,24 @@ from app.knowledge.pipeline import KnowledgePipeline
 
 
 class TestKnowledgeBaseReady:
-    """验证知识库已构建且可检索。"""
+    """验证知识库已构建且可检索（需已构建 KB + --run-slow）。"""
 
     @pytest.fixture(autouse=True)
     def pipeline(self):
         return KnowledgePipeline()
 
+    @pytest.mark.needs_kb
     def test_kb_has_chunks(self, pipeline):
         """知识库已有数据。"""
         stats = pipeline.get_stats()
-        assert stats["chunks_stored"] > 0, (
+        assert stats["total"] > 0, (
             "知识库为空，请先运行: python scripts/build_kb.py embed"
         )
 
+    @pytest.mark.slow
+    @pytest.mark.needs_kb
     def test_search_returns_results(self, pipeline):
-        """搜索返回结果。"""
+        """搜索返回结果（需加载嵌入模型）。"""
         results = pipeline.search("maintenance", top_k=3)
         assert len(results) > 0
         for r in results:
@@ -30,43 +33,49 @@ class TestKnowledgeBaseReady:
             assert "score" in r
             assert r["score"] >= 0
 
+    @pytest.mark.slow
+    @pytest.mark.needs_kb
     def test_search_ata_specific(self, pipeline):
-        """按 ATA 章节搜索。"""
+        """按 ATA 章节搜索（需加载嵌入模型）。"""
         results = pipeline.search("landing gear", top_k=5)
         assert len(results) > 0
-        # 至少有一个结果包含相关关键词
         found = any("gear" in r["text"].lower() or "landing" in r["text"].lower()
                     for r in results)
         assert found, "搜索结果应包含 landing gear 相关内容"
 
 
 class TestAgentQuestionAnswering:
-    """Agent 问答能力。"""
+    """Agent 问答能力（需已构建 KB + --run-slow）。"""
 
+    @pytest.mark.slow
+    @pytest.mark.needs_kb
     def test_ask_returns_string(self):
         result = agent.ask("aircraft maintenance")
         assert isinstance(result, str)
         assert len(result) > 0
 
+    @pytest.mark.slow
+    @pytest.mark.needs_kb
     def test_ask_with_kb_content(self):
         """问一个知识库中有答案的问题。"""
         result = agent.ask("landing gear maintenance procedure")
-        # 应该从知识库找到相关内容
         assert len(result) > 50, "回答不应太短"
-        # 不应报未找到
         assert "未找到" not in result or "结果" in result
 
+    @pytest.mark.slow
+    @pytest.mark.needs_kb
     def test_ask_chinese(self):
         """中文查询。"""
         result = agent.ask("起落架维护")
         assert isinstance(result, str)
         assert len(result) > 0
 
+    @pytest.mark.slow
+    @pytest.mark.needs_kb
     def test_ask_unknown_topic(self):
         """查询知识库中没有的内容。"""
         result = agent.ask("xyzzy_nonexistent_topic_12345")
         assert isinstance(result, str)
-        # 应该给出合理的回复
         assert len(result) > 0
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 import flet as ft
 from app.config.theme import theme
-from app.ui.components.chat_bubble import user_bubble, ai_bubble, timestamp_label
+from app.ui.components.chat_bubble import user_bubble, ai_bubble, error_bubble, timestamp_label
 from app.ui.components.chat_input import ChatInput
 
 
@@ -115,6 +115,15 @@ class AIChatPanel(ft.Container):
     # 气泡宽度（跟随面板宽度）
     # ═══════════════════════════════════════════════
 
+    @staticmethod
+    def _is_error(text: str) -> bool:
+        """检测是否为错误消息。"""
+        return (
+            text.startswith("Error:")
+            or text.startswith("[Error]")
+            or "**AI 不可用**" in text
+        )
+
     @property
     def _max_w(self) -> float:
         """气泡可用最大宽度。"""
@@ -130,7 +139,11 @@ class AIChatPanel(ft.Container):
         for u, a, ts in self._msg_pairs:
             controls.append(timestamp_label(ts))
             controls.append(user_bubble(u, mw, on_copy=self._copy, on_refresh=self._refresh))
-            controls.append(ai_bubble(a, mw, on_copy=self._copy, on_refresh=self._refresh))
+            controls.append(
+                error_bubble(a, mw, on_copy=self._copy, on_refresh=self._refresh)
+                if self._is_error(a)
+                else ai_bubble(a, mw, on_copy=self._copy, on_refresh=self._refresh)
+            )
         self._chat.controls = controls
 
     async def _scroll_to_bottom_async(self):
@@ -209,10 +222,12 @@ class AIChatPanel(ft.Container):
         if idx < len(self._chat.controls):
             self._chat.controls.pop(idx)
 
-        # 添加 AI 气泡
+        # 添加 AI / 错误气泡
         mw = self._max_w
-        self._chat.controls.append(
-            ai_bubble(r, mw, on_copy=self._copy, on_refresh=self._refresh))
+        bubble = error_bubble(r, mw, on_copy=self._copy, on_refresh=self._refresh) \
+            if self._is_error(r) \
+            else ai_bubble(r, mw, on_copy=self._copy, on_refresh=self._refresh)
+        self._chat.controls.append(bubble)
         self._msg_pairs.append((txt, r, ts))
         self._chat.update()
         await self._scroll_to_bottom_async()

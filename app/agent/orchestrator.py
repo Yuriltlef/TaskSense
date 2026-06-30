@@ -60,9 +60,12 @@ class AgentOrchestrator:
         if any(g in question.lower() for g in
                ["你好", "hello", "hi", "hey", "你是谁", "who are you"]):
             if llm_client.is_available:
-                return llm_client.chat(
+                greeting = llm_client.chat(
                     "你是 TaskSense 航空维护专家助手。请用中文友好打招呼，简短介绍你可以帮用户做什么。",
                     question)
+                if not greeting.startswith("[Error]"):
+                    return greeting
+                # LLM 失败，回退到离线问候语
             return (
                 "你好！我是 TaskSense AI 助手。\n\n"
                 "我可以帮你:\n"
@@ -126,7 +129,13 @@ class AgentOrchestrator:
 
         resp = llm_client.chat(system, user_msg)
         if resp.startswith("[Error]"):
-            return self._format_rag_results(question, results)
+            fallback = self._format_rag_results(question, results)
+            return (
+                f"[Error] LLM 调用失败，已回退至知识库检索结果。\n\n"
+                f"错误详情：{resp}\n\n"
+                f"---\n\n"
+                f"{fallback}"
+            )
 
         return resp
 

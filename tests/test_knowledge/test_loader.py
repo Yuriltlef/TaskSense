@@ -14,6 +14,7 @@ class TestPDFLoader:
         for f in files:
             assert f.suffix == ".pdf"
 
+    @pytest.mark.slow
     def test_load_single_file(self):
         loader = PDFLoader("data/knowledge_base")
         files = loader.list_files()
@@ -28,12 +29,21 @@ class TestPDFLoader:
         assert "pages" in doc
         assert len(doc["text"]) > 0
 
-    def test_load_all(self):
+    @pytest.mark.slow
+    def test_load_first_3_files(self):
+        """烟雾测试：仅加载前 3 个 PDF（需 --run-slow）。"""
         loader = PDFLoader("data/knowledge_base")
-        docs = loader.load_all()
-        assert len(docs) > 0
-        for doc in docs:
+        files = loader.list_files()
+        if not files:
+            pytest.skip("无 PDF 文件")
+
+        docs = []
+        for f in files[:3]:
+            doc = loader.load_file(f)
+            assert doc is not None
             assert len(doc["text"]) > 0
+            docs.append(doc)
+        assert len(docs) > 0
 
     def test_get_stats(self):
         loader = PDFLoader("data/knowledge_base")
