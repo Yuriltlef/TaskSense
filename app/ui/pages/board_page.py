@@ -419,24 +419,27 @@ class BoardPage:
                 t.actual_hours = actual_hours
                 if result:
                     t.description = f"{t.description}\n\n[提交结果] {result}"
-                dlg.open = False; self._page.update()
+                dlg.close()
                 Toast.show(self._page, "任务已提交完成", "success")
             except Exception as e:
                 Toast.show(self._page, str(e), "warning")
 
-        dlg = ft.AlertDialog(
-            title=ft.Text(f"提交任务: {t.title[:30]}...", size=theme.font_lg,
-                          weight=ft.FontWeight.W_600,
-                          color=theme.text_primary, font_family=ff),
-            content=ft.Column([result_f, hours_f], spacing=12, tight=True, width=400),
-            actions=[
-                ft.TextButton("取消", on_click=lambda e: setattr(dlg, 'open', False)),
+        from app.ui.components.modal_dialog import ModalDialog
+        content = ft.Column([
+            ft.Text(f"提交任务: {t.title[:30]}...", size=theme.font_lg,
+                    weight=ft.FontWeight.W_600, color=theme.text_primary, font_family=ff),
+            ft.Container(height=8),
+            result_f, hours_f,
+            ft.Container(height=8),
+            ft.Row([
+                ft.Container(expand=True),
+                ft.TextButton("取消", on_click=lambda e: dlg.close()),
                 ft.ElevatedButton("提交完成", on_click=submit,
                                   style=ft.ButtonStyle(bgcolor=theme.success)),
-            ],
-            bgcolor=theme.surface, shape=ft.RoundedRectangleBorder(radius=theme.radius_md),
-        )
-        self._page.dialog = dlg; dlg.open = True; self._page.update()
+            ]),
+        ], spacing=0, tight=True)
+        dlg = ModalDialog(self._page, content, width=420)
+        dlg.open()
 
     def _dlg_edit(self, task):
         """编辑任务弹窗 — 预填当前值。"""
@@ -480,25 +483,27 @@ class BoardPage:
             task.ata_chapter = (ata_f.value or "").strip()
             task.assignee = (assignee_f.value or "").strip() or None
             task.zone = (zone_f.value or "").strip() or None
-            dlg.open = False; self._page.update()
+            dlg.close()
             self._refresh_board()
             Toast.show(self._page, "任务已更新", "success")
 
-        dlg = ft.AlertDialog(
-            title=ft.Text("编辑任务", size=theme.font_lg, weight=ft.FontWeight.W_600,
-                          color=theme.text_primary, font_family=ff),
-            content=ft.Column([
-                title_f,
-                ft.Row([reg_f, ata_f], spacing=12),
-                ft.Row([assignee_f, zone_f], spacing=12),
-            ], spacing=12, tight=True, width=420),
-            actions=[
-                ft.TextButton("取消", on_click=lambda e: setattr(dlg, 'open', False)),
+        from app.ui.components.modal_dialog import ModalDialog
+        content = ft.Column([
+            ft.Text("编辑任务", size=theme.font_lg, weight=ft.FontWeight.W_600,
+                    color=theme.text_primary, font_family=ff),
+            ft.Container(height=8),
+            title_f,
+            ft.Row([reg_f, ata_f], spacing=12),
+            ft.Row([assignee_f, zone_f], spacing=12),
+            ft.Container(height=8),
+            ft.Row([
+                ft.Container(expand=True),
+                ft.TextButton("取消", on_click=lambda e: dlg.close()),
                 ft.ElevatedButton("保存", on_click=save, style=ft.ButtonStyle(bgcolor=theme.info)),
-            ],
-            bgcolor=theme.surface, shape=ft.RoundedRectangleBorder(radius=theme.radius_md),
-        )
-        self._page.dialog = dlg; dlg.open = True; self._page.update()
+            ]),
+        ], spacing=0, tight=True)
+        dlg = ModalDialog(self._page, content, width=460)
+        dlg.open()
 
     def _dlg_filter(self):
         ata_dd = ft.Dropdown(
@@ -519,19 +524,26 @@ class BoardPage:
             if ata_dd.value: f.ata_chapters = [ata_dd.value]
             if pri_dd.value: f.priorities = [pri_dd.value]
             board_service.set_filters(f)
-            dlg.open = False; self._page.update()
+            dlg.close()
             Toast.show(self._page, "筛选已应用", "info")
 
-        dlg = ft.AlertDialog(
-            title=ft.Text("筛选", size=theme.font_lg, weight=ft.FontWeight.W_600,
-                          color=theme.text_primary, font_family=theme.font_family),
-            content=ft.Column([ata_dd, pri_dd], spacing=12, tight=True, width=300),
-            actions=[
-                ft.TextButton("清除", on_click=lambda e: (
-                    board_service.set_filters(FilterState()),
-                    setattr(dlg, 'open', False), self._page.update())),
+        def clear(_):
+            board_service.set_filters(FilterState())
+            dlg.close()
+            Toast.show(self._page, "筛选已清除", "info")
+
+        from app.ui.components.modal_dialog import ModalDialog
+        content = ft.Column([
+            ft.Text("筛选", size=theme.font_lg, weight=ft.FontWeight.W_600,
+                    color=theme.text_primary, font_family=theme.font_family),
+            ft.Container(height=8),
+            ata_dd, pri_dd,
+            ft.Container(height=8),
+            ft.Row([
+                ft.TextButton("清除", on_click=clear),
+                ft.Container(expand=True),
                 ft.ElevatedButton("应用", on_click=apply, style=ft.ButtonStyle(bgcolor=theme.info)),
-            ],
-            bgcolor=theme.surface, shape=ft.RoundedRectangleBorder(radius=theme.radius_md),
-        )
-        self._page.dialog = dlg; dlg.open = True; self._page.update()
+            ]),
+        ], spacing=0, tight=True)
+        dlg = ModalDialog(self._page, content, width=340)
+        dlg.open()

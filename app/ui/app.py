@@ -177,7 +177,7 @@ class TaskSenseApp:
                 style=ft.ButtonStyle(bgcolor=theme.info, color=ft.Colors.WHITE, elevation=0,
                                      padding=ft.padding.only(left=s(12), top=0, right=s(12), bottom=0),
                                      shape=ft.RoundedRectangleBorder(radius=s(4))),
-                height=s(18), on_click=lambda e: self._on_create_debug(e, bp),
+                height=s(18), on_click=bp._on_create_task,
             ),
             ft.Container(width=s(6)),
             icon_btn(ft.Icons.REFRESH, lambda e: bp._refresh_board(), "刷新看板"),
@@ -259,10 +259,6 @@ class TaskSenseApp:
                                text_style=ft.TextStyle(color=ft.Colors.WHITE)),
             on_click=on_click,
         )
-
-    def _on_create_debug(self, e, bp):
-        print("[TitleBar] 新建任务 clicked", flush=True)
-        bp._on_create_task(e)
 
     def _minimize_window(self, e):
         self.page.window.minimized = True
