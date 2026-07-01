@@ -21,10 +21,23 @@ DEFAULT_WORKERS = max(4, os.cpu_count() or 8)
 _SCRIPT_DIR = Path(__file__).parent
 _PROJECT_DIR = _SCRIPT_DIR.parent
 
-# 模型缓存到项目目录，避免重复下载
+# 模型缓存到项目目录
 _MODEL_CACHE = _PROJECT_DIR / ".model_cache"
 os.environ.setdefault("HF_HOME", str(_MODEL_CACHE))
 _MODEL_CACHE.mkdir(parents=True, exist_ok=True)
+
+# 检查嵌入模型是否已缓存，决定离线/联网模式
+_MODEL_NAME = "BAAI/bge-m3"
+_MODEL_SLUG = "models--" + _MODEL_NAME.replace("/", "--")
+_MODEL_SNAPSHOTS = _MODEL_CACHE / "hub" / _MODEL_SLUG / "snapshots"
+_IS_MODEL_CACHED = _MODEL_SNAPSHOTS.exists() and any(_MODEL_SNAPSHOTS.iterdir())
+
+if _IS_MODEL_CACHED:
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+else:
+    print(f"Model '{_MODEL_NAME}' not found in cache. Downloading from HuggingFace...")
+    print(f"Cache dir: {_MODEL_CACHE}")
 
 if str(_PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(_PROJECT_DIR))
