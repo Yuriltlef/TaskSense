@@ -1,14 +1,15 @@
-"""新建任务弹窗 — overlay 居中面板."""
+"""新建任务弹窗 — overlay 居中面板 + 全屏变暗遮罩."""
 
 import flet as ft
 from app.config.theme import theme
 from app.core.services.task_service import task_service
+from app.ui.widgets.overlay_dimmer import OverlayDimmer
 
 
 class CreateTaskDialog:
-    """新建任务弹窗（单例，page.overlay 方式）。"""
+    """新建任务弹窗（单例，OverlayDimmer 包裹）。"""
 
-    _overlay: ft.Stack | None = None
+    _dimmer: OverlayDimmer | None = None
     _page: ft.Page | None = None
     _open = False
 
@@ -17,21 +18,21 @@ class CreateTaskDialog:
         if cls._open:
             return
         cls._page = page
-        cls._build()
         cls._open = True
-        page.overlay.append(cls._overlay)
-        page.update()
+        cls._dimmer = OverlayDimmer.open(
+            page, cls._build(), dim_opacity=0.55, close_on_dimmer_click=True)
 
     @classmethod
     def close(cls):
-        if not cls._open or not cls._page:
+        if not cls._open:
             return
         cls._open = False
-        cls._page.overlay.remove(cls._overlay)
-        cls._page.update()
+        if cls._dimmer:
+            cls._dimmer.close()
+            cls._dimmer = None
 
     @classmethod
-    def _build(cls):
+    def _build(cls) -> ft.Container:
         ff = theme.font_family
         page = cls._page
 
@@ -147,12 +148,30 @@ class CreateTaskDialog:
         )
 
         # 底部按钮
+        btn_base = ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=6),
+            padding=ft.padding.only(left=20, top=8, right=20, bottom=8),
+            text_style=ft.TextStyle(size=13, font_family=ff),
+        )
         footer = ft.Container(
             content=ft.Row([
                 ft.Container(expand=True),
-                ft.TextButton("取消", on_click=lambda e: cls.close()),
-                ft.ElevatedButton("创建", on_click=_create,
-                                  style=ft.ButtonStyle(bgcolor=theme.info)),
+                ft.OutlinedButton("取消", on_click=lambda e: cls.close(),
+                    style=ft.ButtonStyle(
+                        shape=btn_base.shape,
+                        padding=btn_base.padding,
+                        text_style=btn_base.text_style,
+                        side=ft.BorderSide(1, theme.border),
+                        color=theme.text_primary,
+                    )),
+                ft.OutlinedButton("创建", on_click=_create,
+                    style=ft.ButtonStyle(
+                        shape=btn_base.shape,
+                        padding=btn_base.padding,
+                        text_style=btn_base.text_style,
+                        side=ft.BorderSide(1, theme.info),
+                        color=theme.info,
+                    )),
             ], spacing=8),
             padding=ft.padding.only(left=16, top=8, right=16, bottom=10),
             border=ft.border.only(top=ft.BorderSide(1, theme.border)),
@@ -162,7 +181,7 @@ class CreateTaskDialog:
         P_W, P_H = 460, 420
         cx = (page.width - P_W) // 2
         cy = (page.height - P_H) // 2
-        panel = ft.Container(
+        return ft.Container(
             content=ft.Column([title_bar, form, footer], spacing=0, tight=True),
             width=P_W, bgcolor=theme.surface,
             border_radius=theme.radius_md,
@@ -170,10 +189,3 @@ class CreateTaskDialog:
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=16, color="#000000aa"),
             left=cx, top=cy,
         )
-
-        # overlay
-        cls._overlay = ft.Stack([
-            ft.Container(width=page.width, height=page.height,
-                         bgcolor="#00000066", on_click=lambda e: cls.close()),
-            panel,
-        ], width=page.width, height=page.height)

@@ -109,6 +109,8 @@ class TaskSenseApp:
         btn_w = s(36)      # 图标按钮宽度
 
         # ── 工具按钮工厂 ──
+        _tt_style = ft.TextStyle(color=ft.Colors.WHITE, font_family=theme.font_family)
+
         def icon_btn(icon, on_click, tooltip, icon_color=ft.Colors.GREY_400):
             return ft.IconButton(
                 icon=icon, icon_size=icon_sz, icon_color=icon_color,
@@ -119,7 +121,7 @@ class TaskSenseApp:
                     shape=ft.RoundedRectangleBorder(radius=0),
                 ),
                 tooltip=ft.Tooltip(message=tooltip, bgcolor="#202020",
-                                   text_style=ft.TextStyle(color=ft.Colors.WHITE)),
+                                   text_style=_tt_style),
                 on_click=on_click,
             )
 
@@ -135,7 +137,7 @@ class TaskSenseApp:
                 ),
                 mouse_cursor=ft.MouseCursor.BASIC,
                 tooltip=ft.Tooltip(message=tooltip, bgcolor="#202020",
-                                   text_style=ft.TextStyle(color=ft.Colors.WHITE)),
+                                   text_style=_tt_style),
                 on_click=on_click,
             )
 
@@ -175,10 +177,15 @@ class TaskSenseApp:
                     ft.Icon(ft.Icons.ADD, size=icon_sz),
                     ft.Text("新建任务", size=s(12), font_family=ff, color=ft.Colors.WHITE),
                 ], spacing=s(2)),
-                style=ft.ButtonStyle(bgcolor=theme.info, color=ft.Colors.WHITE, elevation=0,
-                                     padding=ft.padding.only(left=s(12), top=0, right=s(12), bottom=0),
-                                     shape=ft.RoundedRectangleBorder(radius=s(4))),
-                height=s(18), on_click=bp._on_create_task,
+                style=ft.ButtonStyle(
+                    bgcolor="#1565c0",
+                    color=ft.Colors.WHITE,
+                    overlay_color="#1e88e5",
+                    elevation=1,
+                    padding=ft.padding.only(left=s(12), top=s(2), right=s(12), bottom=s(2)),
+                    shape=ft.RoundedRectangleBorder(radius=s(4)),
+                ),
+                height=s(24), on_click=bp._on_create_task,
             ),
             ft.Container(width=s(6)),
             icon_btn(ft.Icons.REFRESH, lambda e: bp._refresh_board(), "刷新看板"),

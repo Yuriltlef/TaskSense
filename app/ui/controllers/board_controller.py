@@ -1,10 +1,9 @@
 """看板控制器 — UI ↔ Core 桥梁."""
 
-from typing import Optional
+from typing import Optional, Callable
 
-from app.core.events import EventType, event_bus
 from app.core.models.kanban import BoardState, FilterState
-from app.core.models.task import Task, TaskStatus
+from app.core.models.task import Task
 from app.core.services.board_service import board_service
 from app.core.services.task_service import task_service
 from app.core.state import state
@@ -28,17 +27,17 @@ class BoardController:
         self.is_side_panel_open = False
 
         # UI 刷新回调
-        self._on_board_changed: Optional[callable] = None
+        self._on_board_changed: Optional[Callable] = None
 
         # 订阅状态变更
         state.subscribe(self._on_state_changed)
 
     @property
-    def on_board_changed(self) -> Optional[callable]:
+    def on_board_changed(self) -> Optional[Callable]:
         return self._on_board_changed
 
     @on_board_changed.setter
-    def on_board_changed(self, callback: callable):
+    def on_board_changed(self, callback: Callable):
         self._on_board_changed = callback
 
     def _on_state_changed(self):
@@ -65,15 +64,15 @@ class BoardController:
     # ═══════════════════════════════════════════════════
 
     def create_task(
-        self,
-        title: str,
-        description: str = "",
-        aircraft_reg: str = "",
-        aircraft_model: str = "",
-        ata_chapter: str = "",
-        priority: str = "cat_c",
-        task_type: str = "troubleshoot",
-        **kwargs,
+            self,
+            title: str,
+            description: str = "",
+            aircraft_reg: str = "",
+            aircraft_model: str = "",
+            ata_chapter: str = "",
+            priority: str = "cat_c",
+            task_type: str = "troubleshoot",
+            **kwargs,
     ) -> Optional[Task]:
         """创建任务。"""
         try:
