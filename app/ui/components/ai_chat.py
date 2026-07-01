@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import flet as ft
-from app.config.theme import theme, s
+from app.config.theme import theme
 from app.ui.components.chat_bubble import user_bubble, ai_bubble, error_bubble, timestamp_label
 from app.ui.components.chat_input import ChatInput
 
@@ -93,17 +93,17 @@ class AIChatPanel(ft.Container):
 
         # 严格/普通模式标签（点击切换，单标签明确当前状态）
         self._mode_label = ft.Text(
-            self._mode_text(), size=10, weight=ft.FontWeight.W_600,
+            self._mode_text(), size=12, weight=ft.FontWeight.W_600,
             color=theme.priority_cat_a if self._strict_mode else theme.info,
             font_family=ff,
         )
         self._mode_btn = ft.Container(
             ft.Row([
                 ft.Icon(ft.Icons.SHIELD_OUTLINED if self._strict_mode else ft.Icons.LANGUAGE_OUTLINED,
-                        size=12, color=self._mode_label.color),
+                        size=13, color=self._mode_label.color),
                 self._mode_label,
             ], spacing=4),
-            padding=ft.padding.only(left=8, top=4, right=8, bottom=4),
+            padding=ft.padding.only(left=9, top=5, right=9, bottom=5),
             border_radius=theme.radius_sm,
             border=ft.border.all(1, theme.border),
             on_click=lambda e: self._toggle_mode(),
@@ -117,10 +117,10 @@ class AIChatPanel(ft.Container):
                     self._mode_btn,
                     self._chip("搜索知识库", ft.Icons.SEARCH, "/kb "),
                     self._chip("生成报告", ft.Icons.DESCRIPTION, "/report"),
-                    self._chip("看板摘要", ft.Icons.DASHBOARD, "/summary"),
                     self._chip("合规检查", ft.Icons.VERIFIED_USER, "/compliance"),
-                ], spacing=s(6), wrap=True),
-            ], spacing=s(8)),
+                    ft.Container(expand=True),
+                ], spacing=8),
+            ], spacing=8),
             padding=ft.padding.only(left=14, top=10, right=14, bottom=12),
             border=ft.border.only(top=ft.BorderSide(1, theme.border)))
 
@@ -129,8 +129,8 @@ class AIChatPanel(ft.Container):
 
     def _chip(self, label, icon, cmd):
         return ft.Container(
-            ft.Row([ft.Icon(icon, size=12, color=theme.text_secondary),
-                    ft.Text(label, size=11, color=theme.text_secondary, font_family=theme.font_family),
+            ft.Row([ft.Icon(icon, size=13, color=theme.text_secondary),
+                    ft.Text(label, size=12, color=theme.text_secondary, font_family=theme.font_family),
                     ], spacing=4),
             padding=ft.padding.only(left=10, top=5, right=10, bottom=5),
             border_radius=theme.radius_sm,

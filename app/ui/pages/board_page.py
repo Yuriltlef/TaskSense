@@ -259,7 +259,9 @@ class BoardPage:
     def _on_column_menu(self, cid):
         Toast.show(self._page, f"列操作: {cid}", "info")
 
-    def _on_create_task(self, e): self._dlg_create()
+    def _on_create_task(self, e):
+        from app.ui.components.create_task_dialog import CreateTaskDialog
+        CreateTaskDialog.open(self._page)
 
     def _on_settings_click(self, e):
         from app.ui.pages.settings_window import SettingsOverlay
@@ -297,7 +299,9 @@ class BoardPage:
     # ── 命令面板 ──
 
     def _on_command_execute(self, action, value):
-        if action == "create_task": self._dlg_create()
+        if action == "create_task":
+            from app.ui.components.create_task_dialog import CreateTaskDialog
+            CreateTaskDialog.open(self._page)
         elif action == "generate_report": self._do_command("/report", "")
         elif action == "check_compliance": self._do_command("/compliance", "")
         elif action.startswith("filter_ata_"):
@@ -382,105 +386,6 @@ class BoardPage:
             e.handled = True
 
     # ═══════════════════════ 对话框 ═══════════════════════
-
-    def _dlg_create(self):
-        ff = theme.font_family
-        title_f = ft.TextField(
-            label="任务标题", hint_text="描述故障或维护需求...",
-            border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
-            bgcolor=theme.card,
-        )
-        reg_f = ft.TextField(
-            label="飞机注册号", hint_text="如 B-5823", width=200,
-            border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
-            bgcolor=theme.card,
-        )
-        ata_f = ft.TextField(
-            label="ATA 章节", hint_text="如 32-41-03", width=200,
-            border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
-            bgcolor=theme.card,
-        )
-        ghost_hint = ft.Text("", size=theme.font_xs, color=theme.type_removal_install,
-                             font_family=ff, italic=True)
-
-        def on_title_change(e):
-            val = (e.control.value or "").strip()
-            if len(val) >= 3:
-                try:
-                    from app.ui.services.agent_service import AgentService
-                    sug = AgentService.get_suggestions(val)
-                    ata = sug.get("ata_chapter", "")
-                    if ata and not ata_f.value:
-                        ata_f.value = ata; ata_f.update()
-                    ghost_hint.value = f"AI: ATA {ata}" if ata else ""
-                    ghost_hint.update()
-                except Exception:
-                    ghost_hint.value = ""
-        title_f.on_change = on_title_change
-
-        pri_dd = ft.Dropdown(
-            label="优先级", value="cat_c",
-            options=[ft.dropdown.Option(k, v) for k, v in [
-                ("aog", "AOG — 立即"), ("cat_a", "Cat A — 当日"),
-                ("cat_b", "Cat B — 72h"), ("cat_c", "Cat C — 10 天"),
-                ("cat_d", "Cat D — 120 天")]],
-            border_color=theme.border, focused_border_color=theme.info,
-            bgcolor=theme.card, width=200,
-        )
-        type_dd = ft.Dropdown(
-            label="任务类型", value="troubleshoot",
-            options=[ft.dropdown.Option(k, v) for k, v in [
-                ("troubleshoot", "排故"), ("inspection", "检查"),
-                ("servicing", "勤务"), ("removal_install", "拆装"),
-                ("test", "测试"), ("repair", "修复")]],
-            border_color=theme.border, focused_border_color=theme.info,
-            bgcolor=theme.card, width=200,
-        )
-        assignee_f = ft.TextField(
-            label="负责人", hint_text="如 张", width=200,
-            border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
-            bgcolor=theme.card,
-        )
-        zone_f = ft.TextField(
-            label="区域 (Zone)", hint_text="如 710", width=200,
-            border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
-            bgcolor=theme.card,
-        )
-
-        def create(_):
-            t = (title_f.value or "").strip()
-            if not t: Toast.show(self._page, "请输入标题", "warning"); return
-            task_service.create_task(
-                title=t, aircraft_reg=(reg_f.value or "").strip(),
-                ata_chapter=(ata_f.value or "").strip(),
-                priority=pri_dd.value or "cat_c",
-                task_type=type_dd.value or "troubleshoot",
-                assignee=(assignee_f.value or "").strip() or None,
-                zone=(zone_f.value or "").strip() or None)
-            dlg.open = False; self._page.update()
-            Toast.show(self._page, f"已创建: {t}", "success")
-
-        dlg = ft.AlertDialog(
-            title=ft.Text("新建维护任务", size=theme.font_lg, weight=ft.FontWeight.W_600,
-                          color=theme.text_primary, font_family=ff),
-            content=ft.Column(
-                [title_f, ghost_hint,
-                 ft.Row([reg_f, ata_f], spacing=12),
-                 ft.Row([pri_dd, type_dd], spacing=12),
-                 ft.Row([assignee_f, zone_f], spacing=12)],
-                spacing=12, tight=True, width=420),
-            actions=[
-                ft.TextButton("取消", on_click=lambda e: setattr(dlg, 'open', False)),
-                ft.ElevatedButton("创建", on_click=create, style=ft.ButtonStyle(bgcolor=theme.info)),
-            ],
-            bgcolor=theme.surface, shape=ft.RoundedRectangleBorder(radius=theme.radius_md),
-        )
-        self._page.dialog = dlg; dlg.open = True; self._page.update()
 
     def _dlg_submit(self, tid):
         """提交任务结果弹窗。"""

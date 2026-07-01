@@ -1,6 +1,8 @@
 """幽灵文本输入 — AI 建议的内联显示."""
 from __future__ import annotations
 
+from typing import Callable
+
 import flet as ft
 
 from app.config.theme import theme
@@ -26,9 +28,9 @@ class GhostTextField(ft.Column):
         min_lines: int = 1,
         max_lines: int = 5,
         width: int | None = None,
-        on_change: callable | None = None,
-        on_accept_ghost: callable | None = None,
-        on_request_suggestion: callable | None = None,
+        on_change: Callable | None = None,
+        on_accept_ghost: Callable | None = None,
+        on_request_suggestion: Callable | None = None,
     ):
         super().__init__(spacing=0)
 

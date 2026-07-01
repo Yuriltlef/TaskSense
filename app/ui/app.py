@@ -155,73 +155,57 @@ class TaskSenseApp:
             ], spacing=s(3)),
         )
 
-        # ── 组装 ──
-        bar_row = ft.Row([
-            # 最左 8px 留白
+        # ── 窗口按钮（在 WindowDragArea 外部）──
+        window_btns = [
+            win_btn(ft.Icons.REMOVE, self._minimize_window, "最小化"),
+            *self._window_ctrls,
+            win_btn(ft.Icons.CLOSE, self._close_window, "关闭", hover_color=ft.Colors.RED_900),
+        ]
+
+        # ── 内容区 ──
+        content_row = ft.Row([
             ft.Container(width=s(8)),
-            # ✈
-            ft.WindowDragArea(
-                ft.Container(
-                    content=ft.Text("✈", size=s(15), font_family=ff),
-                    padding=ft.padding.only(left=s(2), right=s(6)),
-                    height=H,
-                    alignment=ft.alignment.center,
-                ),
-                on_double_tap=self._on_title_double_tap,
-            ),
+            ft.Container(content=ft.Text("✈", size=s(15), font_family=ff),
+                         padding=ft.padding.only(left=s(2), right=s(6)),
+                         height=H, alignment=ft.alignment.center),
             ft.Container(width=s(6)),
-            # 新建任务
             ft.ElevatedButton(
                 content=ft.Row([
                     ft.Icon(ft.Icons.ADD, size=icon_sz),
-                    ft.Text("新建任务", size=s(12), font_family=ff,
-                            color=ft.Colors.WHITE),
+                    ft.Text("新建任务", size=s(12), font_family=ff, color=ft.Colors.WHITE),
                 ], spacing=s(2)),
-                style=ft.ButtonStyle(
-                    bgcolor=theme.info, color=ft.Colors.WHITE,
-                    elevation=0,
-                    padding=ft.padding.only(left=s(12), top=0,
-                                            right=s(12), bottom=0),
-                    shape=ft.RoundedRectangleBorder(radius=s(4)),
-                ),
-                height=s(18),
-                on_click=bp._on_create_task,
+                style=ft.ButtonStyle(bgcolor=theme.info, color=ft.Colors.WHITE, elevation=0,
+                                     padding=ft.padding.only(left=s(12), top=0, right=s(12), bottom=0),
+                                     shape=ft.RoundedRectangleBorder(radius=s(4))),
+                height=s(18), on_click=lambda e: self._on_create_debug(e, bp),
             ),
             ft.Container(width=s(6)),
-            # 刷新
             icon_btn(ft.Icons.REFRESH, lambda e: bp._refresh_board(), "刷新看板"),
             ft.Container(width=s(4)),
-            # 过滤
             icon_btn(ft.Icons.FILTER_LIST, bp._on_filter_click, "筛选任务"),
-            # 弹性空间
             ft.Container(expand=True),
-            # 搜索框
-            ft.WindowDragArea(
-                search_box,
-                on_double_tap=self._on_title_double_tap,
-            ),
+            search_box,
             ft.Container(expand=True),
-            # AI 助手（紫色还原）
-            icon_btn(ft.Icons.PSYCHOLOGY_OUTLINED,
-                     lambda e: bp._open_ai_panel(),
+            icon_btn(ft.Icons.PSYCHOLOGY_OUTLINED, lambda e: bp._open_ai_panel(),
                      "AI 助手", icon_color="#c498e8"),
-            # 设置
-            icon_btn(ft.Icons.SETTINGS_OUTLINED,
-                     bp._on_settings_click, "设置"),
-            # 用户
-            ft.WindowDragArea(
-                ft.Container(
-                    content=icon_btn(ft.Icons.PERSON_OUTLINE,
-                                     lambda e: None, "用户账号"),
-                ),
-                on_double_tap=self._on_title_double_tap,
-            ),
-            # 窗口控制按钮
-            win_btn(ft.Icons.REMOVE, self._minimize_window, "最小化"),
-            *self._window_ctrls,
-            win_btn(ft.Icons.CLOSE, self._close_window, "关闭",
-                    hover_color=ft.Colors.RED_900),
+            icon_btn(ft.Icons.SETTINGS_OUTLINED, bp._on_settings_click, "设置"),
+            icon_btn(ft.Icons.PERSON_OUTLINE, lambda e: None, "用户账号"),
         ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+        # WindowDragArea: 拖拽 + 双击最大化
+        drag_area = ft.WindowDragArea(
+            ft.Container(content=content_row, expand=True,
+                         on_hover=self._on_title_hover),
+            expand=True,
+            on_double_tap=self._on_title_double_tap,
+            on_hover=self._on_title_hover,
+        )
+
+        # ── 最终标题栏 ──
+        bar_row = ft.Row(
+            [drag_area] + window_btns,
+            spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
 
         self.title_bar = ft.Container(
             content=bar_row,
@@ -237,6 +221,48 @@ class TaskSenseApp:
     # ═══════════════════════════════
     # 窗口操作
     # ═══════════════════════════════
+
+    def _on_title_hover(self, e):
+        """标题栏悬停时刷新最大化按钮图标。"""
+        self._update_maximize_button()
+
+    def _update_maximize_button(self):
+        """重建窗口按钮行以刷新最大化/还原图标。"""
+        if not self.title_bar:
+            return
+        # bar_row 是 title_bar.content，controls[-3:] 是窗口按钮
+        bar_row = self.title_bar.content
+        new_ctrls = list(bar_row.controls)
+        # 重建窗口按钮段（最后 3 个：最小化、最大化、关闭）
+        max_idx = len(new_ctrls) - 2
+        if self.page.window.maximized:
+            new_ctrls[max_idx] = self._win_btn(
+                ft.Icons.FULLSCREEN_EXIT, self._maximize_window, "还原")
+        else:
+            new_ctrls[max_idx] = self._win_btn(
+                ft.Icons.CROP_SQUARE, self._maximize_window, "最大化")
+        bar_row.controls = new_ctrls
+        self.title_bar.update()
+
+    def _win_btn(self, icon, on_click, tooltip, hover_color=ft.Colors.GREY_800):
+        H = s(34); icon_sz = s(16); btn_w = s(36)
+        return ft.IconButton(
+            icon=icon, icon_size=icon_sz, icon_color=ft.Colors.WHITE,
+            width=btn_w, height=H,
+            style=ft.ButtonStyle(
+                bgcolor=ft.Colors.TRANSPARENT,
+                overlay_color=hover_color,
+                shape=ft.RoundedRectangleBorder(radius=0),
+            ),
+            mouse_cursor=ft.MouseCursor.BASIC,
+            tooltip=ft.Tooltip(message=tooltip, bgcolor="#202020",
+                               text_style=ft.TextStyle(color=ft.Colors.WHITE)),
+            on_click=on_click,
+        )
+
+    def _on_create_debug(self, e, bp):
+        print("[TitleBar] 新建任务 clicked", flush=True)
+        bp._on_create_task(e)
 
     def _minimize_window(self, e):
         self.page.window.minimized = True
