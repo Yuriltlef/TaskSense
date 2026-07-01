@@ -7,7 +7,6 @@ from pathlib import Path
 # Flet 依赖 ProactorEventLoop 启动子进程，不能换 Selector。
 # 错误出在 StreamWriter.__del__ 在事件循环关闭后才被 GC 调用。
 # 这里猴子补丁一下，忽略退出时的这个无害报错。
-import asyncio
 import asyncio.streams
 _original_del = asyncio.streams.StreamWriter.__del__
 def _safe_del(self):
@@ -30,6 +29,11 @@ _IS_CACHED = _MODEL_SNAPSHOTS.exists() and any(_MODEL_SNAPSHOTS.iterdir())
 if _IS_CACHED:
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+# ── 后台预加载嵌入模型 + 知识库 ──
+# 避免首次提问时等待模型加载（GPU 模型加载需 3-10 秒）
+from app.agent.preload import preload_async
+_preload_thread = preload_async()
 
 from app.ui.app import run
 

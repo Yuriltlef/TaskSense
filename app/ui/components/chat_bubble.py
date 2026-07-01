@@ -214,7 +214,9 @@ def error_bubble(
     """
     spans = parse_markdown_to_spans(error_text)
     plain = _spans_to_plain(spans)
-    bw = min(_line_max_width(plain) + PAD * 2 + 4, max_w)
+    # 确保最小宽度（极短文本不会导致换行异常）
+    text_w = max(_line_max_width(plain) + 20, 120)
+    bw = min(text_w + PAD * 2 + 4, max_w)
     _copy = on_copy or _noop_copy
     _reflash = on_refresh or _noop_refresh
 
@@ -233,7 +235,7 @@ def error_bubble(
                                 ft.Text("AI 响应出错", size=12, weight=ft.FontWeight.W_600,
                                         color=ERROR_HEADER_COLOR, font_family=_ff),
                             ], spacing=6),
-                            ft.Container(height=6),  # 标题与正文间距
+                            ft.Container(height=6),
                             ft.Text(spans=spans, selectable=True, style=_error_text_style),
                         ], spacing=0, tight=True),
                         width=bw,

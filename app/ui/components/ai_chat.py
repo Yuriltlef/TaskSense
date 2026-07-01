@@ -21,7 +21,10 @@ class AIChatPanel(ft.Container):
         self._chat: ft.ListView | None = None
         self._input: ChatInput | None = None
         self._busy = False
+        self._cancelled = False
         self._msg_pairs: list[tuple[str, str, str]] = []  # (user, ai, timestamp)
+        self._session_id = self._new_session()
+        self._strict_mode = False  # False=普通 True=严格
 
     @property
     def is_open(self): return self.visible
@@ -38,6 +41,20 @@ class AIChatPanel(ft.Container):
     def close(self):
         self.visible = False; self.update()
         if self._on_close: self._on_close()
+
+    @staticmethod
+    def _new_session() -> str:
+        import uuid
+        return uuid.uuid4().hex[:8]
+
+    def _reset_chat(self):
+        from app.ui.services.agent_service import AgentService
+        AgentService.clear_session(self._session_id)
+        self._session_id = self._new_session()
+        self._msg_pairs.clear()
+        if self._chat:
+            self._chat.controls.clear()
+            self._chat.update()
 
     def resize(self, delta: float):
         new_w = max(self.MIN_W, min(self.MAX_W, self.width - delta))
@@ -58,6 +75,9 @@ class AIChatPanel(ft.Container):
                 ft.Text("AI 助手", size=13, weight=ft.FontWeight.W_600,
                         color=theme.text_primary, font_family=ff),
                 ft.Container(expand=True),
+                ft.IconButton(ft.Icons.ADD_COMMENT_OUTLINED, icon_size=16,
+                              icon_color=theme.text_secondary, tooltip="新对话",
+                              on_click=lambda e: self._reset_chat()),
                 ft.IconButton(ft.Icons.CLOSE, icon_size=16, icon_color=theme.text_secondary,
                               on_click=lambda e: self.close()),
             ], spacing=8),
@@ -65,17 +85,36 @@ class AIChatPanel(ft.Container):
             border=ft.border.only(bottom=ft.BorderSide(1, theme.border)))
 
         self._chat = ft.ListView(
-            [self._welcome()],
-            spacing=10, expand=True,
+            [], spacing=10, expand=True,
             padding=ft.padding.only(left=12, top=10, right=12, bottom=10),
         )
 
-        self._input = ChatInput(on_send=self._handle_send)
+        self._input = ChatInput(on_send=self._handle_send, on_stop=self._handle_stop)
+
+        # 严格/普通模式标签（点击切换，单标签明确当前状态）
+        self._mode_label = ft.Text(
+            self._mode_text(), size=10, weight=ft.FontWeight.W_600,
+            color=theme.priority_cat_a if self._strict_mode else theme.info,
+            font_family=ff,
+        )
+        self._mode_btn = ft.Container(
+            ft.Row([
+                ft.Icon(ft.Icons.SHIELD_OUTLINED if self._strict_mode else ft.Icons.LANGUAGE_OUTLINED,
+                        size=12, color=self._mode_label.color),
+                self._mode_label,
+            ], spacing=4),
+            padding=ft.padding.only(left=8, top=4, right=8, bottom=4),
+            border_radius=theme.radius_sm,
+            border=ft.border.all(1, theme.border),
+            on_click=lambda e: self._toggle_mode(),
+            ink=True,
+        )
 
         inp = ft.Container(
             ft.Column([
                 self._input,
                 ft.Row([
+                    self._mode_btn,
                     self._chip("搜索知识库", ft.Icons.SEARCH, "/kb "),
                     self._chip("生成报告", ft.Icons.DESCRIPTION, "/report"),
                     ft.Container(expand=True),
@@ -98,18 +137,18 @@ class AIChatPanel(ft.Container):
             on_click=lambda e, c=cmd: (setattr(self._input, 'value', c), self._input.focus()),
             ink=True)
 
-    def _welcome(self):
-        ff = theme.font_family
-        return ft.Container(
-            ft.Column([
-                ft.Row([ft.Icon(ft.Icons.PSYCHOLOGY_OUTLINED, size=22, color=theme.type_removal_install),
-                        ft.Text("AI 助手已就绪", size=14, weight=ft.FontWeight.W_600,
-                                color=theme.text_primary, font_family=ff),
-                        ], spacing=8),
-                ft.Text("可以提问航空维护问题，我会检索知识库并结合 AI 推理回答。",
-                        size=11, color=theme.text_disabled, font_family=ff),
-            ], spacing=8),
-            padding=16, bgcolor=theme.card, border_radius=theme.radius_md)
+    def _mode_text(self) -> str:
+        return "严格模式" if self._strict_mode else "普通模式"
+
+    def _toggle_mode(self):
+        self._strict_mode = not self._strict_mode
+        self._mode_label.value = self._mode_text()
+        self._mode_label.color = theme.priority_cat_a if self._strict_mode else theme.info
+        self._mode_btn.content.controls[0].name = (
+            ft.Icons.SHIELD_OUTLINED if self._strict_mode else ft.Icons.LANGUAGE_OUTLINED
+        )
+        self._mode_btn.content.controls[0].color = self._mode_label.color
+        self._mode_btn.update()
 
     # ═══════════════════════════════════════════════
     # 气泡宽度（跟随面板宽度）
@@ -117,25 +156,23 @@ class AIChatPanel(ft.Container):
 
     @staticmethod
     def _is_error(text: str) -> bool:
-        """检测是否为错误消息。"""
         return (
             text.startswith("Error:")
             or text.startswith("[Error]")
             or "**AI 不可用**" in text
+            or "**AI 正在初始化**" in text
+            or text == "回答已中断"
         )
 
     @property
     def _max_w(self) -> float:
-        """气泡可用最大宽度。"""
         return max(200.0, (self.width or 520) - 32)
 
     def _rebuild_bubbles(self):
-        """面板宽度变化时重建所有气泡。"""
         if not self._chat or not self._msg_pairs:
             return
         mw = self._max_w
-        # 保留欢迎消息，替换后面的气泡
-        controls = [self._chat.controls[0]]  # welcome
+        controls = []
         for u, a, ts in self._msg_pairs:
             controls.append(timestamp_label(ts))
             controls.append(user_bubble(u, mw, on_copy=self._copy, on_refresh=self._refresh))
@@ -147,14 +184,12 @@ class AIChatPanel(ft.Container):
         self._chat.controls = controls
 
     async def _scroll_to_bottom_async(self):
-        """等 UI 刷新后滚到底部。"""
         import asyncio
         await asyncio.sleep(0.08)
         if self._chat and self._chat.controls:
             self._chat.scroll_to(offset=-1, duration=200)
 
     def _scroll_to_bottom(self):
-        """sync 入口：通过 run_task 调度异步滚动。"""
         if self.page:
             self.page.run_task(self._scroll_to_bottom_async)
 
@@ -162,21 +197,40 @@ class AIChatPanel(ft.Container):
         if self.page:
             self.page.set_clipboard(text)
 
+    def _model_ready(self) -> bool:
+        from app.agent.preload import is_preload_done
+        return is_preload_done()
+
+    # ═══════════════════════════════════════════════
+    # 发送 / 中断
+    # ═══════════════════════════════════════════════
+
     def _handle_send(self, txt: str):
-        """ChatInput 回调：接收已提取的文本。"""
         if self._busy:
             return
-        self._busy = True
-        self._input.clear()
 
         mw = self._max_w
         ts = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-        # 用户气泡
+        # 模型未就绪
+        if not self._model_ready():
+            self._chat.controls.append(timestamp_label(ts))
+            self._chat.controls.append(user_bubble(txt, mw, on_copy=self._copy, on_refresh=self._refresh))
+            self._chat.controls.append(error_bubble(
+                "**AI 正在初始化**\n\n嵌入模型仍在加载中，请稍后再试。", mw))
+            self._input.clear()
+            self._chat.update()
+            self._scroll_to_bottom()
+            return
+
+        self._busy = True
+        self._cancelled = False
+        self._input.set_busy(True)
+        self._input.clear()
+
         self._chat.controls.append(timestamp_label(ts))
         self._chat.controls.append(user_bubble(txt, mw, on_copy=self._copy, on_refresh=self._refresh))
 
-        # 加载指示（靠左）
         load = ft.Row([
             ft.Container(
                 ft.Row([ft.ProgressRing(width=14, height=14, stroke_width=2, color=theme.info),
@@ -189,15 +243,19 @@ class AIChatPanel(ft.Container):
         self._chat.controls.append(load)
         load_idx = len(self._chat.controls) - 1
 
-        # 强制页面刷新 + 滚到底部，确保用户气泡立即出现
         self.page.update()
         self._scroll_to_bottom()
 
         self._txt, self._ts, self._load_idx = txt, ts, load_idx
         self.page.run_task(self._process)
 
+    def _handle_stop(self):
+        """用户点击中止按钮 — 立即通知后台线程停止。"""
+        self._cancelled = True
+        if hasattr(self, '_cancel_event') and self._cancel_event:
+            self._cancel_event.set()
+
     def _refresh(self, e):
-        """重新生成：取出上一条用户消息重新发送。"""
         if self._busy or not self._msg_pairs:
             return
         last_user = self._msg_pairs[-1][0]
@@ -206,43 +264,69 @@ class AIChatPanel(ft.Container):
 
     async def _process(self):
         txt, ts, idx = self._txt, self._ts, self._load_idx
-        self._busy = False
+        import asyncio, concurrent.futures, threading
 
-        # 将所有阻塞工作（RAG 检索 + LLM 调用）移到线程池，
-        # 释放事件循环以处理窗口拖拽、面板缩放、动画等 UI 事件。
-        import asyncio
+        cancel_event = threading.Event()
+        self._cancel_event = cancel_event
+
+        # 在线程池执行阻塞工作，但不阻塞事件循环
+        loop = asyncio.get_running_loop()
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = loop.run_in_executor(executor, self._do_work, txt, cancel_event)
+
+        # 轮询等待，每 0.15s 检查一次取消标志
+        r = None
         try:
-            r = await asyncio.to_thread(self._do_work, txt)
+            while not future.done():
+                await asyncio.sleep(0.15)
+                if self._cancelled:
+                    cancel_event.set()
+                    # future 仍在运行但结果被丢弃
+                    r = "回答已中断"
+                    break
+            if r is None:
+                r = future.result()
         except Exception as ex:
             r = f"Error: {ex}"
+        finally:
+            executor.shutdown(wait=False)
 
         # 移除加载指示
         if idx < len(self._chat.controls):
             self._chat.controls.pop(idx)
 
-        # 添加 AI / 错误气泡
+        # 添加气泡
         mw = self._max_w
         bubble = error_bubble(r, mw, on_copy=self._copy, on_refresh=self._refresh) \
             if self._is_error(r) \
             else ai_bubble(r, mw, on_copy=self._copy, on_refresh=self._refresh)
         self._chat.controls.append(bubble)
         self._msg_pairs.append((txt, r, ts))
+
+        self._busy = False
+        self._cancel_event = None
+        self._input.set_busy(False)
         self._chat.update()
         await self._scroll_to_bottom_async()
 
-    def _do_work(self, txt: str) -> str:
-        """所有同步阻塞工作：命令路由 + RAG 检索 + LLM 调用。"""
+    def _do_work(self, txt: str, cancel_event) -> str:
         from app.ui.services.agent_service import AgentService
+        if cancel_event.is_set():
+            return "回答已中断"
         if txt.startswith("/report"): return AgentService.get_daily_report()
         elif txt.startswith("/kb "): return AgentService.search_knowledge(txt[4:])
         elif txt.startswith("/compliance"): return "合规检查: 符合 AD/SB。"
         elif txt.startswith("/summary"): return AgentService.get_board_summary()
-        else: return self._ask(txt)
+        else: return self._ask(txt, cancel_event)
 
-    def _ask(self, q: str) -> str:
+    def _ask(self, q: str, cancel_event) -> str:
         from app.config.settings_manager import SettingsManager
         if not SettingsManager().load()["llm"].get("api_key"):
             return ("**AI 不可用**\n\n未配置 LLM API Key。\n请在设置中配置。\n\n"
                     "本地命令: /kb /report /compliance /summary")
-        from app.agent.orchestrator import agent
-        return agent.ask(q)
+        if cancel_event.is_set():
+            return "回答已中断"
+
+        from app.ui.services.agent_service import AgentService
+        return AgentService.ask(q, self._session_id, strict=self._strict_mode,
+                               cancel_event=cancel_event)

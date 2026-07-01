@@ -314,8 +314,8 @@ class BoardPage:
     def _on_create_task(self, e): self._dlg_create()
 
     def _on_settings_click(self, e):
-        from app.ui.pages.settings_window import open_settings_window
-        open_settings_window()
+        from app.ui.pages.settings_window import SettingsOverlay
+        SettingsOverlay.open(self._page)
 
     def _on_filter_click(self, e):
         f = board_service.get_board().filters

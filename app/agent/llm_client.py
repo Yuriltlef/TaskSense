@@ -63,11 +63,18 @@ class LLMClient:
         return int(self._get_settings().get("max_tokens", 4096))
 
     def chat(self, system_prompt: str, user_message: str) -> str:
-        """发送聊天请求。
+        """发送单轮聊天请求（遗留接口）。"""
+        return self.chat_messages([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ])
+
+    def chat_messages(self, messages: list[dict]) -> str:
+        """发送多轮对话请求。
 
         Args:
-            system_prompt: 系统提示词
-            user_message: 用户消息
+            messages: [{"role": "...", "content": "..."}, ...]
+                      支持 system/user/assistant/tool 角色
 
         Returns:
             LLM 回复文本，或 [Error] 前缀的错误消息
@@ -79,10 +86,7 @@ class LLMClient:
         try:
             response = client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
+                messages=messages,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
             )
