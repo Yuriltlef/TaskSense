@@ -1,7 +1,5 @@
 """Agent 工具 — RAG 知识库检索."""
 
-from typing import Optional
-
 from langchain.tools import tool
 
 # 全局知识库流水线（延迟初始化）

@@ -197,7 +197,7 @@ class HybridRetriever:
                                 "source": "bm25",
                             })
                     bm_results.sort(key=lambda x: x["score"], reverse=True)
-                    bm_lists.append(bm_results)
+                    bm25_lists.append(bm_results)
             except Exception:
                 pass
 

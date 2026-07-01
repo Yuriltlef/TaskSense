@@ -2,7 +2,6 @@
 
 import re
 from pathlib import Path
-from typing import Optional
 
 from app.agent.conversation import Conversation
 from app.core.state import state
