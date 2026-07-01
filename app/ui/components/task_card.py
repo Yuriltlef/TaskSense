@@ -131,4 +131,7 @@ class TaskCard(ft.Container):
             self.shadow = ft.BoxShadow(spread_radius=0, blur_radius=4,
                                        color="#00000030", offset=ft.Offset(0, 1))
             self.scale = 1.0
-        self.update()
+        try:
+            self.update()
+        except AssertionError:
+            pass  # 拖拽中看板刷新后旧卡片已移出页面

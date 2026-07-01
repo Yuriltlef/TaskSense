@@ -79,8 +79,10 @@ class TaskService:
         if not task:
             raise BusinessRuleError(f"任务 '{task_id}' 不存在", "TASK_NOT_FOUND")
 
-        columns = self.state.get_columns()
-        TaskValidators.validate_transition(task, to_column, columns)
+        # 同列重排序不改变状态，跳过状态转换校验
+        if task.status.value != to_column:
+            columns = self.state.get_columns()
+            TaskValidators.validate_transition(task, to_column, columns)
 
         return self.state.move_task(task_id, to_column, index, changed_by)
 
