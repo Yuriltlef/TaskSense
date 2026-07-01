@@ -42,7 +42,11 @@ class VectorStore:
         coll = self.get_collection(collection or self.collection_name)
         ids = [str(uuid.uuid4()) for _ in chunks]
         texts = [c["text"] for c in chunks]
-        metadatas = [c["metadata"] for c in chunks]
+        # ChromaDB Rust backend 不接受 None 值，需清洗
+        metadatas = [
+            {k: v for k, v in c["metadata"].items() if v is not None}
+            for c in chunks
+        ]
 
         batch_size = 500
         for i in range(0, len(chunks), batch_size):
