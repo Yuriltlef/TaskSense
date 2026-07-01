@@ -288,7 +288,7 @@ def main():
     # ── Collection cleanup ──
     if args.cleanup:
         from app.knowledge.store import VectorStore
-        store = VectorStore(str(PROJECT / "data" / "vector_store"))
+        store = VectorStore(str(_PROJECT_DIR / "data" / "vector_store"))
         known = {"kb_static", "kb_live"}
         all_colls = store.list_collections()
         orphaned = [c for c in all_colls if c not in known]
