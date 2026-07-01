@@ -17,7 +17,8 @@ def get_pipeline():
 
 
 @tool
-def search_knowledge_base(query: str, top_k: int = 5) -> str:
+def search_knowledge_base(query: str, top_k: int = 5,
+                          doc_type: str = "") -> str:
     """搜索航空维护知识库。
 
     可查找:
@@ -28,6 +29,7 @@ def search_knowledge_base(query: str, top_k: int = 5) -> str:
     Args:
         query: 搜索关键词或问题（中文或英文）
         top_k: 返回结果数（默认 5）
+        doc_type: 文档类型过滤（可选：amm/fim/ad/ac/amt_handbook/sb/regulation/textbook）
     """
     pipeline = get_pipeline()
 
@@ -37,7 +39,10 @@ def search_knowledge_base(query: str, top_k: int = 5) -> str:
     if total_chunks == 0:
         return "知识库为空。请先运行: python scripts/build_kb.py embed --force"
 
-    results = pipeline.search(query, top_k=top_k)
+    results = pipeline.search(
+        query, top_k=top_k,
+        doc_type=doc_type if doc_type else None,
+    )
     if not results:
         return f"未找到与 '{query}' 相关的内容"
 
@@ -46,10 +51,23 @@ def search_knowledge_base(query: str, top_k: int = 5) -> str:
         meta = r.get("metadata", {})
         src = meta.get("filename", "未知")
         ata = meta.get("ata_chapter", "")
+        dtype = meta.get("doc_type", "")
+        pg = meta.get("page_start", "")
+        chapter = meta.get("chapter")
         score = r.get("score", 0)
         text = r.get("text", "")[:300]
 
-        tag = f" [ATA {ata}]" if ata else ""
+        tags = []
+        if ata:
+            tags.append(f"ATA {ata}")
+        if dtype:
+            tags.append(dtype)
+        if chapter is not None:
+            tags.append(f"第{chapter}章")
+        if pg:
+            pg_tag = f"第{pg}页" if pg == meta.get("page_end", "") else f"第{pg}-{meta.get('page_end','')}页"
+            tags.append(pg_tag)
+        tag = f" [{', '.join(tags)}]" if tags else ""
         lines.append(
             f"\n--- 结果 {i} (相关度: {score:.0%}, 来源: {src}{tag}) ---\n{text}..."
         )

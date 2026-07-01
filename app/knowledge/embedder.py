@@ -20,6 +20,7 @@ class Embedder:
     """文本向量化器。默认 BAAI/bge-m3，离线加载，自动 CUDA/MPS/CPU。"""
 
     QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
+    DOC_INSTRUCTION = "Represent this document for retrieval: "
 
     def __init__(self, model_name: str = "BAAI/bge-m3", local_files_only: bool = True):
         self.model_name = model_name
@@ -69,6 +70,10 @@ class Embedder:
 
         if batch_size is None:
             batch_size = self._auto_batch_size()
+
+        # BGE models benefit from document-side instruction prefix
+        if self._is_bge:
+            texts = [self.DOC_INSTRUCTION + t for t in texts]
 
         if self._device == "cuda":
             import torch

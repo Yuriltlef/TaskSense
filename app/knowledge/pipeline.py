@@ -29,6 +29,8 @@ class KnowledgePipeline:
         self.retriever = HybridRetriever(
             self.store, self.embedder, self.DEFAULT_COLLECTIONS)
 
+    # ── 构建 ──
+
     def build_knowledge_base(self, force: bool = False,
                              collection: str = "kb_static") -> dict:
         """构建/重建知识库。
@@ -84,6 +86,9 @@ class KnowledgePipeline:
         embeddings = self.embedder.embed_documents(texts)
         added = self.store.add_chunks(all_chunks, embeddings, collection)
 
+        # 新数据入库后清除 BM25 缓存
+        self.retriever.invalidate_bm25(collection)
+
         return {
             "status": "built",
             "collection": collection,
@@ -105,14 +110,65 @@ class KnowledgePipeline:
             for t, m in zip(texts, metadatas)
         ]
         embeddings = self.embedder.embed_documents(texts)
-        return self.store.add_chunks(chunks, embeddings, "kb_live")
+        added = self.store.add_chunks(chunks, embeddings, "kb_live")
+        self.retriever.invalidate_bm25("kb_live")
+        return added
+
+    # ── 检索 ──
 
     def search(self, query: str, top_k: int = 10,
                collections: list[str] = None,
-               ata_filter: str = None) -> list[dict]:
-        """多源检索。"""
-        return self.retriever.retrieve(
-            query, top_k, collections, ata_filter)
+               ata_filter: str = None,
+               doc_type: str = None,
+               expand_query: bool = True) -> list[dict]:
+        """多源混合检索。
+
+        Args:
+            query: 查询文本
+            top_k: 返回结果数
+            collections: 指定搜索的 collection 列表
+            ata_filter: ATA 章节前缀过滤（如 "32"）
+            doc_type: 文档类型过滤（如 "amm", "amt_handbook"）
+            expand_query: 是否启用简单查询扩展
+        """
+        results = self.retriever.retrieve(
+            query, top_k, collections, ata_filter, doc_type)
+
+        # 简单查询扩展：结果太少时尝试扩大搜索
+        if expand_query and len(results) < 3:
+            expanded = self._expand_query(query)
+            if expanded != query:
+                extra = self.retriever.retrieve(
+                    expanded, top_k, collections, ata_filter, doc_type)
+                # 合并去重
+                seen_texts = {r["text"][:120] for r in results}
+                for r in extra:
+                    if r["text"][:120] not in seen_texts:
+                        results.append(r)
+                        seen_texts.add(r["text"][:120])
+                # 重新排序
+                results.sort(key=lambda x: x["score"], reverse=True)
+                results = results[:top_k]
+
+        return results
+
+    @staticmethod
+    def _expand_query(query: str) -> str:
+        """简单查询扩展：去除 ATA 编号重试，短查询补全上下文。"""
+        import re
+        # 如果包含 ATA 编号，剥离后重试
+        ata_match = re.search(r"\d{2}[-.]?\d{2}[-.]?\d{2}", query)
+        if ata_match:
+            bare = query[:ata_match.start()] + query[ata_match.end():]
+            bare = re.sub(r"\s+", " ", bare).strip()
+            if len(bare) > 5:
+                return bare
+        # 短查询补充领域上下文
+        if len(query) < 10:
+            return f"aviation maintenance {query}"
+        return query
+
+    # ── 统计 ──
 
     def get_stats(self) -> dict:
         """所有 collection 统计。"""

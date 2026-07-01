@@ -81,6 +81,44 @@ class VectorStore:
             })
         return items
 
+    def get_all_chunks(self, collection: str = None) -> list[dict]:
+        """获取 collection 中所有 chunk（文本+元数据，不含向量）。
+
+        用于 BM25 索引构建等全文检索场景。
+        """
+        coll = self.get_collection(collection or self.collection_name)
+        n = coll.count()
+        if n == 0:
+            return []
+        # ChromaDB get limit 问题 — 分批获取
+        all_chunks = []
+        offset = 0
+        batch = 2000
+        while offset < n:
+            result = coll.get(
+                limit=min(batch, n - offset),
+                offset=offset,
+                include=["documents", "metadatas"],
+            )
+            if not result["ids"]:
+                break
+            for i in range(len(result["ids"])):
+                all_chunks.append({
+                    "id": result["ids"][i],
+                    "text": result["documents"][i] or "",
+                    "metadata": result["metadatas"][i] or {},
+                })
+            offset += batch
+        return all_chunks
+
+    def delete_collection(self, name: str) -> bool:
+        """删除指定 collection。不存在时静默返回 False。"""
+        try:
+            self.client.delete_collection(name)
+            return True
+        except Exception:
+            return False
+
     def count(self, collection: str = None) -> int:
         try:
             return self.get_collection(collection or self.collection_name).count()

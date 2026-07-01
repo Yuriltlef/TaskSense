@@ -37,14 +37,26 @@ class PDFLoader:
         return docs
 
     def load_file(self, filepath: Path) -> Optional[dict]:
-        """加载单个 PDF 文件。"""
+        """加载单个 PDF 文件。
+
+        Returns:
+            {filename, title, text, pages, page_starts, filepath, size_bytes}
+            page_starts: list[int] — 每页在 full_text 中的起始字符偏移
+        """
         try:
             reader = PdfReader(str(filepath))
             text_parts = []
+            page_starts = []  # 每页在全文中起始位置
+            offset = 0
+
             for page_num, page in enumerate(reader.pages):
                 page_text = page.extract_text()
                 if page_text:
-                    text_parts.append(page_text.strip())
+                    cleaned = page_text.strip()
+                    text_parts.append(cleaned)
+                    page_starts.append(offset)
+                    offset += len(cleaned) + 2  # +2 for "\n\n"
+                # 空页也记录但 offset 不变
 
             full_text = "\n\n".join(text_parts)
 
@@ -60,6 +72,7 @@ class PDFLoader:
                 "title": title,
                 "text": full_text,
                 "pages": len(reader.pages),
+                "page_starts": page_starts,
                 "filepath": str(filepath),
                 "size_bytes": filepath.stat().st_size,
             }

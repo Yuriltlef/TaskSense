@@ -86,21 +86,74 @@ class AgentOrchestrator:
             coll = r.get("collection", "")
             score = r.get("score", 0)
             text = r.get("text", "")[:1200]
+            # 位置信息
+            loc = ""
+            pg = meta.get("page_start", "")
+            if pg:
+                loc += f" 第{pg}页" if pg == meta.get("page_end", "") else f" 第{pg}-{meta.get('page_end','')}页"
+            ata = meta.get("ata_chapter", "")
+            if ata:
+                loc += f" ATA {ata}"
             tag = f"[{coll}] " if coll else ""
             lines.append(
-                f"--- 来源 {i}: {tag}{src} (相关度 {score:.0%}) ---\n{text}...\n")
+                f"--- 来源 {i}: {tag}{src}{loc} (相关度 {score:.0%}) ---\n{text}...\n")
         return "\n".join(lines)
 
     def _llm_answer(self, question: str, results: list[dict], llm_client) -> str:
-        """LLM 基于 RAG 上下文推理回答，附引用。"""
-        # 构建上下文（带编号引用）
+        """LLM 基于 RAG 上下文推理回答，附引用。
+
+        上下文按 token 预算分配：高分 chunk 优先获得更多配额。
+        """
+        TOKEN_BUDGET = 6000   # 留给检索上下文的 token 预算
+        CHAR_PER_TOKEN = 1.8  # 中英混合保守估算
+
+        # 按分数降序排列
+        chunks_sorted = sorted(results, key=lambda r: r["score"], reverse=True)
+
         context_parts = []
-        for i, r in enumerate(results, 1):
+        used_chars = 0
+        max_chars = int(TOKEN_BUDGET * CHAR_PER_TOKEN)
+
+        for i, r in enumerate(chunks_sorted, 1):
             meta = r.get("metadata", {})
             src = meta.get("filename", "?")
+            ata = meta.get("ata_chapter", "")
+            section_title = meta.get("section_title", "")
+            chapter = meta.get("chapter")
+            section = meta.get("section")
+            pg_start = meta.get("page_start", "")
+            pg_end = meta.get("page_end", "")
             coll = r.get("collection", "")
-            text = r.get("text", "")[:2000]
-            context_parts.append(f"[{i}] 来源: {src} ({coll})\n{text}")
+            text = r.get("text", "")
+
+            # 构建详细来源描述
+            location_parts = [src]
+            if chapter is not None:
+                loc = f"第{chapter}章"
+                if section:
+                    loc += f" 第{section}节"
+                location_parts.append(loc)
+            elif section_title:
+                location_parts.append(f"「{section_title[:80]}」")
+            if ata:
+                location_parts.append(f"ATA {ata}")
+            if pg_start:
+                page_info = f"第{pg_start}页" if pg_start == pg_end else f"第{pg_start}-{pg_end}页"
+                location_parts.append(page_info)
+            location_parts.append(f"({coll})")
+
+            header = f"[{i}] 来源: {' · '.join(location_parts)}\n"
+            header_len = len(header)
+
+            remaining = max_chars - used_chars - header_len
+            if remaining <= 100:
+                break
+
+            if len(text) > remaining:
+                text = text[:remaining] + "..."
+
+            context_parts.append(header + text)
+            used_chars += header_len + len(text)
 
         context = "\n\n".join(context_parts)
 
@@ -110,16 +163,32 @@ class AgentOrchestrator:
             "1. 简洁回答核心问题（定义/解释/步骤）\n"
             "2. 补充详细说明（如有）\n"
             "3. 正文中用 [1] [2] 标注引用\n"
-            "4. 末尾用精确格式列出参考：\n"
+            "4. 末尾用精确格式列出参考来源，包含文件、章节、页码：\n"
             "---REFERENCES---\n"
-            "1 | 文件名 | 相关度%\n"
-            "2 | 文件名 | 相关度%\n\n"
+            "1 | 文件名 | 章节 | 页码 | 相关度%\n"
+            "2 | 文件名 | 章节 | 页码 | 相关度%\n\n"
             "用中文回答。知识库不足时如实说明。"
         )
 
+        def _fmt_ref(r):
+            meta = r.get("metadata", {})
+            src = meta.get("filename", "?")
+            ch = meta.get("chapter", "")
+            sec = meta.get("section", "")
+            chap_sec = ""
+            if ch is not None:
+                chap_sec = f"第{ch}章"
+                if sec:
+                    chap_sec += f" 第{sec}节"
+            pg = meta.get("page_start", "")
+            if pg and meta.get("page_end") != pg:
+                pg = f"{pg}-{meta.get('page_end', '')}"
+            score = f"{r.get('score', 0):.0%}"
+            return f"{src} | {chap_sec} | {pg} | {score}"
+
         scores = "\n".join(
-            f"{i+1} | {r.get('metadata',{}).get('filename','?')} | {r.get('score',0):.0%}"
-            for i, r in enumerate(results))
+            f"{i+1} | {_fmt_ref(r)}"
+            for i, r in enumerate(chunks_sorted[:len(context_parts)]))
 
         user_msg = (
             f"【知识库检索结果】\n{context}\n\n"
@@ -129,7 +198,7 @@ class AgentOrchestrator:
 
         resp = llm_client.chat(system, user_msg)
         if resp.startswith("[Error]"):
-            fallback = self._format_rag_results(question, results)
+            fallback = self._format_rag_results(question, chunks_sorted[:len(context_parts)])
             return (
                 f"[Error] LLM 调用失败，已回退至知识库检索结果。\n\n"
                 f"错误详情：{resp}\n\n"

@@ -57,6 +57,21 @@ class TestAgentOrchestrator:
         assert agent._guess_ata("landing gear issue") == "32"
         assert agent._guess_ata("unknown thing") == ""
 
+    def test_search_with_doc_type(self):
+        """搜索支持 doc_type 参数。"""
+        pipeline = KnowledgePipeline()
+        results = pipeline.search("maintenance", top_k=3, doc_type="amm")
+        assert isinstance(results, list)
+
+    def test_query_expansion(self):
+        """查询扩展逻辑。"""
+        # 包含 ATA 编号 → 剥离后重试
+        expanded = KnowledgePipeline._expand_query("32-41-03 landing gear check")
+        assert "32-41-03" not in expanded
+        # 短查询 → 补充上下文
+        short = KnowledgePipeline._expand_query("fuel")
+        assert "aviation" in short.lower()
+
     def test_compliance_check(self):
         from app.agent.orchestrator import agent
         from app.core.state import state

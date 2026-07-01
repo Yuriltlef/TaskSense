@@ -263,12 +263,30 @@ def main():
     parser.add_argument("--collection", default="kb_static",
                         choices=["kb_static", "kb_live"],
                         help="Which collection to build (default: kb_static)")
+    parser.add_argument("--cleanup", action="store_true",
+                        help="Remove orphaned/duplicate collections before building")
     args = parser.parse_args()
 
     t0 = time.time()
     print("=" * 60)
     print("  TaskSense — Knowledge Base Builder")
     print("=" * 60)
+
+    # ── Collection cleanup ──
+    if args.cleanup:
+        from app.knowledge.store import VectorStore
+        store = VectorStore(str(PROJECT / "data" / "vector_store"))
+        known = {"kb_static", "kb_live"}
+        all_colls = store.list_collections()
+        orphaned = [c for c in all_colls if c not in known]
+        if orphaned:
+            header("Collection Cleanup")
+            for c in orphaned:
+                n = store.count(c)
+                store.delete_collection(c)
+                secho(f"  [DEL] {c} ({n} chunks)")
+        else:
+            secho("  [OK] No orphaned collections.")
 
     ok = True
     if args.command in ("extract", "build"):

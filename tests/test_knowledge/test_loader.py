@@ -77,20 +77,22 @@ class TestTextChunker:
     def test_chunk_with_ata(self):
         from app.knowledge.chunker import TextChunker
 
-        chunker = TextChunker()
+        chunker = TextChunker(chunk_size=500, chunk_overlap=80)
+        # 需要 ≥3 个不同 ATA 标签 + 每段 ≥500 chars
+        section_body = "Detailed maintenance procedures for the specified ATA chapter. "
+        section = "ATA {code} Maintenance Section\n" + section_body * 35 + "\n"
         doc = {
             "text": (
-                "ATA 32-41-03 Landing Gear Maintenance\n"
-                "This section covers nose gear procedures.\n"
-                "ATA 32-41-04 Brake System\n"
-                "This section covers brake maintenance.\n"
-            ) * 10,
+                section.format(code="32-41-03")
+                + section.format(code="32-41-04")
+                + section.format(code="32-41-05")
+            ),
             "filename": "amm.pdf",
             "title": "AMM",
         }
         chunks = chunker.chunk_document(doc)
         assert len(chunks) > 0
-        # 应该识别出 ATA 章节
+        # 应该识别出 ATA 章节标签
         ata_chunks = [c for c in chunks if c["metadata"].get("ata_chapter")]
         assert len(ata_chunks) > 0
 
