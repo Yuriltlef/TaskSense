@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import flet as ft
-from app.config.theme import theme
+from app.config.theme import theme, s
 from app.ui.components.chat_bubble import user_bubble, ai_bubble, error_bubble, timestamp_label
 from app.ui.components.chat_input import ChatInput
 
@@ -117,9 +117,10 @@ class AIChatPanel(ft.Container):
                     self._mode_btn,
                     self._chip("搜索知识库", ft.Icons.SEARCH, "/kb "),
                     self._chip("生成报告", ft.Icons.DESCRIPTION, "/report"),
-                    ft.Container(expand=True),
-                ], spacing=8),
-            ], spacing=10),
+                    self._chip("看板摘要", ft.Icons.DASHBOARD, "/summary"),
+                    self._chip("合规检查", ft.Icons.VERIFIED_USER, "/compliance"),
+                ], spacing=s(6), wrap=True),
+            ], spacing=s(8)),
             padding=ft.padding.only(left=14, top=10, right=14, bottom=12),
             border=ft.border.only(top=ft.BorderSide(1, theme.border)))
 

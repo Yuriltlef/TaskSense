@@ -154,7 +154,6 @@ def phase_extract(workers: int = DEFAULT_WORKERS):
                     secho(f"    {bar(done, len(pdf_files))} [{done}/{len(pdf_files)}] EMPTY {name}")
         except json.JSONDecodeError:
             secho(f"  Worker {i+1} returned invalid JSON: {out[:200]}")
-
     manifest_path = out_dir / "manifest.json"
     manifest_path.write_text(json.dumps({
         "total_files": len(pdf_files), "extracted": processed,

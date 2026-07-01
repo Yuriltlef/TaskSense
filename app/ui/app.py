@@ -3,7 +3,7 @@
 import os
 import flet as ft
 
-from app.config.theme import theme, SCALE
+from app.config.theme import theme, SCALE, s
 
 
 class TaskSenseApp:
@@ -11,7 +11,7 @@ class TaskSenseApp:
         self.page: ft.Page | None = None
         self.board_page = None
         self.title_bar: ft.Container | None = None
-        self.bar_button_row: ft.Container | None = None
+        self.bar_button_row: ft.Row | None = None
 
     def main(self, page: ft.Page):
         self.page = page
@@ -30,6 +30,7 @@ class TaskSenseApp:
         self.board_page.load_demo_data()
 
         self.main_content.content = self.board_page.build(page)
+        self._build_unified_title_bar()
         self._setup_keyboard(page)
         page.update()
 
@@ -39,7 +40,7 @@ class TaskSenseApp:
             Toast.show(page, "API Key 未配置，AI 功能不可用。请在设置中配置 LLM API Key。", "warning", 0)
 
     def _setup_window(self):
-        self.page.title = "TaskSense — 航空维护智能看板"
+        self.page.title = "TaskSense"
         self.page.theme_mode = ft.ThemeMode.DARK
 
         self.page.window.frameless = False
@@ -70,26 +71,23 @@ class TaskSenseApp:
     # ═══════════════════════════════
 
     def _create_ui(self):
-        self.bar_button_row = self._create_bar_button_row()
-        self.title_bar = self._create_title_bar()
         self.main_content = ft.Container(expand=True, bgcolor=theme.bg)
 
         self.main_container = ft.Container(
             content=ft.Column([
-                self.title_bar,
                 self.main_content,
                 ft.Container(
-                    height=round(24 * SCALE),
+                    height=s(20),
                     bgcolor=theme.surface,
                     border=ft.border.only(
                         top=ft.BorderSide(width=1, color=theme.border)),
                     content=ft.Row([
                         ft.Text(
-                            "  Ctrl+K  命令面板  |  点击卡片查看详情  |  拖拽移动任务  |  Esc 关闭面板",
-                            size=theme.font_xs, color=theme.text_disabled,
+                            "  Ctrl+K 命令面板 | 点击卡片查看详情 | 拖拽移动任务 | Esc 关闭面板",
+                            size=s(10), color=theme.text_disabled,
                             font_family=theme.font_family),
                     ]),
-                    padding=ft.padding.only(left=theme.pad_md, top=round(4 * SCALE)),
+                    padding=ft.padding.only(left=theme.pad_md, top=s(2)),
                 ),
             ], expand=True, spacing=0),
             bgcolor=ft.Colors.TRANSPARENT,
@@ -98,107 +96,147 @@ class TaskSenseApp:
         self.page.add(self.main_container)
 
     # ═══════════════════════════════
-    # 标题栏
+    # 统一标题栏 — 所有控件合并到一条
     # ═══════════════════════════════
 
-    def _create_title_bar(self):
-        """标题栏。"""
-        return ft.Container(
-            content=ft.Row([
-                ft.WindowDragArea(
-                    ft.GestureDetector(
-                        content=ft.Container(
-                            content=ft.Row([
-                                ft.Text("✈", size=theme.font_lg),
-                                ft.Text("TaskSense", size=theme.font_sm,
-                                        weight=ft.FontWeight.W_600,
-                                        color=ft.Colors.WHITE,
-                                        font_family=theme.font_family),
-                                ft.Text("— 航空维护智能看板", size=theme.font_xs,
-                                        color=ft.Colors.GREY_500,
-                                        font_family=theme.font_family),
-                                ft.Container(expand=True),
-                            ], spacing=theme.spacing_sm),
-                            expand=True, height=50,
-                            padding=ft.padding.only(left=theme.pad_lg),
-                            bgcolor=theme.surface,
-                            on_hover=self._update_title_bar,
-                        ),
-                        on_double_tap=self._on_title_double_tap,
-                    ),
-                    expand=True,
-                    on_hover=self._update_title_bar,
+    def _build_unified_title_bar(self):
+        """合并标题栏：✈ | 新建 | 刷新 | 过滤 | 搜索 | AI | 设置 | 用户 | 缩小 | 全屏 | 关闭"""
+        bp = self.board_page
+        ff = theme.font_family
+        H = s(34)          # 统一高度
+        icon_sz = s(16)    # 统一图标大小
+        btn_w = s(36)      # 图标按钮宽度
+
+        # ── 工具按钮工厂 ──
+        def icon_btn(icon, on_click, tooltip, icon_color=ft.Colors.GREY_400):
+            return ft.IconButton(
+                icon=icon, icon_size=icon_sz, icon_color=icon_color,
+                width=btn_w, height=H,
+                style=ft.ButtonStyle(
+                    bgcolor=ft.Colors.TRANSPARENT,
+                    overlay_color="#2a2a2a",
+                    shape=ft.RoundedRectangleBorder(radius=0),
                 ),
-                self.bar_button_row,
-            ], spacing=0),
-            height=37,
+                tooltip=ft.Tooltip(message=tooltip, bgcolor="#202020",
+                                   text_style=ft.TextStyle(color=ft.Colors.WHITE)),
+                on_click=on_click,
+            )
+
+        # ── 窗口按钮工厂 ──
+        def win_btn(icon, on_click, tooltip, hover_color=ft.Colors.GREY_800):
+            return ft.IconButton(
+                icon=icon, icon_size=icon_sz, icon_color=ft.Colors.WHITE,
+                width=btn_w, height=H,
+                style=ft.ButtonStyle(
+                    bgcolor=ft.Colors.TRANSPARENT,
+                    overlay_color=hover_color,
+                    shape=ft.RoundedRectangleBorder(radius=0),
+                ),
+                mouse_cursor=ft.MouseCursor.BASIC,
+                tooltip=ft.Tooltip(message=tooltip, bgcolor="#202020",
+                                   text_style=ft.TextStyle(color=ft.Colors.WHITE)),
+                on_click=on_click,
+            )
+
+        # ── 最大化按钮（动态图标）──
+        def max_btn():
+            if self.page and self.page.window.maximized:
+                return win_btn(ft.Icons.FULLSCREEN_EXIT, self._maximize_window, "还原")
+            return win_btn(ft.Icons.CROP_SQUARE, self._maximize_window, "最大化")
+
+        self._window_ctrls = [max_btn()]
+
+        # ── 搜索区域 ──
+        sf = bp._search_field
+        search_box = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.Icons.SEARCH, size=s(14), color=theme.text_disabled),
+                sf,
+            ], spacing=s(3)),
+        )
+
+        # ── 组装 ──
+        bar_row = ft.Row([
+            # 最左 8px 留白
+            ft.Container(width=s(8)),
+            # ✈
+            ft.WindowDragArea(
+                ft.Container(
+                    content=ft.Text("✈", size=s(15), font_family=ff),
+                    padding=ft.padding.only(left=s(2), right=s(6)),
+                    height=H,
+                    alignment=ft.alignment.center,
+                ),
+                on_double_tap=self._on_title_double_tap,
+            ),
+            ft.Container(width=s(6)),
+            # 新建任务
+            ft.ElevatedButton(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.ADD, size=icon_sz),
+                    ft.Text("新建任务", size=s(12), font_family=ff,
+                            color=ft.Colors.WHITE),
+                ], spacing=s(2)),
+                style=ft.ButtonStyle(
+                    bgcolor=theme.info, color=ft.Colors.WHITE,
+                    elevation=0,
+                    padding=ft.padding.only(left=s(12), top=0,
+                                            right=s(12), bottom=0),
+                    shape=ft.RoundedRectangleBorder(radius=s(4)),
+                ),
+                height=s(18),
+                on_click=bp._on_create_task,
+            ),
+            ft.Container(width=s(6)),
+            # 刷新
+            icon_btn(ft.Icons.REFRESH, lambda e: bp._refresh_board(), "刷新看板"),
+            ft.Container(width=s(4)),
+            # 过滤
+            icon_btn(ft.Icons.FILTER_LIST, bp._on_filter_click, "筛选任务"),
+            # 弹性空间
+            ft.Container(expand=True),
+            # 搜索框
+            ft.WindowDragArea(
+                search_box,
+                on_double_tap=self._on_title_double_tap,
+            ),
+            ft.Container(expand=True),
+            # AI 助手（紫色还原）
+            icon_btn(ft.Icons.PSYCHOLOGY_OUTLINED,
+                     lambda e: bp._open_ai_panel(),
+                     "AI 助手", icon_color="#c498e8"),
+            # 设置
+            icon_btn(ft.Icons.SETTINGS_OUTLINED,
+                     bp._on_settings_click, "设置"),
+            # 用户
+            ft.WindowDragArea(
+                ft.Container(
+                    content=icon_btn(ft.Icons.PERSON_OUTLINE,
+                                     lambda e: None, "用户账号"),
+                ),
+                on_double_tap=self._on_title_double_tap,
+            ),
+            # 窗口控制按钮
+            win_btn(ft.Icons.REMOVE, self._minimize_window, "最小化"),
+            *self._window_ctrls,
+            win_btn(ft.Icons.CLOSE, self._close_window, "关闭",
+                    hover_color=ft.Colors.RED_900),
+        ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+        self.title_bar = ft.Container(
+            content=bar_row,
+            height=H,
             bgcolor=theme.surface,
             border=ft.border.only(
-                bottom=ft.BorderSide(width=1, color=theme.border)),
+                bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.10, ft.Colors.WHITE))),
         )
 
-    def _create_bar_button_row(self):
-        """窗口控制按钮行。"""
-        return ft.Container(
-            content=ft.Row([
-                self._create_title_button(
-                    ft.Icons.REMOVE, self._minimize_window,
-                    hover_color=ft.Colors.GREY_800, tooltip="最小化"),
-                self._create_maximize_button(),
-                self._create_title_button(
-                    ft.Icons.CLOSE, self._close_window,
-                    hover_color=ft.Colors.RED_900, tooltip="关闭"),
-            ], spacing=0),
-        )
-
-    def _create_maximize_button(self):
-        """动态最大化/还原按钮。"""
-        if self.page and self.page.window.maximized:
-            icon, tip = ft.Icons.FULLSCREEN_EXIT, "还原"
-        else:
-            icon, tip = ft.Icons.CROP_SQUARE, "最大化"
-        return self._create_title_button(
-            icon, self._maximize_window, tooltip=tip)
-
-    def _create_title_button(self, icon, on_click,
-                             hover_color=ft.Colors.GREY_800, tooltip=""):
-        return ft.IconButton(
-            icon=icon,
-            icon_size=16,
-            width=45,
-            height=37,
-            on_click=on_click,
-            icon_color=ft.Colors.WHITE,
-            style=ft.ButtonStyle(
-                bgcolor=ft.Colors.TRANSPARENT,
-                overlay_color=hover_color,
-                shape=ft.RoundedRectangleBorder(radius=0),
-            ),
-            mouse_cursor=ft.MouseCursor.BASIC,
-            tooltip=ft.Tooltip(
-                message=tooltip,
-                bgcolor="#202020",
-                wait_duration=1000,
-                prefer_below=True,
-                vertical_offset=20,
-                text_style=ft.TextStyle(color=ft.Colors.WHITE),
-            ),
-        )
+        # 插入到 main_container 顶部
+        self.main_container.content.controls.insert(0, self.title_bar)
 
     # ═══════════════════════════════
     # 窗口操作
     # ═══════════════════════════════
-
-    def _update_title_bar(self, e):
-        self._update_maximize_button()
-
-    def _update_maximize_button(self):
-        """刷新最大化按钮图标。"""
-        if self.title_bar and self.bar_button_row:
-            new_row = self._create_bar_button_row()
-            self.title_bar.content.controls[1] = new_row
-            self.bar_button_row = new_row
-            self.title_bar.update()
 
     def _minimize_window(self, e):
         self.page.window.minimized = True
@@ -209,7 +247,6 @@ class TaskSenseApp:
         self.page.update()
 
     def _on_title_double_tap(self, e):
-        """标题栏双击 — 最大化/还原。"""
         self.page.window.maximized = not self.page.window.maximized
         self.page.update()
 

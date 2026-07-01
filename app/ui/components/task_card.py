@@ -2,42 +2,39 @@
 from __future__ import annotations
 
 import flet as ft
-from app.config.theme import theme
+from app.config.theme import theme, s
 from app.core.models.task import Task
 from app.ui.widgets.badge import ATABadge, PriorityBadge, TaskTypeBadge
 
 
 class TaskCard(ft.Container):
     def __init__(self, task: Task, on_click=None,
-                 on_context_menu=None, **_kw):
+                 on_context_menu=None, ghost: bool = False, **_kw):
         self.task = task
         self._on_click = on_click
         self._on_context_menu = on_context_menu
+        self._ghost = ghost
         pc = theme.priority_color(task.priority.value)
         pd = theme.pad_md
 
-        priorities = {"aog": "AOG-立即", "cat_a": "Cat A-当日", "cat_b": "Cat B-72h",
-                      "cat_c": "Cat C-10天", "cat_d": "Cat D-120天"}
         super().__init__(
             content=self._build(pc, pd),
             width=theme.card_width,
-            bgcolor=theme.card,
+            bgcolor=theme.card if not ghost else ft.Colors.TRANSPARENT,
             border_radius=theme.radius_md,
             padding=ft.padding.all(pd),
-            tooltip=ft.Tooltip(
-                message=f"[{priorities.get(task.priority.value, task.priority.value)}] "
-                        f"{task.title}\n"
-                        f"{task.aircraft_reg} | ATA {task.ata_chapter}\n"
-                        f"{'RII必检 | ' if task.is_rii else ''}"
-                        f"点击查看详情，右键更多操作",
-                bgcolor=theme.card,
-                text_style=ft.TextStyle(font_family=theme.font_family)),
-            shadow=ft.BoxShadow(spread_radius=0, blur_radius=4,
-                                color="#00000030", offset=ft.Offset(0, 1)),
+            animate=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
+            shadow=(ft.BoxShadow(spread_radius=0, blur_radius=4,
+                     color="#00000030", offset=ft.Offset(0, 1))
+                    if not ghost else None),
             on_click=lambda e: self._on_click and self._on_click(task.id),
             on_long_press=lambda e: self._on_context_menu
             and self._on_context_menu(task.id, e),
+            on_hover=self._handle_hover,
         )
+        if ghost:
+            self.border = ft.border.all(1.5, theme.border)
+            self.opacity = 0.45
 
     def _build(self, pc, pd):
         t = self.task
@@ -120,10 +117,18 @@ class TaskCard(ft.Container):
         return ft.Column(ctrls, spacing=theme.spacing_sm)
 
     def _handle_hover(self, e):
+        if self._ghost:
+            return
         if e.data == "true":
             self.border = ft.border.all(1, theme.info)
             self.bgcolor = theme.card_hover
+            self.shadow = ft.BoxShadow(spread_radius=1, blur_radius=8,
+                                       color="#00000050", offset=ft.Offset(0, 2))
+            self.scale = 1.01
         else:
             self.border = None
             self.bgcolor = theme.card
+            self.shadow = ft.BoxShadow(spread_radius=0, blur_radius=4,
+                                       color="#00000030", offset=ft.Offset(0, 1))
+            self.scale = 1.0
         self.update()

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 import flet as ft
 
-from app.config.theme import theme
+from app.config.theme import theme, s
 from app.core.models.aircraft import Aircraft, AircraftStatus
 from app.core.models.kanban import FilterState
 from app.core.models.task import Priority
@@ -43,101 +43,36 @@ class BoardPage:
             on_drop=self._on_drop,
             on_column_menu=self._on_column_menu,
         )
-        self.side_panel = SidePanel(on_close=self._on_side_panel_close)
+        self.side_panel = SidePanel(on_close=self._on_side_panel_close,
+                                     on_edit=self._on_edit_task)
         self.ai_chat = AIChatPanel(on_close=self._on_side_panel_close)
         self.command_bar = CommandBar(on_execute=self._on_command_execute)
         self.fleet_status = FleetStatusBar()
 
-        # ── 内联搜索输入 ──
+        # ── 搜索字段（由 app.py 统一标题栏引用）──
         self._search_field = ft.TextField(
             hint_text="搜索任务...",
-            border_color=ft.Colors.TRANSPARENT,
-            focused_border_color=ft.Colors.TRANSPARENT,
-            text_style=ft.TextStyle(color=theme.text_primary,
-                                    size=theme.font_sm, font_family=ff),
+            border_color=theme.border,
+            focused_border_color="#5294e2",
+            cursor_color=theme.text_primary,
+            cursor_height=s(14),
+            text_style=ft.TextStyle(color=theme.text_primary, size=s(13), font_family=ff),
             hint_style=ft.TextStyle(color=theme.text_disabled,
-                                    size=theme.font_xs, font_family=ff),
-            content_padding=ft.padding.only(left=8, top=2, right=8, bottom=2),
+                                    size=s(12), font_family=ff),
+            content_padding=ft.padding.only(left=s(10), top=s(5),
+                                            right=s(10), bottom=s(5)),
             dense=True,
-            width=180,
-            bgcolor=theme.card,
-            border_radius=theme.radius_sm,
+            width=220,
+            bgcolor="#0d0d0d",
+            border_radius=s(16),
+            border=ft.border.all(1, theme.border),
             on_change=self._on_search_input,
             on_submit=self._on_search_submit,
         )
 
-        # ── 顶栏 ──
-        top_bar = ft.Row(
-            controls=[
-                ft.ElevatedButton(
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.ADD, size=theme.font_lg),
-                        ft.Text("新建任务", size=theme.font_sm, font_family=ff),
-                    ], spacing=4),
-                    style=ft.ButtonStyle(
-                        bgcolor=theme.info, color=theme.text_primary,
-                        padding=ft.padding.only(left=12, top=6, right=12, bottom=6),
-                        shape=ft.RoundedRectangleBorder(radius=theme.radius_sm),
-                    ),
-                    on_click=self._on_create_task,
-                ),
-                ft.Container(width=6),
-                ft.IconButton(
-                    icon=ft.Icons.REFRESH, icon_size=theme.font_lg,
-                    icon_color=theme.text_secondary,
-                    tooltip=ft.Tooltip(message="刷新看板", bgcolor=theme.card),
-                    on_click=lambda e: self._refresh_board(),
-                    hover_color=ft.Colors.GREY_800,
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.FILTER_LIST, icon_size=theme.font_lg,
-                    icon_color=theme.text_secondary,
-                    tooltip=ft.Tooltip(message="筛选任务", bgcolor=theme.card),
-                    on_click=self._on_filter_click,
-                    hover_color=ft.Colors.GREY_800,
-                ),
-                ft.Container(width=4),
-                # 内联搜索框
-                ft.Container(
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.SEARCH, size=14, color=theme.text_disabled),
-                        self._search_field,
-                    ], spacing=4),
-                    padding=ft.padding.only(left=8, top=3, right=8, bottom=3),
-                    bgcolor=theme.card,
-                    border_radius=theme.radius_sm,
-                    border=ft.border.all(1, theme.border),
-                ),
-                ft.Container(expand=True),
-                ft.IconButton(
-                    icon=ft.Icons.PSYCHOLOGY_OUTLINED, icon_size=theme.font_lg,
-                    icon_color=theme.type_removal_install,
-                    tooltip=ft.Tooltip(message="AI 助手", bgcolor=theme.card),
-                    on_click=lambda e: self._open_ai_panel(),
-                    hover_color=ft.Colors.GREY_800,
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.SETTINGS_OUTLINED, icon_size=theme.font_lg,
-                    icon_color=theme.text_secondary,
-                    tooltip=ft.Tooltip(message="设置", bgcolor=theme.card),
-                    on_click=self._on_settings_click,
-                    hover_color=ft.Colors.GREY_800,
-                ),
-                ft.Text("Ctrl+K", size=10,
-                        color=theme.text_disabled, font_family=ff),
-            ],
-            spacing=0,
-        )
-
-        # ── 主布局 ──
+        # ── 主布局（无顶栏，顶栏已合并到窗口标题栏）──
         main = ft.Container(
             content=ft.Column([
-                ft.Container(
-                    content=top_bar,
-                    padding=ft.padding.only(left=12, top=6, right=12, bottom=6),
-                    bgcolor=theme.surface,
-                    border=ft.border.only(bottom=ft.BorderSide(1, theme.border)),
-                ),
                 self.fleet_status,
                 ft.Row([
                     ft.Container(content=self.kanban_board, expand=True,
@@ -286,14 +221,27 @@ class BoardPage:
     def _on_side_panel_close(self):
         if self._page: self._page.update()
 
+    def _on_edit_task(self, task):
+        """从侧边栏编辑按钮触发的编辑弹窗。"""
+        self._dlg_edit(task)
+
     def _on_card_context_menu(self, tid, e):
         from app.ui.widgets.context_menu import ContextMenu
+        t = state.get_task(tid)
+        submit_label = "提交任务" if t and t.status.value != "completed" else "已完成"
         ContextMenu(
             items=[
                 {"label": "编辑", "icon": ft.Icons.EDIT_OUTLINED, "action": "edit"},
                 {"label": "分配...", "icon": ft.Icons.PERSON_ADD, "action": "assign"},
+                {"label": submit_label, "icon": ft.Icons.CHECK_CIRCLE_OUTLINE,
+                 "action": "submit",
+                 "color": theme.success if t and t.status.value != "completed"
+                 else theme.text_disabled},
                 {"divider": True},
-                {"label": "AI 查找相关文档", "icon": ft.Icons.SEARCH, "action": "search"},
+                {"label": "AI 解释任务", "icon": ft.Icons.PSYCHOLOGY_OUTLINED,
+                 "action": "ai_explain"},
+                {"label": "AI 查找相关文档", "icon": ft.Icons.SEARCH,
+                 "action": "search"},
                 {"divider": True},
                 {"label": "删除", "icon": ft.Icons.DELETE_OUTLINE,
                  "color": theme.error, "action": "delete"},
@@ -405,9 +353,22 @@ class BoardPage:
         elif action == "search":
             t = state.get_task(tid)
             if t:
-                # 用任务信息搜索知识库
                 query = f"{t.title} ATA {t.ata_chapter}"
                 self._do_agent_query(query)
+        elif action == "ai_explain":
+            t = state.get_task(tid)
+            if t:
+                query = f"解释以下维修任务：{t.title}，飞机{t.aircraft_reg}，ATA章节{t.ata_chapter}"
+                self._do_agent_query(query)
+        elif action == "submit":
+            self._dlg_submit(tid)
+        elif action == "edit":
+            t = state.get_task(tid)
+            if t and self.side_panel:
+                if self.ai_chat and self.ai_chat.is_open:
+                    self.ai_chat.close()
+                self.side_panel.open_task(t)
+                self._page.update()
 
     def handle_keyboard(self, e: ft.KeyboardEvent, page: ft.Page):
         k = e.key.lower()
@@ -469,6 +430,27 @@ class BoardPage:
             border_color=theme.border, focused_border_color=theme.info,
             bgcolor=theme.card, width=200,
         )
+        type_dd = ft.Dropdown(
+            label="任务类型", value="troubleshoot",
+            options=[ft.dropdown.Option(k, v) for k, v in [
+                ("troubleshoot", "排故"), ("inspection", "检查"),
+                ("servicing", "勤务"), ("removal_install", "拆装"),
+                ("test", "测试"), ("repair", "修复")]],
+            border_color=theme.border, focused_border_color=theme.info,
+            bgcolor=theme.card, width=200,
+        )
+        assignee_f = ft.TextField(
+            label="负责人", hint_text="如 张", width=200,
+            border_color=theme.border, focused_border_color=theme.info,
+            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
+            bgcolor=theme.card,
+        )
+        zone_f = ft.TextField(
+            label="区域 (Zone)", hint_text="如 710", width=200,
+            border_color=theme.border, focused_border_color=theme.info,
+            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
+            bgcolor=theme.card,
+        )
 
         def create(_):
             t = (title_f.value or "").strip()
@@ -476,7 +458,10 @@ class BoardPage:
             task_service.create_task(
                 title=t, aircraft_reg=(reg_f.value or "").strip(),
                 ata_chapter=(ata_f.value or "").strip(),
-                priority=pri_dd.value or "cat_c")
+                priority=pri_dd.value or "cat_c",
+                task_type=type_dd.value or "troubleshoot",
+                assignee=(assignee_f.value or "").strip() or None,
+                zone=(zone_f.value or "").strip() or None)
             dlg.open = False; self._page.update()
             Toast.show(self._page, f"已创建: {t}", "success")
 
@@ -484,11 +469,127 @@ class BoardPage:
             title=ft.Text("新建维护任务", size=theme.font_lg, weight=ft.FontWeight.W_600,
                           color=theme.text_primary, font_family=ff),
             content=ft.Column(
-                [title_f, ghost_hint, ft.Row([reg_f, ata_f], spacing=12), pri_dd],
+                [title_f, ghost_hint,
+                 ft.Row([reg_f, ata_f], spacing=12),
+                 ft.Row([pri_dd, type_dd], spacing=12),
+                 ft.Row([assignee_f, zone_f], spacing=12)],
                 spacing=12, tight=True, width=420),
             actions=[
                 ft.TextButton("取消", on_click=lambda e: setattr(dlg, 'open', False)),
                 ft.ElevatedButton("创建", on_click=create, style=ft.ButtonStyle(bgcolor=theme.info)),
+            ],
+            bgcolor=theme.surface, shape=ft.RoundedRectangleBorder(radius=theme.radius_md),
+        )
+        self._page.dialog = dlg; dlg.open = True; self._page.update()
+
+    def _dlg_submit(self, tid):
+        """提交任务结果弹窗。"""
+        t = state.get_task(tid)
+        if not t: return
+        ff = theme.font_family
+        result_f = ft.TextField(
+            label="完成结果", hint_text="描述完成情况、发现的问题...",
+            multiline=True, min_lines=3, max_lines=6,
+            border_color=theme.border, focused_border_color=theme.info,
+            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
+            bgcolor=theme.card,
+        )
+        hours_f = ft.TextField(
+            label="实际工时 (h)", hint_text="如 3.5", width=150,
+            border_color=theme.border, focused_border_color=theme.info,
+            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
+            bgcolor=theme.card,
+        )
+
+        def submit(_):
+            result = (result_f.value or "").strip()
+            if not result:
+                Toast.show(self._page, "请填写完成结果", "warning"); return
+            try:
+                actual_hours = float(hours_f.value or "0")
+            except ValueError:
+                actual_hours = 0
+            try:
+                task_service.move_task(tid, "completed", changed_by="user")
+                t.actual_hours = actual_hours
+                if result:
+                    t.description = f"{t.description}\n\n[提交结果] {result}"
+                dlg.open = False; self._page.update()
+                Toast.show(self._page, "任务已提交完成", "success")
+            except Exception as e:
+                Toast.show(self._page, str(e), "warning")
+
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"提交任务: {t.title[:30]}...", size=theme.font_lg,
+                          weight=ft.FontWeight.W_600,
+                          color=theme.text_primary, font_family=ff),
+            content=ft.Column([result_f, hours_f], spacing=12, tight=True, width=400),
+            actions=[
+                ft.TextButton("取消", on_click=lambda e: setattr(dlg, 'open', False)),
+                ft.ElevatedButton("提交完成", on_click=submit,
+                                  style=ft.ButtonStyle(bgcolor=theme.success)),
+            ],
+            bgcolor=theme.surface, shape=ft.RoundedRectangleBorder(radius=theme.radius_md),
+        )
+        self._page.dialog = dlg; dlg.open = True; self._page.update()
+
+    def _dlg_edit(self, task):
+        """编辑任务弹窗 — 预填当前值。"""
+        ff = theme.font_family
+        title_f = ft.TextField(
+            label="任务标题", value=task.title,
+            border_color=theme.border, focused_border_color=theme.info,
+            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
+            bgcolor=theme.card,
+        )
+        reg_f = ft.TextField(
+            label="飞机注册号", value=task.aircraft_reg, width=200,
+            border_color=theme.border, focused_border_color=theme.info,
+            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
+            bgcolor=theme.card,
+        )
+        ata_f = ft.TextField(
+            label="ATA 章节", value=task.ata_chapter, width=200,
+            border_color=theme.border, focused_border_color=theme.info,
+            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
+            bgcolor=theme.card,
+        )
+        assignee_f = ft.TextField(
+            label="负责人", value=task.assignee or "", width=200,
+            border_color=theme.border, focused_border_color=theme.info,
+            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
+            bgcolor=theme.card,
+        )
+        zone_f = ft.TextField(
+            label="区域 (Zone)", value=task.zone or "", width=200,
+            border_color=theme.border, focused_border_color=theme.info,
+            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
+            bgcolor=theme.card,
+        )
+
+        def save(_):
+            t = (title_f.value or "").strip()
+            if not t: Toast.show(self._page, "请输入标题", "warning"); return
+            task.title = t
+            task.aircraft_reg = (reg_f.value or "").strip()
+            task.ata_chapter = (ata_f.value or "").strip()
+            task.assignee = (assignee_f.value or "").strip() or None
+            task.zone = (zone_f.value or "").strip() or None
+            dlg.open = False; self._page.update()
+            self._refresh_board()
+            Toast.show(self._page, "任务已更新", "success")
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("编辑任务", size=theme.font_lg, weight=ft.FontWeight.W_600,
+                          color=theme.text_primary, font_family=ff),
+            content=ft.Column([
+                title_f,
+                ft.Row([reg_f, ata_f], spacing=12),
+                ft.Row([assignee_f, zone_f], spacing=12),
+            ], spacing=12, tight=True, width=420),
+            actions=[
+                ft.TextButton("取消", on_click=lambda e: setattr(dlg, 'open', False)),
+                ft.ElevatedButton("保存", on_click=save, style=ft.ButtonStyle(bgcolor=theme.info)),
             ],
             bgcolor=theme.surface, shape=ft.RoundedRectangleBorder(radius=theme.radius_md),
         )
