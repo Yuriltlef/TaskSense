@@ -11,6 +11,7 @@ class TaskSenseApp:
         self.page: ft.Page | None = None
         self.board_page = None
         self.title_bar: ft.Container | None = None
+        self._last_maximized: bool | None = None  # 避免重复重建按钮
         self.bar_button_row: ft.Row | None = None
 
     def main(self, page: ft.Page):
@@ -192,13 +193,16 @@ class TaskSenseApp:
             icon_btn(ft.Icons.PERSON_OUTLINE, lambda e: None, "用户账号"),
         ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-        # WindowDragArea: 拖拽 + 双击最大化
+        # WindowDragArea 包裹 GestureDetector：拖拽优先，双击作为附加手势
+        # GestureDetector 必须在 WindowDragArea 内部（不能反过来），否则按钮点击失效
         drag_area = ft.WindowDragArea(
-            ft.Container(content=content_row, expand=True,
-                         on_hover=self._on_title_hover),
+            ft.GestureDetector(
+                content=ft.Container(content=content_row, expand=True),
+                mouse_cursor=ft.MouseCursor.BASIC,
+                on_double_tap=self._on_title_double_tap,
+                on_hover=self._on_title_hover,
+            ),
             expand=True,
-            on_double_tap=self._on_title_double_tap,
-            on_hover=self._on_title_hover,
         )
 
         # ── 最终标题栏 ──
@@ -223,13 +227,17 @@ class TaskSenseApp:
     # ═══════════════════════════════
 
     def _on_title_hover(self, e):
-        """标题栏悬停时刷新最大化按钮图标。"""
-        self._update_maximize_button()
+        """标题栏悬停时检测最大化状态变化（Win+↑ / 拖拽顶部等外部操作）。"""
+        current = self.page.window.maximized
+        if current != self._last_maximized:
+            self._last_maximized = current
+            self._update_maximize_button()
 
     def _update_maximize_button(self):
         """重建窗口按钮行以刷新最大化/还原图标。"""
         if not self.title_bar:
             return
+        self._last_maximized = self.page.window.maximized
         # bar_row 是 title_bar.content，controls[-3:] 是窗口按钮
         bar_row = self.title_bar.content
         new_ctrls = list(bar_row.controls)
@@ -267,10 +275,12 @@ class TaskSenseApp:
     def _maximize_window(self, e):
         self.page.window.maximized = not self.page.window.maximized
         self.page.update()
+        self._update_maximize_button()
 
     def _on_title_double_tap(self, e):
         self.page.window.maximized = not self.page.window.maximized
         self.page.update()
+        self._update_maximize_button()
 
     def _close_window(self, e):
         self.page.window.close()
