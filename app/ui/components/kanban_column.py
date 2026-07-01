@@ -1,11 +1,16 @@
 """看板列组件."""
 from __future__ import annotations
 
+import json
+
 import flet as ft
 from app.config.theme import theme, s
 from app.core.models.kanban import ColumnConfig
 from app.core.models.task import Task
 from app.ui.components.task_card import TaskCard
+
+# 模块级拖拽上下文：绕过 page.get_control() 的 ID 查找问题
+_drag_ctx: dict | None = None
 
 
 class KanbanColumn(ft.Container):
@@ -19,7 +24,6 @@ class KanbanColumn(ft.Container):
         self._on_cm = on_column_menu
         self._collapsed = False
 
-        # 卡片列表区域
         self.card_list = ft.ListView(
             controls=self._build_cards(tasks),
             spacing=s(8),
@@ -27,11 +31,21 @@ class KanbanColumn(ft.Container):
             expand=True,
         )
 
-        # 可折叠的内容区
-        self._body = ft.Column([
-            ft.Divider(height=1, color=theme.divider),
-            self.card_list,
-        ], spacing=0)
+        self._drop_target = ft.DragTarget(
+            content=ft.Column([
+                ft.Divider(height=1, color=theme.divider),
+                ft.Container(content=self.card_list, expand=True),
+            ], spacing=0),
+            data=self.column.id,
+            on_accept=self._on_drag_accept,
+            on_will_accept=self._on_drag_will_accept,
+            on_leave=self._on_drag_leave,
+        )
+
+        self._body = ft.Container(
+            content=self._drop_target,
+            expand=True,
+        )
 
         super().__init__(
             content=ft.Column([
@@ -45,9 +59,17 @@ class KanbanColumn(ft.Container):
         )
 
     def _build_cards(self, tasks: list[Task]):
-        """构建卡片列表。"""
-        return [TaskCard(t, on_click=self._on_cc, on_context_menu=self._on_ccm)
-                for t in tasks]
+        return [
+            ft.Draggable(
+                content=TaskCard(t, on_click=self._on_cc, on_context_menu=self._on_ccm),
+                data=json.dumps({"tid": t.id, "col": self.column.id}),
+                content_feedback=TaskCard(t, ghost=True),
+                content_when_dragging=TaskCard(t, ghost=True),
+                on_drag_start=self._on_card_drag_start,
+                on_drag_complete=self._on_card_drag_complete,
+            )
+            for t in tasks
+        ]
 
     def _header(self):
         col = self.column
@@ -98,26 +120,70 @@ class KanbanColumn(ft.Container):
         )
 
     def _toggle_collapse(self, e):
-        """切换列的折叠/展开状态。"""
         self._collapsed = not self._collapsed
+        cols = self.content.controls
+        header_row = cols[0].content
         if self._collapsed:
-            self._body.visible = False
-            # 找到折叠按钮并更新图标
-            header_row = self.content.controls[0].content
+            cols[1].visible = False
             for ctrl in header_row.controls:
                 if isinstance(ctrl, ft.IconButton) and ctrl.icon in (
                     ft.Icons.EXPAND_LESS, ft.Icons.EXPAND_MORE
                 ):
                     ctrl.icon = ft.Icons.EXPAND_MORE
         else:
-            self._body.visible = True
-            header_row = self.content.controls[0].content
+            cols[1].visible = True
             for ctrl in header_row.controls:
                 if isinstance(ctrl, ft.IconButton) and ctrl.icon in (
                     ft.Icons.EXPAND_LESS, ft.Icons.EXPAND_MORE
                 ):
                     ctrl.icon = ft.Icons.EXPAND_LESS
         self.update()
+
+    # ═══════════════════════ 拖放 ═══════════════════════
+
+    def _on_card_drag_start(self, e):
+        global _drag_ctx
+        ctrl = e.control
+        raw = ctrl.data
+        try:
+            _drag_ctx = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            _drag_ctx = None
+
+    def _on_card_drag_complete(self, e):
+        """同列拖放补抓：DragTarget 不向子孙发送事件."""
+        global _drag_ctx
+        ctx = _drag_ctx
+        _drag_ctx = None
+        if not ctx or not self.page or not self._on_drop:
+            return
+        tid = ctx.get("tid")
+        src_col = ctx.get("col")
+        if not tid or src_col != self.column.id:
+            return
+        self._on_drop(tid, self.column.id)
+
+    def _on_drag_accept(self, e):
+        """跨列移动."""
+        global _drag_ctx
+        ctx = _drag_ctx
+        _drag_ctx = None
+        if not ctx or not self._on_drop:
+            return
+        tid = ctx.get("tid")
+        src_col = ctx.get("col")
+        if not tid or src_col != self.column.id:
+            self._on_drop(tid, self.column.id)
+
+    def _on_drag_will_accept(self, e):
+        self.border = ft.border.all(2, theme.info)
+        if self.page:
+            self.update()
+
+    def _on_drag_leave(self, e):
+        self.border = None
+        if self.page:
+            self.update()
 
     def update_tasks(self, tasks: list[Task]):
         self.card_list.controls = self._build_cards(tasks)

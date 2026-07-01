@@ -249,10 +249,13 @@ class BoardPage:
             on_select=lambda a: self._card_action(tid, a),
         ).show(self._page)
 
-    def _on_drop(self, tid, col):
+    def _on_drop(self, tid, col, index=-1):
         try:
-            task_service.move_task(tid, col)
-            Toast.show(self._page, f"已移动到 {col}", "success")
+            task_service.move_task(tid, col, index=index)
+            if index >= 0:
+                Toast.show(self._page, f"已重新排序", "success")
+            else:
+                Toast.show(self._page, f"已移动到 {col}", "success")
         except Exception as e:
             Toast.show(self._page, str(e), "warning")
 
