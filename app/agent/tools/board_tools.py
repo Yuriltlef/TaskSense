@@ -81,3 +81,32 @@ def search_related_tasks(ata_chapter: str) -> str:
             f"{t.aircraft_reg} | {t.priority.value}"
         )
     return "\n".join(lines)
+
+
+@tool
+def search_employees(query: str = "") -> str:
+    """搜索员工信息。可按 ID、姓名或工种搜索。
+
+    Args:
+        query: 搜索关键词。为空时返回全部可用员工。
+    """
+    from app.core.services.employee_service import employee_service
+    employee_service._ensure_loaded()
+
+    if query:
+        results = employee_service.search_employees(query)
+    else:
+        results = employee_service.get_available_employees()
+
+    if not results:
+        return "未找到匹配的员工"
+
+    lines = [f"找到 {len(results)} 名员工:"]
+    for e in results[:20]:
+        avail = "可用" if e.get("available", True) else "不可用"
+        certs = ", ".join(e.get("certifications", []))
+        lines.append(
+            f"  {e['employee_id']} | {e['name']} | {e.get('trade', '')} | "
+            f"{avail} | 机型: {certs}"
+        )
+    return "\n".join(lines)

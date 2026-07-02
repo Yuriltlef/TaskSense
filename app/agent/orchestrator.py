@@ -54,6 +54,9 @@ class ToolExecutor:
             elif tool_name == "search_related_tasks":
                 from app.agent.tools.board_tools import search_related_tasks
                 return search_related_tasks.invoke(params)
+            elif tool_name == "search_employees":
+                from app.agent.tools.board_tools import search_employees
+                return search_employees.invoke(params)
             elif tool_name == "create_task":
                 from app.agent.tools.write_tools import create_task
                 return create_task.invoke(params)

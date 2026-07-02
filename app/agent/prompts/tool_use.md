@@ -58,6 +58,12 @@ Find tasks related to a specific ATA chapter.
 Parameters:
 - `ata_chapter` (required): ATA chapter number (e.g. "32" or "32-41-03")
 
+### search_employees
+Search employee information by ID, name, or trade/specialty. Use this to find available technicians, check certifications, or verify employee IDs before assigning tasks.
+
+Parameters:
+- `query` (optional): Search keyword (employee ID like "ZH001", name, or trade like "avionics"). Leave empty to list all available employees.
+
 ### create_task
 Create one or more tasks in the backlog column.
 
