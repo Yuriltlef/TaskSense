@@ -151,12 +151,35 @@ class TaskSenseApp:
 
         # ── 搜索区域 ──
         sf = bp._search_field
+        clear_btn = ft.IconButton(
+            icon=ft.Icons.CLOSE, icon_size=s(12),
+            icon_color=theme.text_secondary,
+            width=s(22), height=s(22),
+            visible=False,
+            style=ft.ButtonStyle(
+                bgcolor=ft.Colors.TRANSPARENT,
+                overlay_color="#1e1e1e",
+                shape=ft.RoundedRectangleBorder(radius=s(4)),
+            ),
+            on_click=bp._on_search_clear,
+        )
+        bp._search_clear_btn = clear_btn
         search_box = ft.Container(
             content=ft.Row([
-                ft.Icon(ft.Icons.SEARCH, size=s(14), color=theme.text_disabled),
+                ft.Icon(ft.Icons.SEARCH, size=s(16), color="#5294e2"),
                 sf,
-            ], spacing=s(3)),
+                clear_btn,
+            ], spacing=s(6)),
+            width=320,
+            height=s(34),
+            bgcolor="#141414",
+            border_radius=s(8),
+            border=ft.border.all(1.5, "#1e1e1e"),
+            padding=ft.padding.symmetric(horizontal=s(10)),
+            alignment=ft.alignment.center_left,
+            animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
         )
+        bp._search_box = search_box
 
         # ── 窗口按钮（在 WindowDragArea 外部）──
         window_btns = [
@@ -172,20 +195,20 @@ class TaskSenseApp:
                          padding=ft.padding.only(left=s(2), right=s(6)),
                          height=H, alignment=ft.alignment.center),
             ft.Container(width=s(6)),
-            ft.ElevatedButton(
+            ft.Container(
                 content=ft.Row([
-                    ft.Icon(ft.Icons.ADD, size=icon_sz),
+                    ft.Icon(ft.Icons.ADD, size=icon_sz, color=ft.Colors.WHITE),
                     ft.Text("新建任务", size=s(12), font_family=ff, color=ft.Colors.WHITE),
                 ], spacing=s(2)),
-                style=ft.ButtonStyle(
-                    bgcolor="#1565c0",
-                    color=ft.Colors.WHITE,
-                    overlay_color="#1e88e5",
-                    elevation=1,
-                    padding=ft.padding.only(left=s(12), top=s(2), right=s(12), bottom=s(2)),
-                    shape=ft.RoundedRectangleBorder(radius=s(4)),
-                ),
-                height=s(24), on_click=bp._on_create_task,
+                blur=(10, 10),
+                bgcolor=ft.Colors.with_opacity(0.18, "#5294e2"),
+                border=ft.border.all(1, ft.Colors.with_opacity(0.35, "#5294e2")),
+                border_radius=s(6),
+                padding=ft.padding.only(left=s(12), top=s(3), right=s(12), bottom=s(3)),
+                height=s(26),
+                ink=True,
+                animate=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
+                on_click=bp._on_create_task,
             ),
             ft.Container(width=s(6)),
             icon_btn(ft.Icons.REFRESH, lambda e: bp._refresh_board(), "刷新看板"),

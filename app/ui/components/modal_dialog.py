@@ -14,18 +14,20 @@ class ModalDialog:
     """居中半透明遮罩 + 面板弹窗。"""
 
     def __init__(self, page: ft.Page, content: ft.Control,
-                 width: int = 460, on_close=None):
+                 width: int = 460, bgcolor: str | None = None,
+                 on_close=None):
         self._page = page
         self._on_close = on_close
         self._overlay: ft.Stack | None = None
 
-        # 居中
+        panel_bg = bgcolor or theme.surface
+
         cx = (page.width - width) // 2
         cy = max(40, (page.height - 360) // 2)
 
         panel = ft.Container(
             content=content,
-            width=width, bgcolor=theme.surface,
+            width=width, bgcolor=panel_bg,
             border_radius=theme.radius_md,
             border=ft.border.all(1, theme.border),
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=16, color="#000000aa"),

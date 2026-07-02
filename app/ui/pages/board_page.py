@@ -29,6 +29,8 @@ class BoardPage:
         self.fleet_status: FleetStatusBar | None = None
         self._page: ft.Page | None = None
         self._search_field: ft.TextField | None = None
+        self._search_box: ft.Container | None = None
+        self._search_clear_btn: ft.IconButton | None = None
         self._drag_start_width: float | None = None
         self._drag_start_x: float | None = None
         state.subscribe(self._on_state_changed)
@@ -51,23 +53,22 @@ class BoardPage:
 
         # ── 搜索字段（由 app.py 统一标题栏引用）──
         self._search_field = ft.TextField(
-            hint_text="搜索任务...",
-            border_color=theme.border,
-            focused_border_color="#5294e2",
-            cursor_color=theme.text_primary,
-            cursor_height=s(14),
-            text_style=ft.TextStyle(color=theme.text_primary, size=s(13), font_family=ff),
-            hint_style=ft.TextStyle(color=theme.text_disabled,
-                                    size=s(12), font_family=ff),
-            content_padding=ft.padding.only(left=s(10), top=s(5),
-                                            right=s(10), bottom=s(5)),
+            hint_text="",
+            border_color="transparent",
+            focused_border_color="transparent",
+            cursor_color="#5294e2",
+            cursor_height=s(16),
+            text_style=ft.TextStyle(color=theme.text_primary, size=s(14), font_family=ff),
+            hint_style=ft.TextStyle(color=theme.text_secondary, size=s(13), font_family=ff),
+            content_padding=ft.padding.only(left=s(4), top=s(8), right=s(0), bottom=s(7)),
             dense=True,
-            width=220,
-            bgcolor="#0d0d0d",
-            border_radius=s(16),
-            border=ft.border.all(1, theme.border),
+            bgcolor=ft.Colors.TRANSPARENT,
+            border=ft.InputBorder.NONE,
+            expand=True,
             on_change=self._on_search_input,
             on_submit=self._on_search_submit,
+            on_focus=lambda e: self._on_search_focus(),
+            on_blur=lambda e: self._on_search_blur(),
         )
 
         # ── 主布局（无顶栏，顶栏已合并到窗口标题栏）──
@@ -249,15 +250,274 @@ class BoardPage:
             on_select=lambda a: self._card_action(tid, a),
         ).show(self._page)
 
+    # ── 拖放内容补充 ──
+
+    _INFO_GATES = {
+        "backlog": {"triage": "_dlg_priority"},
+        "triage": {"scheduled": "_dlg_schedule"},
+    }
+
     def _on_drop(self, tid, col, index=-1):
+        task = state.get_task(tid)
+        src_col = task.status.value if task else None
+        if src_col and col in self._INFO_GATES.get(src_col, {}):
+            method = getattr(self, self._INFO_GATES[src_col][col])
+            method(tid, col, index)
+            return
         try:
             task_service.move_task(tid, col, index=index)
             if index >= 0:
-                Toast.show(self._page, f"已重新排序", "success")
+                Toast.show(self._page, "已重新排序", "success")
             else:
                 Toast.show(self._page, f"已移动到 {col}", "success")
         except Exception as e:
             Toast.show(self._page, str(e), "warning")
+
+    def _dlg_priority(self, tid, col, index):
+        """backlog → triage：补充优先级。"""
+        ff = theme.font_family
+        options = [
+            ("aog", "AOG", "立即排故", theme.priority_aog),
+            ("cat_a", "Cat A", "当日完成", theme.priority_cat_a),
+            ("cat_b", "Cat B", "72 小时内", theme.priority_cat_b),
+            ("cat_c", "Cat C", "10 天内", theme.priority_cat_c),
+            ("cat_d", "Cat D", "120 天内", theme.priority_cat_d),
+        ]
+        selected = {"val": "cat_c"}
+
+        chips = []
+        for val, label, desc, color in options:
+            sel = val == selected["val"]
+            chips.append(ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.Icon(ft.Icons.FLAG_OUTLINED, size=s(14), color=color),
+                        ft.Text(label, size=s(13),
+                                weight=ft.FontWeight.W_600,
+                                color=color if sel else theme.text_primary,
+                                font_family=ff),
+                    ], spacing=s(6)),
+                    ft.Text(desc, size=s(11),
+                            color=theme.text_secondary, font_family=ff),
+                ], spacing=s(2), tight=True),
+                padding=ft.padding.all(s(10)),
+                border_radius=s(6),
+                border=ft.border.all(
+                    1.5, color if sel else theme.border),
+                bgcolor=ft.Colors.with_opacity(0.06, color) if sel else theme.card,
+                on_click=lambda e, v=val: _select(v),
+                ink=True,
+                width=150,
+            ))
+
+        def _select(v):
+            selected["val"] = v
+            for i, chip in enumerate(chips):
+                sel = options[i][0] == v
+                color = options[i][3]
+                chip.border = ft.border.all(
+                    1.5, color if sel else theme.border)
+                chip.bgcolor = ft.Colors.with_opacity(
+                    0.06, color) if sel else theme.card
+                row = chip.content.controls[0]
+                row.controls[1].color = color if sel else theme.text_primary
+                chip.update()
+
+        def _confirm(_):
+            priority = selected["val"]
+            try:
+                from app.core.models.task import Priority
+                task_service.move_task(tid, col, index=index)
+                task_service.update_task(tid, priority=Priority(priority))
+                Toast.show(self._page, f"已分类 — {options[[o[0] for o in options].index(priority)][1]}", "success")
+            except Exception as e:
+                Toast.show(self._page, str(e), "warning")
+            dlg.close()
+
+        from app.ui.components.modal_dialog import ModalDialog
+
+        header = ft.Container(
+            ft.Row([
+                ft.Icon(ft.Icons.FLAG_OUTLINED, size=s(15), color="#5294e2"),
+                ft.Text("确认优先级", size=s(14),
+                        weight=ft.FontWeight.W_600,
+                        color=theme.text_primary, font_family=ff),
+                ft.Container(expand=True),
+                ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
+                              icon_color=theme.text_secondary,
+                              on_click=lambda e: dlg.close()),
+            ], spacing=s(8)),
+            padding=ft.padding.only(
+                left=s(14), top=s(8), right=s(6), bottom=s(8)),
+            border=ft.border.only(
+                bottom=ft.BorderSide(1, theme.border)),
+        )
+
+        form = ft.Container(
+            ft.Column([
+                ft.Row(chips[:3], spacing=s(8),
+                       alignment=ft.MainAxisAlignment.CENTER),
+                ft.Row(chips[3:], spacing=s(8),
+                       alignment=ft.MainAxisAlignment.CENTER),
+            ], spacing=s(8), tight=True),
+            padding=ft.padding.all(s(14)),
+        )
+
+        btn_style = ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=s(6)),
+            padding=ft.padding.only(
+                left=s(18), top=s(7), right=s(18), bottom=s(7)),
+            text_style=ft.TextStyle(size=s(12), font_family=ff),
+        )
+        footer = ft.Container(
+            ft.Row([
+                ft.Container(expand=True),
+                ft.OutlinedButton("取消", on_click=lambda e: dlg.close(),
+                    style=ft.ButtonStyle(
+                        shape=btn_style.shape, padding=btn_style.padding,
+                        text_style=btn_style.text_style,
+                        side=ft.BorderSide(1, theme.border),
+                        color=theme.text_secondary)),
+                ft.ElevatedButton("确认", on_click=_confirm,
+                    style=ft.ButtonStyle(
+                        shape=btn_style.shape, padding=btn_style.padding,
+                        text_style=btn_style.text_style,
+                        bgcolor="#5294e2", color=ft.Colors.WHITE,
+                        elevation=0)),
+            ], spacing=s(8)),
+            padding=ft.padding.only(
+                left=s(14), top=s(8), right=s(14), bottom=s(10)),
+            border=ft.border.only(
+                top=ft.BorderSide(1, theme.border)),
+        )
+
+        content = ft.Column([header, form, footer], spacing=0, tight=True)
+        dlg = ModalDialog(self._page, content, width=540,
+                          bgcolor="#1c1c1c")
+        dlg.open()
+
+    def _dlg_schedule(self, tid, col, index):
+        """triage → scheduled：补充时间和人员。"""
+        ff = theme.font_family
+
+        due_f = ft.TextField(
+            hint_text="YYYY-MM-DD，如 2026-07-10",
+            border_color=theme.border,
+            focused_border_color=theme.info,
+            cursor_color=theme.info,
+            text_style=ft.TextStyle(
+                color="#e0e0e0", size=s(12), font_family=ff),
+            hint_style=ft.TextStyle(
+                color=theme.text_secondary, size=s(11), font_family=ff),
+            bgcolor=theme.card, dense=True,
+            border_radius=s(6),
+            content_padding=ft.padding.only(
+                left=s(10), top=s(8), right=s(10), bottom=s(8)),
+        )
+        assignee_f = ft.TextField(
+            hint_text="负责人，如 张工",
+            border_color=theme.border,
+            focused_border_color=theme.info,
+            cursor_color=theme.info,
+            text_style=ft.TextStyle(
+                color="#e0e0e0", size=s(12), font_family=ff),
+            hint_style=ft.TextStyle(
+                color=theme.text_secondary, size=s(11), font_family=ff),
+            bgcolor=theme.card, dense=True,
+            border_radius=s(6),
+            content_padding=ft.padding.only(
+                left=s(10), top=s(8), right=s(10), bottom=s(8)),
+        )
+
+        def _label(t):
+            return ft.Text(t, size=s(11), color=theme.text_primary,
+                           font_family=ff, weight=ft.FontWeight.W_500)
+
+        def _confirm(_):
+            due_str = (due_f.value or "").strip()
+            assignee = (assignee_f.value or "").strip() or None
+            try:
+                task_service.move_task(tid, col, index=index)
+                updates = {}
+                if assignee:
+                    updates["assignee"] = assignee
+                if due_str:
+                    from datetime import datetime
+                    try:
+                        updates["due_date"] = datetime.strptime(
+                            due_str, "%Y-%m-%d")
+                    except ValueError:
+                        pass
+                if updates:
+                    task_service.update_task(tid, **updates)
+                Toast.show(self._page, "已排程", "success")
+            except Exception as e:
+                Toast.show(self._page, str(e), "warning")
+            dlg.close()
+
+        from app.ui.components.modal_dialog import ModalDialog
+
+        header = ft.Container(
+            ft.Row([
+                ft.Icon(ft.Icons.CALENDAR_MONTH_OUTLINED,
+                        size=s(15), color="#5294e2"),
+                ft.Text("排程信息", size=s(14),
+                        weight=ft.FontWeight.W_600,
+                        color=theme.text_primary, font_family=ff),
+                ft.Container(expand=True),
+                ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
+                              icon_color=theme.text_secondary,
+                              on_click=lambda e: dlg.close()),
+            ], spacing=s(8)),
+            padding=ft.padding.only(
+                left=s(14), top=s(8), right=s(6), bottom=s(8)),
+            border=ft.border.only(
+                bottom=ft.BorderSide(1, theme.border)),
+        )
+
+        form = ft.Container(
+            ft.Column([
+                _label("计划完成日期"),
+                due_f,
+                ft.Divider(height=s(14), color=ft.Colors.TRANSPARENT),
+                _label("负责人"),
+                assignee_f,
+            ], spacing=s(4), tight=True),
+            padding=ft.padding.all(s(14)),
+        )
+
+        btn_style = ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=s(6)),
+            padding=ft.padding.only(
+                left=s(18), top=s(7), right=s(18), bottom=s(7)),
+            text_style=ft.TextStyle(size=s(12), font_family=ff),
+        )
+        footer = ft.Container(
+            ft.Row([
+                ft.Container(expand=True),
+                ft.OutlinedButton("取消", on_click=lambda e: dlg.close(),
+                    style=ft.ButtonStyle(
+                        shape=btn_style.shape, padding=btn_style.padding,
+                        text_style=btn_style.text_style,
+                        side=ft.BorderSide(1, theme.border),
+                        color=theme.text_secondary)),
+                ft.ElevatedButton("确认排程", on_click=_confirm,
+                    style=ft.ButtonStyle(
+                        shape=btn_style.shape, padding=btn_style.padding,
+                        text_style=btn_style.text_style,
+                        bgcolor="#5294e2", color=ft.Colors.WHITE,
+                        elevation=0)),
+            ], spacing=s(8)),
+            padding=ft.padding.only(
+                left=s(14), top=s(8), right=s(14), bottom=s(10)),
+            border=ft.border.only(
+                top=ft.BorderSide(1, theme.border)),
+        )
+
+        content = ft.Column([header, form, footer], spacing=0, tight=True)
+        dlg = ModalDialog(self._page, content, width=440,
+                          bgcolor="#1c1c1c")
+        dlg.open()
 
     def _on_column_menu(self, cid):
         Toast.show(self._page, f"列操作: {cid}", "info")
@@ -280,8 +540,40 @@ class BoardPage:
 
     # ── 内联搜索 ──
 
+    def _on_search_focus(self):
+        if self._search_field:
+            self._search_field.hint_text = "搜索任务、ATA 章节、飞机注册号..."
+            self._search_field.update()
+        if self._search_box:
+            self._search_box.border = ft.border.all(1.5, "#5294e2")
+            self._search_box.shadow = ft.BoxShadow(
+                spread_radius=0, blur_radius=s(12),
+                color=ft.Colors.with_opacity(0.25, "#5294e2"))
+            self._search_box.update()
+
+    def _on_search_blur(self):
+        if self._search_field:
+            self._search_field.hint_text = ""
+            self._search_field.update()
+        if self._search_box:
+            self._search_box.border = ft.border.all(1.5, "#1e1e1e")
+            self._search_box.shadow = None
+            self._search_box.update()
+
+    def _on_search_clear(self, e):
+        if self._search_field:
+            self._search_field.value = ""
+            self._search_field.update()
+            board_service.set_filters(FilterState())
+            if self._search_clear_btn:
+                self._search_clear_btn.visible = False
+                self._search_clear_btn.update()
+
     def _on_search_input(self, e):
         val = (e.control.value or "").strip()
+        if self._search_clear_btn:
+            self._search_clear_btn.visible = len(val) > 0
+            self._search_clear_btn.update()
         if len(val) >= 1:
             board_service.set_filters(FilterState(search_query=val))
         else:
@@ -509,20 +801,36 @@ class BoardPage:
         dlg.open()
 
     def _dlg_filter(self):
-        ata_dd = ft.Dropdown(
-            label="ATA 章节",
-            options=[ft.dropdown.Option(k, v) for k, v in [
-                ("21", "21 - 空调"), ("24", "24 - 电源"), ("27", "27 - 飞行控制"),
-                ("28", "28 - 燃油"), ("32", "32 - 起落架"), ("49", "49 - APU"),
-                ("72", "72 - 发动机"), ("79", "79 - 滑油")]],
-            border_color=theme.border, bgcolor=theme.card)
-        pri_dd = ft.Dropdown(
-            label="优先级",
-            options=[ft.dropdown.Option(k, v) for k, v in [
-                ("aog", "AOG"), ("cat_a", "Cat A"), ("cat_b", "Cat B"), ("cat_c", "Cat C")]],
-            border_color=theme.border, bgcolor=theme.card)
+        ff = theme.font_family
 
-        def apply(_):
+        def _dropdown(options, width=220):
+            return ft.Dropdown(
+                dense=True,
+                options=[ft.dropdown.Option(k, v) for k, v in options],
+                border_color=theme.border,
+                focused_border_color=theme.info,
+                bgcolor=theme.card,
+                text_style=ft.TextStyle(
+                    color="#e0e0e0", size=s(12), font_family=ff),
+                border_radius=s(6),
+                width=width,
+            )
+
+        def _label(text):
+            return ft.Text(text, size=s(12), color=theme.text_primary,
+                           font_family=ff, weight=ft.FontWeight.W_500)
+
+        ata_dd = _dropdown([
+            ("", "全部 ATA"),
+            ("21", "21 - 空调"), ("24", "24 - 电源"), ("27", "27 - 飞行控制"),
+            ("28", "28 - 燃油"), ("32", "32 - 起落架"), ("49", "49 - APU"),
+            ("72", "72 - 发动机"), ("79", "79 - 滑油")])
+        pri_dd = _dropdown([
+            ("", "全部优先级"),
+            ("aog", "AOG"), ("cat_a", "Cat A"),
+            ("cat_b", "Cat B"), ("cat_c", "Cat C")])
+
+        def _apply(_):
             f = FilterState()
             if ata_dd.value: f.ata_chapters = [ata_dd.value]
             if pri_dd.value: f.priorities = [pri_dd.value]
@@ -530,23 +838,65 @@ class BoardPage:
             dlg.close()
             Toast.show(self._page, "筛选已应用", "info")
 
-        def clear(_):
+        def _clear(_):
+            ata_dd.value = ""
+            pri_dd.value = ""
+            ata_dd.update(); pri_dd.update()
             board_service.set_filters(FilterState())
             dlg.close()
             Toast.show(self._page, "筛选已清除", "info")
 
         from app.ui.components.modal_dialog import ModalDialog
-        content = ft.Column([
-            ft.Text("筛选", size=theme.font_lg, weight=ft.FontWeight.W_600,
-                    color=theme.text_primary, font_family=theme.font_family),
-            ft.Container(height=8),
-            ata_dd, pri_dd,
-            ft.Container(height=8),
+
+        header = ft.Container(
             ft.Row([
-                ft.TextButton("清除", on_click=clear),
+                ft.Icon(ft.Icons.FILTER_ALT_OUTLINED, size=s(15), color="#5294e2"),
+                ft.Text("筛选任务", size=s(14), weight=ft.FontWeight.W_600,
+                        color=theme.text_primary, font_family=ff),
                 ft.Container(expand=True),
-                ft.ElevatedButton("应用", on_click=apply, style=ft.ButtonStyle(bgcolor=theme.info)),
-            ]),
-        ], spacing=0, tight=True)
-        dlg = ModalDialog(self._page, content, width=340)
+                ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
+                              icon_color=theme.text_secondary,
+                              on_click=lambda e: dlg.close()),
+            ], spacing=s(8)),
+            padding=ft.padding.only(left=s(14), top=s(8), right=s(6), bottom=s(8)),
+            border=ft.border.only(bottom=ft.BorderSide(1, theme.border)),
+        )
+
+        form = ft.Container(
+            ft.Column([
+                _label("ATA 章节"),
+                ata_dd,
+                ft.Divider(height=s(14), color=ft.Colors.TRANSPARENT),
+                _label("优先级"),
+                pri_dd,
+            ], spacing=s(4), tight=True),
+            padding=ft.padding.only(left=s(14), top=s(14), right=s(14), bottom=s(14)),
+        )
+
+        btn_style = ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=s(6)),
+            padding=ft.padding.only(left=s(18), top=s(7), right=s(18), bottom=s(7)),
+            text_style=ft.TextStyle(size=s(12), font_family=ff),
+        )
+        footer = ft.Container(
+            ft.Row([
+                ft.Container(expand=True),
+                ft.OutlinedButton("清除", on_click=_clear,
+                    style=ft.ButtonStyle(
+                        shape=btn_style.shape, padding=btn_style.padding,
+                        text_style=btn_style.text_style,
+                        side=ft.BorderSide(1, theme.border),
+                        color=theme.text_secondary)),
+                ft.ElevatedButton("应用筛选", on_click=_apply,
+                    style=ft.ButtonStyle(
+                        shape=btn_style.shape, padding=btn_style.padding,
+                        text_style=btn_style.text_style,
+                        bgcolor="#5294e2", color=ft.Colors.WHITE, elevation=0)),
+            ], spacing=s(8)),
+            padding=ft.padding.only(left=s(14), top=s(8), right=s(14), bottom=s(10)),
+            border=ft.border.only(top=ft.BorderSide(1, theme.border)),
+        )
+
+        content = ft.Column([header, form, footer], spacing=0, tight=True)
+        dlg = ModalDialog(self._page, content, width=360, bgcolor="#1c1c1c")
         dlg.open()

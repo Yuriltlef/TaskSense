@@ -1,7 +1,7 @@
 """新建任务弹窗 — overlay 居中面板 + 全屏变暗遮罩."""
 
 import flet as ft
-from app.config.theme import theme
+from app.config.theme import theme, s
 from app.core.services.task_service import task_service
 from app.ui.widgets.overlay_dimmer import OverlayDimmer
 
@@ -20,7 +20,8 @@ class CreateTaskDialog:
         cls._page = page
         cls._open = True
         cls._dimmer = OverlayDimmer.open(
-            page, cls._build(), dim_opacity=0.55, close_on_dimmer_click=True)
+            page, cls._build(), dim_opacity=0.55,
+            on_dimmer_click=lambda: cls.close())
 
     @classmethod
     def close(cls):
@@ -36,26 +37,55 @@ class CreateTaskDialog:
         ff = theme.font_family
         page = cls._page
 
-        title_f = ft.TextField(
-            hint_text="描述故障或维护需求...",
-            border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
-            bgcolor=theme.card, dense=True,
-        )
-        reg_f = ft.TextField(
-            hint_text="飞机注册号，如 B-5823", width=200,
-            border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
-            bgcolor=theme.card, dense=True,
-        )
-        ata_f = ft.TextField(
-            hint_text="ATA 章节，如 32-41-03", width=200,
-            border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
-            bgcolor=theme.card, dense=True,
-        )
-        ghost_hint = ft.Text("", size=theme.font_xs, color=theme.type_removal_install,
-                             font_family=ff, italic=True)
+        # ── 输入框工厂 ──
+        def field(hint="", width=None):
+            return ft.TextField(
+                hint_text=hint,
+                border_color=theme.border,
+                focused_border_color=theme.info,
+                cursor_color=theme.info,
+                text_style=ft.TextStyle(
+                    color="#e0e0e0", size=s(13), font_family=ff),
+                hint_style=ft.TextStyle(
+                    color=theme.text_secondary, size=s(12), font_family=ff),
+                bgcolor=theme.card,
+                dense=True,
+                content_padding=ft.padding.only(
+                    left=s(10), top=s(8), right=s(10), bottom=s(8)),
+                border_radius=s(6),
+                width=width,
+            )
+
+        # ── 下拉框工厂 ──
+        def dropdown(value, options, width=None):
+            return ft.Dropdown(
+                value=value, dense=True,
+                options=[ft.dropdown.Option(k, v) for k, v in options],
+                border_color=theme.border,
+                focused_border_color=theme.info,
+                bgcolor=theme.card,
+                text_style=ft.TextStyle(
+                    color="#e0e0e0", size=s(12), font_family=ff),
+                border_radius=s(6),
+                width=width,
+            )
+
+        # ── 标签 ──
+        def label(text, size=s(12)):
+            return ft.Text(
+                text, size=size, color=theme.text_primary,
+                font_family=ff, weight=ft.FontWeight.W_500)
+
+        # ── 表单控件 ──
+        title_f = field("描述故障或维护需求...")
+        reg_f = field("飞机注册号，如 B-5823", width=200)
+        ata_f = field("ATA 章节，如 32-41-03", width=200)
+        assignee_f = field("负责人，如 张工", width=200)
+        zone_f = field("区域 (Zone)，如 710", width=200)
+
+        ghost_hint = ft.Text(
+            "", size=s(11), color=theme.type_removal_install,
+            font_family=ff, italic=True)
 
         def on_title_change(e):
             val = (e.control.value or "").strip()
@@ -72,36 +102,14 @@ class CreateTaskDialog:
                     ghost_hint.value = ""
         title_f.on_change = on_title_change
 
-        pri_dd = ft.Dropdown(
-            value="cat_c", dense=True,
-            options=[ft.dropdown.Option(k, v) for k, v in [
-                ("aog", "AOG — 立即"), ("cat_a", "Cat A — 当日"),
-                ("cat_b", "Cat B — 72h"), ("cat_c", "Cat C — 10 天"),
-                ("cat_d", "Cat D — 120 天")]],
-            border_color=theme.border, focused_border_color=theme.info,
-            bgcolor=theme.card, width=200,
-        )
-        type_dd = ft.Dropdown(
-            value="troubleshoot", dense=True,
-            options=[ft.dropdown.Option(k, v) for k, v in [
-                ("troubleshoot", "排故"), ("inspection", "检查"),
-                ("servicing", "勤务"), ("removal_install", "拆装"),
-                ("test", "测试"), ("repair", "修复")]],
-            border_color=theme.border, focused_border_color=theme.info,
-            bgcolor=theme.card, width=200,
-        )
-        assignee_f = ft.TextField(
-            hint_text="负责人，如 张工", width=200,
-            border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
-            bgcolor=theme.card, dense=True,
-        )
-        zone_f = ft.TextField(
-            hint_text="区域 (Zone)，如 710", width=200,
-            border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
-            bgcolor=theme.card, dense=True,
-        )
+        pri_dd = dropdown("cat_c", [
+            ("aog", "AOG — 立即"), ("cat_a", "Cat A — 当日"),
+            ("cat_b", "Cat B — 72h"), ("cat_c", "Cat C — 10 天"),
+            ("cat_d", "Cat D — 120 天")], width=200)
+        type_dd = dropdown("troubleshoot", [
+            ("troubleshoot", "排故"), ("inspection", "检查"),
+            ("servicing", "勤务"), ("removal_install", "拆装"),
+            ("test", "测试"), ("repair", "修复")], width=200)
 
         def _create(_):
             t = (title_f.value or "").strip()
@@ -122,70 +130,86 @@ class CreateTaskDialog:
             from app.ui.widgets.toast import Toast
             Toast.show(cls._page, f"已创建: {t}", "success")
 
-        # 标题栏
-        title_bar = ft.Container(
-            content=ft.Row([
-                ft.Text("新建维护任务", size=theme.font_lg, weight=ft.FontWeight.W_600,
+        # ── 标题栏 ──
+        header = ft.Container(
+            ft.Row([
+                ft.Icon(ft.Icons.BUILD_OUTLINED, size=s(15), color="#5294e2"),
+                ft.Text("新建维护任务", size=s(14),
+                        weight=ft.FontWeight.W_600,
                         color=theme.text_primary, font_family=ff),
                 ft.Container(expand=True),
-                ft.IconButton(ft.Icons.CLOSE, icon_size=16, icon_color=ft.Colors.GREY_400,
-                              on_click=lambda e: cls.close()),
-            ]),
-            padding=ft.padding.only(left=20, top=14, right=8, bottom=8),
+                ft.IconButton(
+                    ft.Icons.CLOSE, icon_size=s(16),
+                    icon_color=theme.text_secondary,
+                    on_click=lambda e: cls.close()),
+            ], spacing=s(8)),
+            padding=ft.padding.only(left=s(14), top=s(8), right=s(6), bottom=s(8)),
+            border=ft.border.only(
+                bottom=ft.BorderSide(1, theme.border)),
         )
 
-        # 表单
+        # ── 表单区 ──
         form = ft.Container(
-            content=ft.Column([
-                ft.Text("任务标题", size=12, color=theme.text_secondary, font_family=ff),
-                title_f, ghost_hint,
-                ft.Container(height=8),
-                ft.Row([reg_f, ata_f], spacing=12),
-                ft.Row([pri_dd, type_dd], spacing=12),
-                ft.Row([assignee_f, zone_f], spacing=12),
-            ], spacing=4, tight=True),
-            padding=ft.padding.only(left=20, right=20, bottom=16),
+            ft.Column([
+                label("任务标题"),
+                title_f,
+                ghost_hint,
+                ft.Divider(height=s(14), color=ft.Colors.TRANSPARENT),
+                ft.Row([reg_f, ata_f], spacing=s(12)),
+                ft.Divider(height=s(14), color=ft.Colors.TRANSPARENT),
+                ft.Row([pri_dd, type_dd], spacing=s(12)),
+                ft.Divider(height=s(14), color=ft.Colors.TRANSPARENT),
+                ft.Row([assignee_f, zone_f], spacing=s(12)),
+            ], spacing=s(4), tight=True),
+            padding=ft.padding.only(
+                left=s(14), top=s(14), right=s(14), bottom=s(14)),
         )
 
-        # 底部按钮
-        btn_base = ft.ButtonStyle(
-            shape=ft.RoundedRectangleBorder(radius=6),
-            padding=ft.padding.only(left=20, top=8, right=20, bottom=8),
-            text_style=ft.TextStyle(size=13, font_family=ff),
+        # ── 底部 ──
+        btn_style = ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=s(6)),
+            padding=ft.padding.only(left=s(18), top=s(7), right=s(18), bottom=s(7)),
+            text_style=ft.TextStyle(size=s(12), font_family=ff),
         )
         footer = ft.Container(
-            content=ft.Row([
+            ft.Row([
                 ft.Container(expand=True),
-                ft.OutlinedButton("取消", on_click=lambda e: cls.close(),
+                ft.OutlinedButton(
+                    "取消", on_click=lambda e: cls.close(),
                     style=ft.ButtonStyle(
-                        shape=btn_base.shape,
-                        padding=btn_base.padding,
-                        text_style=btn_base.text_style,
+                        shape=btn_style.shape,
+                        padding=btn_style.padding,
+                        text_style=btn_style.text_style,
                         side=ft.BorderSide(1, theme.border),
-                        color=theme.text_primary,
+                        color=theme.text_secondary,
                     )),
-                ft.OutlinedButton("创建", on_click=_create,
+                ft.ElevatedButton(
+                    "创建任务", on_click=_create,
                     style=ft.ButtonStyle(
-                        shape=btn_base.shape,
-                        padding=btn_base.padding,
-                        text_style=btn_base.text_style,
-                        side=ft.BorderSide(1, theme.info),
-                        color=theme.info,
+                        shape=btn_style.shape,
+                        padding=btn_style.padding,
+                        text_style=btn_style.text_style,
+                        bgcolor="#5294e2",
+                        color=ft.Colors.WHITE,
+                        elevation=0,
                     )),
-            ], spacing=8),
-            padding=ft.padding.only(left=16, top=8, right=16, bottom=10),
-            border=ft.border.only(top=ft.BorderSide(1, theme.border)),
+            ], spacing=s(8)),
+            padding=ft.padding.only(
+                left=s(14), top=s(8), right=s(14), bottom=s(10)),
+            border=ft.border.only(
+                top=ft.BorderSide(1, theme.border)),
         )
 
-        # 面板
-        P_W, P_H = 460, 420
+        # ── 面板 ──
+        P_W, P_H = 460, 440
         cx = (page.width - P_W) // 2
         cy = (page.height - P_H) // 2
         return ft.Container(
-            content=ft.Column([title_bar, form, footer], spacing=0, tight=True),
-            width=P_W, bgcolor=theme.surface,
-            border_radius=theme.radius_md,
+            content=ft.Column([header, form, footer], spacing=0, tight=True),
+            width=P_W,             bgcolor="#1c1c1c",
+            border_radius=s(10),
             border=ft.border.all(1, theme.border),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=16, color="#000000aa"),
+            shadow=ft.BoxShadow(
+                spread_radius=1, blur_radius=20, color="#000000aa"),
             left=cx, top=cy,
         )
