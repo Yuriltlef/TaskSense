@@ -53,8 +53,8 @@ STATUS_LABELS = {
     "scheduled": "已排程",
     "ready": "就绪",
     "in_progress": "执行中",
-    "inspection": "检查中",
-    "parts_hold": "待零件",
+    "inspection": "验收中",
+    "parts_hold": "阻塞中",
     "completed": "已完成",
     "archived": "已归档",
 }
@@ -65,8 +65,8 @@ DEFAULT_COLUMNS = [
     {"id": "scheduled",     "title": "已排程",   "wip_limit": None, "order": 2, "visible": True},
     {"id": "ready",         "title": "就绪",     "wip_limit": 20,   "order": 3, "visible": True},
     {"id": "in_progress",   "title": "执行中",   "wip_limit": 15,   "order": 4, "visible": True},
-    {"id": "inspection",    "title": "检查中",   "wip_limit": 15,   "order": 5, "visible": True},
-    {"id": "parts_hold",    "title": "待零件",   "wip_limit": 10,   "order": 6, "visible": True},
+    {"id": "inspection",    "title": "验收中",   "wip_limit": 15,   "order": 5, "visible": True},
+    {"id": "parts_hold",    "title": "阻塞中",   "wip_limit": 10,   "order": 6, "visible": True},
     {"id": "completed",     "title": "已完成",   "wip_limit": None, "order": 7, "visible": True},
     {"id": "archived",      "title": "已归档",   "wip_limit": None, "order": 8, "visible": False},
 ]
