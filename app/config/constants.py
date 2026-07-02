@@ -61,7 +61,7 @@ STATUS_LABELS = {
 
 DEFAULT_COLUMNS = [
     {"id": "backlog",       "title": "待处理",   "wip_limit": None, "order": 0, "visible": True},
-    {"id": "triage",        "title": "分类中",   "wip_limit": 10,   "order": 1, "visible": True},
+    {"id": "triage",        "title": "已分类",   "wip_limit": 10,   "order": 1, "visible": True},
     {"id": "scheduled",     "title": "已排程",   "wip_limit": None, "order": 2, "visible": True},
     {"id": "ready",         "title": "就绪",     "wip_limit": 20,   "order": 3, "visible": True},
     {"id": "in_progress",   "title": "执行中",   "wip_limit": 15,   "order": 4, "visible": True},
