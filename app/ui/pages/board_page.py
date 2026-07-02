@@ -53,17 +53,18 @@ class BoardPage:
 
         # ── 搜索字段（由 app.py 统一标题栏引用）──
         self._search_field = ft.TextField(
-            hint_text="",
-            border_color="transparent",
-            focused_border_color="transparent",
+            hint_text="搜索任务、ATA 章节、飞机注册号...",
+            border=ft.InputBorder.NONE,
+            border_color=ft.Colors.TRANSPARENT,
+            focused_border_color=ft.Colors.TRANSPARENT,
+            filled=False,
             cursor_color="#5294e2",
-            cursor_height=s(16),
-            text_style=ft.TextStyle(color=theme.text_primary, size=s(14), font_family=ff),
-            hint_style=ft.TextStyle(color=theme.text_secondary, size=s(13), font_family=ff),
-            content_padding=ft.padding.only(left=s(4), top=s(8), right=s(0), bottom=s(7)),
+            cursor_height=s(14),
+            text_style=ft.TextStyle(color=theme.text_primary, size=s(13), font_family=ff),
+            hint_style=ft.TextStyle(color=theme.text_secondary, size=s(12), font_family=ff),
+            content_padding=ft.padding.only(left=s(2), top=0, right=s(2), bottom=0),
             dense=True,
             bgcolor=ft.Colors.TRANSPARENT,
-            border=ft.InputBorder.NONE,
             expand=True,
             on_change=self._on_search_input,
             on_submit=self._on_search_submit,
@@ -345,6 +346,10 @@ class BoardPage:
                 ft.Container(expand=True),
                 ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
                               icon_color=theme.text_secondary,
+                              style=ft.ButtonStyle(
+                                  bgcolor=ft.Colors.TRANSPARENT,
+                                  overlay_color=ft.Colors.RED_900,
+                                  shape=ft.RoundedRectangleBorder(radius=s(4))),
                               on_click=lambda e: dlg.close()),
             ], spacing=s(8)),
             padding=ft.padding.only(
@@ -392,8 +397,7 @@ class BoardPage:
         )
 
         content = ft.Column([header, form, footer], spacing=0, tight=True)
-        dlg = ModalDialog(self._page, content, width=540,
-                          bgcolor="#1c1c1c")
+        dlg = ModalDialog(self._page, content, width=540)
         dlg.open()
 
     def _dlg_schedule(self, tid, col, index):
@@ -467,6 +471,10 @@ class BoardPage:
                 ft.Container(expand=True),
                 ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
                               icon_color=theme.text_secondary,
+                              style=ft.ButtonStyle(
+                                  bgcolor=ft.Colors.TRANSPARENT,
+                                  overlay_color=ft.Colors.RED_900,
+                                  shape=ft.RoundedRectangleBorder(radius=s(4))),
                               on_click=lambda e: dlg.close()),
             ], spacing=s(8)),
             padding=ft.padding.only(
@@ -515,8 +523,7 @@ class BoardPage:
         )
 
         content = ft.Column([header, form, footer], spacing=0, tight=True)
-        dlg = ModalDialog(self._page, content, width=440,
-                          bgcolor="#1c1c1c")
+        dlg = ModalDialog(self._page, content, width=440)
         dlg.open()
 
     def _on_column_menu(self, cid):
@@ -541,23 +548,13 @@ class BoardPage:
     # ── 内联搜索 ──
 
     def _on_search_focus(self):
-        if self._search_field:
-            self._search_field.hint_text = "搜索任务、ATA 章节、飞机注册号..."
-            self._search_field.update()
         if self._search_box:
-            self._search_box.border = ft.border.all(1.5, "#5294e2")
-            self._search_box.shadow = ft.BoxShadow(
-                spread_radius=0, blur_radius=s(12),
-                color=ft.Colors.with_opacity(0.25, "#5294e2"))
+            self._search_box.border = ft.border.all(1, "#5294e2")
             self._search_box.update()
 
     def _on_search_blur(self):
-        if self._search_field:
-            self._search_field.hint_text = ""
-            self._search_field.update()
         if self._search_box:
-            self._search_box.border = ft.border.all(1.5, "#1e1e1e")
-            self._search_box.shadow = None
+            self._search_box.border = ft.border.all(1, "#2a2a2a")
             self._search_box.update()
 
     def _on_search_clear(self, e):
@@ -856,6 +853,10 @@ class BoardPage:
                 ft.Container(expand=True),
                 ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
                               icon_color=theme.text_secondary,
+                              style=ft.ButtonStyle(
+                                  bgcolor=ft.Colors.TRANSPARENT,
+                                  overlay_color=ft.Colors.RED_900,
+                                  shape=ft.RoundedRectangleBorder(radius=s(4))),
                               on_click=lambda e: dlg.close()),
             ], spacing=s(8)),
             padding=ft.padding.only(left=s(14), top=s(8), right=s(6), bottom=s(8)),
@@ -898,5 +899,5 @@ class BoardPage:
         )
 
         content = ft.Column([header, form, footer], spacing=0, tight=True)
-        dlg = ModalDialog(self._page, content, width=360, bgcolor="#1c1c1c")
+        dlg = ModalDialog(self._page, content, width=360)
         dlg.open()

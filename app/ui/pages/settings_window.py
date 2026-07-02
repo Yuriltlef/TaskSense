@@ -82,6 +82,7 @@ class SettingsOverlay:
             cls._panel.top = ny
             cls._panel.update()
 
+        header_bg = theme.surface   # #0e0e0e
         header = ft.Container(
             content=ft.GestureDetector(
                 content=ft.Row([
@@ -95,6 +96,10 @@ class SettingsOverlay:
                     ft.IconButton(
                         ft.Icons.CLOSE, icon_size=s(16),
                         icon_color=theme.text_secondary,
+                        style=ft.ButtonStyle(
+                            bgcolor=ft.Colors.TRANSPARENT,
+                            overlay_color=ft.Colors.RED_900,
+                            shape=ft.RoundedRectangleBorder(radius=s(4))),
                         on_click=lambda e: cls.close()),
                 ], spacing=s(6)),
                 mouse_cursor=ft.MouseCursor.MOVE,
@@ -103,12 +108,12 @@ class SettingsOverlay:
             ),
             padding=ft.padding.only(
                 left=s(14), top=s(8), right=s(6), bottom=s(8)),
-            bgcolor="#1c1c1c",
+            bgcolor=header_bg,
             border=ft.border.only(bottom=ft.BorderSide(1, theme.border)),
         )
 
         # ── 左侧导航 ──
-        nav_bg = "#161616"
+        nav_bg = "#101010"   # 比 surface 稍亮，区分可交互区域
         for key, label, icon in NAV_ITEMS:
             sel = key == cls._active[0]
             c = ft.Container(
@@ -123,7 +128,7 @@ class SettingsOverlay:
                 padding=ft.padding.only(
                     left=s(10), top=s(8), right=s(12), bottom=s(8)),
                 border_radius=s(6),
-                bgcolor=ft.Colors.with_opacity(0.10, theme.info) if sel else None,
+                bgcolor=ft.Colors.with_opacity(0.12, theme.info) if sel else None,
                 margin=ft.margin.only(
                     left=s(6), right=s(6), top=s(2), bottom=s(2)),
                 on_click=lambda e, k=key: cls._switch(k),
@@ -142,7 +147,7 @@ class SettingsOverlay:
 
         # ── 右侧内容区 ──
         cls._right = ft.Container(
-            bgcolor="#1c1c1c", expand=True,
+            bgcolor="#0c0c0c", expand=True,
             padding=ft.padding.all(s(18)))
 
         # ── 底部按钮 ──
@@ -173,7 +178,7 @@ class SettingsOverlay:
             ], spacing=s(8)),
             padding=ft.padding.only(
                 left=s(14), top=s(8), right=s(14), bottom=s(10)),
-            bgcolor="#1c1c1c",
+            bgcolor=header_bg,
             border=ft.border.only(top=ft.BorderSide(1, theme.border)),
         )
 
@@ -184,7 +189,6 @@ class SettingsOverlay:
                 ft.Row([nav_panel, cls._right], expand=True, spacing=0),
                 footer,
             ], spacing=0, expand=True),
-            bgcolor="#1c1c1c",
             border_radius=s(10),
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         )
@@ -210,7 +214,7 @@ class SettingsOverlay:
         cls._active[0] = key
         for ctrl in cls._nav_ctrls:
             is_sel = ctrl.data == key
-            ctrl.bgcolor = (ft.Colors.with_opacity(0.10, theme.info)
+            ctrl.bgcolor = (ft.Colors.with_opacity(0.12, theme.info)
                             if is_sel else None)
             iw = ctrl.content.controls[0]
             tw = ctrl.content.controls[1]

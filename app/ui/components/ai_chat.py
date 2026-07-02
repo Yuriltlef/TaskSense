@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import flet as ft
-from app.config.theme import theme
+from app.config.theme import theme, s
 from app.ui.components.chat_bubble import user_bubble, ai_bubble, error_bubble, timestamp_label
 from app.ui.components.chat_input import ChatInput
 
@@ -79,6 +79,10 @@ class AIChatPanel(ft.Container):
                               icon_color=theme.text_secondary, tooltip="新对话",
                               on_click=lambda e: self._reset_chat()),
                 ft.IconButton(ft.Icons.CLOSE, icon_size=16, icon_color=theme.text_secondary,
+                              style=ft.ButtonStyle(
+                                  bgcolor=ft.Colors.TRANSPARENT,
+                                  overlay_color=ft.Colors.RED_900,
+                                  shape=ft.RoundedRectangleBorder(radius=s(4))),
                               on_click=lambda e: self.close()),
             ], spacing=8),
             padding=ft.padding.only(left=14, top=6, right=4, bottom=6),

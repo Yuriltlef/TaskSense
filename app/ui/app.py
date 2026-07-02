@@ -158,7 +158,6 @@ class TaskSenseApp:
             visible=False,
             style=ft.ButtonStyle(
                 bgcolor=ft.Colors.TRANSPARENT,
-                overlay_color="#1e1e1e",
                 shape=ft.RoundedRectangleBorder(radius=s(4)),
             ),
             on_click=bp._on_search_clear,
@@ -166,18 +165,17 @@ class TaskSenseApp:
         bp._search_clear_btn = clear_btn
         search_box = ft.Container(
             content=ft.Row([
-                ft.Icon(ft.Icons.SEARCH, size=s(16), color="#5294e2"),
+                ft.Icon(ft.Icons.SEARCH, size=s(14), color="#5294e2"),
                 sf,
                 clear_btn,
             ], spacing=s(6)),
-            width=320,
-            height=s(34),
-            bgcolor="#141414",
-            border_radius=s(8),
-            border=ft.border.all(1.5, "#1e1e1e"),
+            width=300,
+            height=s(28),
+            bgcolor="#1a1a1a",
+            border=ft.border.all(1, "#2a2a2a"),
+            border_radius=s(6),
             padding=ft.padding.symmetric(horizontal=s(10)),
             alignment=ft.alignment.center_left,
-            animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
         )
         bp._search_box = search_box
 

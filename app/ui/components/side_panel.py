@@ -40,6 +40,10 @@ class SidePanel(ft.Container):
 
         close_btn = ft.IconButton(icon=ft.Icons.CLOSE, icon_size=s(15),
                                   icon_color=theme.text_secondary,
+                                  style=ft.ButtonStyle(
+                                      bgcolor=ft.Colors.TRANSPARENT,
+                                      overlay_color=ft.Colors.RED_900,
+                                      shape=ft.RoundedRectangleBorder(radius=s(4))),
                                   on_click=lambda e: self.close())
         edit_btn = ft.IconButton(icon=ft.Icons.EDIT_OUTLINED, icon_size=s(15),
                                  icon_color=theme.text_secondary,

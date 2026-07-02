@@ -141,6 +141,10 @@ class CreateTaskDialog:
                 ft.IconButton(
                     ft.Icons.CLOSE, icon_size=s(16),
                     icon_color=theme.text_secondary,
+                    style=ft.ButtonStyle(
+                        bgcolor=ft.Colors.TRANSPARENT,
+                        overlay_color=ft.Colors.RED_900,
+                        shape=ft.RoundedRectangleBorder(radius=s(4))),
                     on_click=lambda e: cls.close()),
             ], spacing=s(8)),
             padding=ft.padding.only(left=s(14), top=s(8), right=s(6), bottom=s(8)),
@@ -206,7 +210,7 @@ class CreateTaskDialog:
         cy = (page.height - P_H) // 2
         return ft.Container(
             content=ft.Column([header, form, footer], spacing=0, tight=True),
-            width=P_W,             bgcolor="#1c1c1c",
+            width=P_W,             bgcolor=theme.surface,
             border_radius=s(10),
             border=ft.border.all(1, theme.border),
             shadow=ft.BoxShadow(
