@@ -224,14 +224,14 @@ class AgentOrchestrator:
         from app.agent.llm_client import llm as llm_client
 
         if not llm_client.is_available:
-            return self._offline_search(question)
+            return "[Error] LLM 不可用，请检查 API Key 和网络连接。"
 
         conv.add_user(question)
 
         try:
             response = self._agent_loop(conv, llm_client, cancel_event)
         except Exception as e:
-            response = f"[Error] Agent reasoning failed: {e}"
+            response = f"[Error] Agent 推理失败: {e}"
 
         # 中断消息不记入历史
         if response != "回答已中断":
@@ -254,8 +254,6 @@ class AgentOrchestrator:
             resp_text = llm_client.chat_messages(messages)
 
             if resp_text.startswith("[Error]"):
-                if round_num == 0:
-                    return self._offline_search(conv.last_user_message or "")
                 return resp_text
 
             # 检查是否有工具调用

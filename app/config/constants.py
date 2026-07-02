@@ -49,7 +49,7 @@ TASK_TYPE_ICONS = {
 
 STATUS_LABELS = {
     "backlog": "待处理",
-    "triage": "分类中",
+    "triage": "已分类",
     "scheduled": "已排程",
     "ready": "就绪",
     "in_progress": "执行中",

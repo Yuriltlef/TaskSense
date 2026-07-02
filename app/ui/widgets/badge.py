@@ -72,7 +72,7 @@ class StatusBadge(Badge):
                   "in_progress": theme.warning, "inspection": theme.type_removal_install,
                   "parts_hold": theme.priority_cat_a, "completed": theme.success,
                   "archived": theme.text_disabled}
-        labels = {"backlog": "待处理", "triage": "分类中", "scheduled": "已排程",
+        labels = {"backlog": "待处理", "triage": "已分类", "scheduled": "已排程",
                   "ready": "就绪", "in_progress": "执行中", "inspection": "验收中",
                   "parts_hold": "阻塞中", "completed": "已完成", "archived": "已归档"}
         super().__init__(text=labels.get(status, status),
