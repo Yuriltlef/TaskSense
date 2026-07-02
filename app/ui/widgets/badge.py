@@ -56,14 +56,11 @@ class ATABadge(Badge):
 class TaskTypeBadge(Badge):
     def __init__(self, task_type: str, size="sm"):
         c = theme.task_type_color(task_type)
-        labels = {"troubleshoot": "T/SHOOT", "inspection": "INSPECT",
-                  "servicing": "SERVICE", "removal_install": "R/I",
-                  "test": "TEST", "repair": "REPAIR"}
-        tips = {"troubleshoot": "排故", "inspection": "检查",
-                "servicing": "勤务", "removal_install": "拆装",
-                "test": "测试", "repair": "修复"}
-        super().__init__(text=labels.get(task_type, task_type.upper()),
-                         color=c, size=size, tooltip=tips.get(task_type, task_type))
+        labels = {"troubleshoot": "排故", "inspection": "检查",
+                  "servicing": "勤务", "removal_install": "拆装",
+                  "test": "测试", "repair": "修复"}
+        super().__init__(text=labels.get(task_type, task_type),
+                         color=c, size=size, tooltip=labels.get(task_type, task_type))
 
 
 class StatusBadge(Badge):

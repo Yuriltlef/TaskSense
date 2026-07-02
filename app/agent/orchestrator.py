@@ -54,6 +54,18 @@ class ToolExecutor:
             elif tool_name == "search_related_tasks":
                 from app.agent.tools.board_tools import search_related_tasks
                 return search_related_tasks.invoke(params)
+            elif tool_name == "create_task":
+                from app.agent.tools.write_tools import create_task
+                return create_task.invoke(params)
+            elif tool_name == "update_task":
+                from app.agent.tools.write_tools import update_task
+                return update_task.invoke(params)
+            elif tool_name == "classify_task":
+                from app.agent.tools.write_tools import classify_task
+                return classify_task.invoke(params)
+            elif tool_name == "schedule_task":
+                from app.agent.tools.write_tools import schedule_task
+                return schedule_task.invoke(params)
             else:
                 return f"[Error] Unknown tool: {tool_name}"
         except Exception as e:
@@ -365,11 +377,14 @@ class AgentOrchestrator:
             if any(w in t.title.lower() for w in description.lower().split()[:3])
         ][:5]
         ata_chapter = self._guess_ata(description)
+        task_type = self._guess_task_type(description)
+        desc_suggestion = self._suggest_description(ata_chapter, task_type, kb_results)
 
         return {
             "ata_chapter": ata_chapter,
-            "task_type": "troubleshoot",
+            "task_type": task_type,
             "priority": "cat_c",
+            "description": desc_suggestion,
             "suggested_steps": self._extract_steps(
                 "\n".join(r.get("text", "")[:200] for r in kb_results)
             ),
@@ -398,25 +413,136 @@ class AgentOrchestrator:
 
     @staticmethod
     def _guess_ata(description: str) -> str:
+        """根据关键词猜测 ATA 章节（含子章节）。"""
         keywords = {
-            "起落架": "32", "landing gear": "32",
-            "发动机": "72", "engine": "72",
-            "燃油": "28", "fuel": "28",
-            "空调": "21", "air conditioning": "21",
-            "飞行控制": "27", "flight control": "27",
-            "APU": "49", "apu": "49",
-            "滑油": "79", "oil": "79",
-            "电源": "24", "electrical": "24",
-            "液压": "29", "hydraulic": "29",
-            "机翼": "57", "wing": "57",
-            "机身": "53", "fuselage": "53",
-            "舱门": "52", "door": "52",
+            # (关键词, 主章号, 常见子章, 上下文说明)
+            "起落架收放": "32-31-01",
+            "起落架转向": "32-41-03",
+            "起落架": "32-10-00",
+            "landing gear retract": "32-31-01",
+            "landing gear steer": "32-41-03",
+            "landing gear": "32-10-00",
+            "发动机振动": "77-11-01",
+            "N1 振动": "77-11-01",
+            "N2 振动": "77-11-01",
+            "振动指示": "77-11-01",
+            "发动机指示": "77-00-00",
+            "发动机滑油": "79-00-01",
+            "发动机燃油": "73-11-03",
+            "发动机点火": "74-11-03",
+            "发动机控制": "76-00-00",
+            "发动机起动": "80-00-00",
+            "发动机": "72-00-00",
+            "engine vibration": "77-11-01",
+            "engine oil": "79-00-01",
+            "engine fuel": "73-11-01",
+            "engine ignition": "74-00-00",
+            "engine start": "80-00-00",
+            "engine": "72-00-00",
+            "燃油泵": "28-21-01",
+            "燃油滤": "28-11-01",
+            "燃油": "28-10-00",
+            "fuel pump": "28-21-01",
+            "fuel filter": "28-11-01",
+            "fuel": "28-10-00",
+            "空调出口": "21-51-01",
+            "空调": "21-00-00",
+            "air conditioning outlet": "21-51-01",
+            "air conditioning": "21-00-00",
+            "飞行控制面": "27-10-00",
+            "飞行控制": "27-00-00",
+            "flight control surface": "27-10-00",
+            "flight control": "27-00-00",
+            "APU 启动": "49-11-01",
+            "APU 滑油": "49-91-01",
+            "APU": "49-00-00",
+            "apu start": "49-11-01",
+            "apu oil": "49-91-01",
+            "apu": "49-00-00",
+            "滑油消耗": "79-21-01",
+            "滑油更换": "79-00-01",
+            "滑油": "79-00-00",
+            "oil consumption": "79-21-01",
+            "oil change": "79-00-01",
+            "oil": "79-00-00",
+            "电源系统": "24-00-00",
+            "electrical power": "24-00-00",
+            "液压泵": "29-11-01",
+            "液压": "29-00-00",
+            "hydraulic pump": "29-11-01",
+            "hydraulic": "29-00-00",
+            "防冰管路": "30-11-01",
+            "防冰": "30-00-00",
+            "anti-ice": "30-11-01",
+            "机翼前缘": "57-40-01",
+            "机翼": "57-00-00",
+            "wing": "57-00-00",
+            "机身结构": "53-10-01",
+            "机身": "53-00-00",
+            "fuselage": "53-00-00",
+            "舱门操作": "52-10-01",
+            "舱门": "52-00-00",
+            "door": "52-00-00",
+            "灯光检查": "33-11-01",
+            "灯光": "33-00-00",
+            "light": "33-00-00",
+            "仪表": "31-10-00",
+            "instrument": "31-10-00",
+            "通信": "23-00-00",
+            "communication": "23-00-00",
+            "导航": "34-00-00",
+            "navigation": "34-00-00",
+            "防火": "26-00-00",
+            "fire protection": "26-00-00",
+            "氧气": "35-00-00",
+            "oxygen": "35-00-00",
         }
         desc_lower = description.lower()
-        for kw, ata in keywords.items():
+        # 优先匹配更长的关键词（更精确）
+        sorted_kw = sorted(keywords.keys(), key=len, reverse=True)
+        for kw in sorted_kw:
             if kw.lower() in desc_lower:
-                return ata
+                return keywords[kw]
         return ""
+
+    @staticmethod
+    def _guess_task_type(description: str) -> str:
+        """根据描述猜测任务类型。"""
+        desc = description.lower()
+        if any(w in desc for w in ["检查", "inspect", "check", "examine"]):
+            return "inspection"
+        if any(w in desc for w in ["更换", "拆装", "replace", "remove", "install"]):
+            return "removal_install"
+        if any(w in desc for w in ["测试", "test", "function"]):
+            return "test"
+        if any(w in desc for w in ["勤务", "保养", "润滑", "service", "lubricat"]):
+            return "servicing"
+        if any(w in desc for w in ["修复", "修理", "repair", "fix"]):
+            return "repair"
+        if any(w in desc for w in ["排故", "故障", "异常", "trouble", "fault", "fail"]):
+            return "troubleshoot"
+        return "troubleshoot"
+
+    @staticmethod
+    def _suggest_description(ata: str, task_type: str, kb_results: list) -> str:
+        """根据 ATA 和任务类型生成描述建议。"""
+        if kb_results:
+            # 取知识库结果第一条的摘要作为描述
+            text = kb_results[0].get("text", "")
+            if len(text) > 80:
+                return text[:150].strip() + "..."
+        # 知识库无结果时用模板
+        type_labels = {
+            "troubleshoot": "排故：检查故障原因，确认部件状态。",
+            "inspection": "检查：按工卡逐项检查，记录结果。",
+            "removal_install": "拆装：按 AMM 手册拆卸并安装新件。",
+            "test": "测试：执行功能测试，确认系统工作正常。",
+            "servicing": "勤务：按维护计划执行例行保养。",
+            "repair": "修复：按 SRM 手册执行结构修理。",
+        }
+        prefix = type_labels.get(task_type, "")
+        ata_str = f"ATA {ata}。" if ata else ""
+        return f"{ata_str}{prefix}" if prefix else ""
 
     @staticmethod
     def _extract_steps(kb_result: str) -> list[str]:

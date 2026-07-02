@@ -100,13 +100,79 @@ class BoardPage:
         if not self.kanban_board: return
         bs = board_service.get_board()
         tasks_map = {}
+        ai_proposed = {}
         for ids in bs.tasks.values():
             for tid in ids:
                 t = state.get_task(tid)
-                if t: tasks_map[tid] = t
+                if not t: continue
+                if t.ai_proposed:
+                    ai_proposed[tid] = t
+                else:
+                    tasks_map[tid] = t
         self.kanban_board.render_board(bs, tasks_map, do_update=False)
+        self._render_ai_ghost_cards(ai_proposed)
         s = board_service.get_fleet_summary()
         if self.fleet_status: self.fleet_status._build(s)
+
+    def _render_ai_ghost_cards(self, ai_tasks: dict):
+        """将 AI 建议的任务渲染为幽灵卡片（注入列 ListView）。"""
+        from app.ui.widgets.ai_ghost_card import AIGhostCard, AIProposal, GhostCardManager
+        if not hasattr(self, '_ghost_mgr'):
+            self._ghost_mgr = GhostCardManager()
+
+        for col in self.kanban_board._columns.values():
+            if not hasattr(col, 'card_list') or not col.card_list:
+                continue
+            # 清除已有的幽灵卡片
+            to_remove = [c for c in col.card_list.controls
+                         if isinstance(c, AIGhostCard)]
+            for c in to_remove:
+                col.card_list.controls.remove(c)
+
+        for tid, t in ai_tasks.items():
+            col_id = t.status.value
+            if col_id not in self.kanban_board._columns:
+                continue
+            col = self.kanban_board._columns[col_id]
+            if not hasattr(col, 'card_list') or not col.card_list:
+                continue
+            proposal = AIProposal(
+                id=f"ai_{tid}",
+                proposal_type="new_task",
+                task_data={
+                    "id": tid, "title": t.title, "description": t.description,
+                    "ata_chapter": t.ata_chapter, "aircraft_reg": t.aircraft_reg,
+                    "priority": t.priority.value, "task_type": t.task_type.value,
+                    "zone": t.zone, "estimated_hours": t.estimated_hours,
+                },
+                target_column=col_id,
+            )
+            ghost = AIGhostCard(
+                proposal,
+                on_accept=lambda p, tid=tid: self._accept_ai_task(tid),
+                on_reject=lambda p, tid=tid: self._reject_ai_task(tid),
+            )
+            col.card_list.controls.insert(0, ghost)
+        if ai_tasks:
+            try:
+                self.kanban_board.column_row.update()
+                self.kanban_board.update()
+            except Exception:
+                pass
+
+    def _accept_ai_task(self, tid):
+        """接受 AI 建议任务——去除幽灵标记变为正式任务。"""
+        state.update_task(tid, ai_proposed=False)
+        from app.ui.widgets.toast import Toast
+        Toast.show(self._page, "AI 建议任务已接受", "success")
+        self._refresh_board()
+
+    def _reject_ai_task(self, tid):
+        """拒绝 AI 建议任务——删除。"""
+        state.delete_task(tid)
+        from app.ui.widgets.toast import Toast
+        Toast.show(self._page, "AI 建议任务已拒绝", "info")
+        self._refresh_board()
 
     def load_demo_data(self):
         demo_aircraft = [
@@ -142,6 +208,17 @@ class BoardPage:
         ]
         status_order = ["backlog", "triage", "scheduled", "ready",
                         "in_progress", "inspection", "parts_hold", "completed"]
+        # 各目标列的正确路径（跳过不经过的中间状态）
+        _TARGET_PATHS = {
+            "backlog": [],
+            "triage": ["triage"],
+            "scheduled": ["triage", "scheduled"],
+            "ready": ["triage", "scheduled", "ready"],
+            "in_progress": ["triage", "scheduled", "ready", "in_progress"],
+            "inspection": ["triage", "scheduled", "ready", "in_progress", "inspection"],
+            "parts_hold": ["triage", "scheduled", "ready", "in_progress", "parts_hold"],
+            "completed": ["triage", "scheduled", "ready", "in_progress", "completed"],
+        }
         due_map = {"aog": 4, "cat_a": 24, "cat_b": 72, "cat_c": 168, "cat_d": 720}
         for col_target, title, reg, ata, pri, ttype, who, hrs, zone in demo_tasks:
             task = task_service.create_task(
@@ -151,15 +228,13 @@ class BoardPage:
                 due_date=now + timedelta(hours=due_map.get(pri, 72)),
             )
             if not task: continue
-            if col_target != "backlog":
+            path = _TARGET_PATHS.get(col_target, [])
+            for mid in path:
                 try:
-                    idx = status_order.index(col_target)
-                    for i in range(1, idx + 1):
-                        mid = status_order[i]
-                        if mid == "parts_hold":
-                            task_service.update_task(task.id, parts_available=False,
-                                                     parts_required=["PN-REQUIRED"])
-                        task_service.move_task(task.id, mid, changed_by="demo")
+                    if mid == "parts_hold":
+                        task_service.update_task(task.id, parts_available=False,
+                                                 parts_required=["PN-REQUIRED"])
+                    task_service.move_task(task.id, mid, changed_by="demo")
                 except Exception: pass
 
     # ═══════════════════════ 事件 ═══════════════════════
@@ -170,11 +245,17 @@ class BoardPage:
         if not self.kanban_board: return
         bs = board_service.get_board()
         tasks_map = {}
+        ai_proposed = {}
         for ids in bs.tasks.values():
             for tid in ids:
                 t = state.get_task(tid)
-                if t: tasks_map[tid] = t
+                if not t: continue
+                if t.ai_proposed:
+                    ai_proposed[tid] = t
+                else:
+                    tasks_map[tid] = t
         self.kanban_board.render_board(bs, tasks_map)
+        self._render_ai_ghost_cards(ai_proposed)
         self.fleet_status.update_summary(board_service.get_fleet_summary())
 
     def _on_drag_start(self, e):
@@ -661,6 +742,61 @@ class BoardPage:
         else:
             Toast.show(self._page, f"未知命令: {cmd}", "warning")
 
+    def _run_agent_command(self, cmd: str):
+        """执行 AI 工具菜单命令。"""
+        from app.ui.services.agent_service import AgentService
+        cmd_handlers = {
+            "outline": lambda: (
+                self._show_ai_in_panel("生成大纲", "请在 AI 对话面板中输入维护需求，AI 将为您生成任务大纲。\n\n提示：输入 > 描述你的维护需求")),
+            "gen_tasks": lambda: self._run_agent_with_prompt("gen_tasks"),
+            "classify": lambda: self._run_agent_with_prompt("classify"),
+            "schedule": lambda: self._run_agent_with_prompt("schedule"),
+            "acceptance": lambda: self._run_agent_with_prompt("acceptance"),
+            "report": lambda: self._run_agent_with_prompt("report"),
+            "review": lambda: self._run_agent_with_prompt("review"),
+        }
+        handler = cmd_handlers.get(cmd)
+        if handler:
+            handler()
+        else:
+            Toast.show(self._page, f"未知 AI 命令: {cmd}", "warning")
+
+    def _run_agent_with_prompt(self, cmd: str):
+        """在 AI 面板中运行 Agent 命令。"""
+        self._open_ai_panel()
+        from app.ui.services.agent_service import AgentService
+        prompt_map = {
+            "gen_tasks": ("生成任务", AgentService.generate_tasks),
+            "classify": ("自动分类", AgentService.auto_classify),
+            "schedule": ("自动排程", AgentService.auto_schedule),
+            "acceptance": ("自动验收", AgentService.auto_acceptance),
+            "report": ("生成报表", AgentService.generate_report),
+            "review": ("任务审核", AgentService.task_review),
+        }
+        if cmd in prompt_map:
+            label, func = prompt_map[cmd]
+            try:
+                result = func()
+                self._show_ai_in_panel(label, result)
+            except Exception as e:
+                Toast.show(self._page, f"{label} 失败: {e}", "warning")
+        else:
+            Toast.show(self._page, "请在 AI 面板中输入完整指令", "info")
+
+    def _show_ai_in_panel(self, title: str, content: str):
+        """在 AI 对话面板中显示结果。"""
+        if not self.ai_chat or not self.ai_chat.is_open:
+            self._open_ai_panel()
+        # 直接追加到聊天面板
+        try:
+            if hasattr(self.ai_chat, '_msg_pairs'):
+                from datetime import datetime
+                self.ai_chat._msg_pairs.append((
+                    f"[{title}]", content, datetime.now()))
+                self.ai_chat._rebuild_bubbles()
+        except Exception:
+            pass
+
     def _do_agent_query(self, question):
         if not question:
             Toast.show(self._page, "请输入问题", "warning"); return
@@ -703,6 +839,11 @@ class BoardPage:
                 self._page.update()
 
     def handle_keyboard(self, e: ft.KeyboardEvent, page: ft.Page):
+        # 幽灵文本键盘处理（Tab/Esc）—— 不影响 Ctrl+K 等组合键
+        from app.ui.widgets.ghost_text import handle_ghost_keyboard
+        if handle_ghost_keyboard(e):
+            return
+
         k = e.key.lower()
         ctrl = e.ctrl or e.meta
         if ctrl and k == "k":
@@ -770,67 +911,160 @@ class BoardPage:
         dlg.open()
 
     def _dlg_edit(self, task):
-        """编辑任务弹窗 — 预填当前值。"""
+        """编辑任务弹窗 — 预填当前值，状态约束。"""
         ff = theme.font_family
-        title_f = ft.TextField(
-            label="任务标题", value=task.title,
+        st = task.status.value
+
+        # 状态约束规则
+        _LOCKED_AFTER_SCHEDULED = ("aircraft_reg", "ata_chapter", "priority")
+        _READONLY_STYLES = {"scheduled", "ready", "in_progress",
+                            "inspection", "parts_hold", "completed", "archived"}
+        _PERSONNEL_READONLY = {"ready", "in_progress", "inspection", "parts_hold", "completed"}
+        _TIME_READONLY = {"ready", "in_progress", "inspection", "parts_hold", "completed"}
+
+        def _mk(label, value="", width=None, readonly=False):
+            return ft.TextField(
+                label=label, value=value or "", width=width,
+                border_color=theme.border, focused_border_color=theme.info,
+                text_style=ft.TextStyle(color=theme.text_primary, size=s(13), font_family=ff),
+                bgcolor=theme.card, dense=True, read_only=readonly,
+                border_radius=s(6),
+            )
+
+        # 基本信息
+        title_f = _mk("任务标题", task.title)
+        desc_f = ft.TextField(
+            label="任务描述", value=task.description or "",
             border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
-            bgcolor=theme.card,
+            text_style=ft.TextStyle(color=theme.text_primary, size=s(13), font_family=ff),
+            bgcolor=theme.card, multiline=True, min_lines=2, max_lines=4,
+            border_radius=s(6), dense=True,
         )
-        reg_f = ft.TextField(
-            label="飞机注册号", value=task.aircraft_reg, width=200,
+
+        reg_ro = st in _READONLY_STYLES
+        reg_f = _mk("飞机注册号", task.aircraft_reg, readonly=reg_ro)
+        ata_ro = st in _READONLY_STYLES
+        ata_f = _mk("ATA 章节", task.ata_chapter, readonly=ata_ro)
+
+        # 人员
+        emp_ro = st in _PERSONNEL_READONLY
+        emp_id_f = _mk("员工 ID", task.employee_id, width=150, readonly=emp_ro)
+        emp_name_f = _mk("员工姓名", task.employee_name, width=150, readonly=emp_ro)
+
+        # 时间
+        time_ro = st in _TIME_READONLY
+        ps_str = task.planned_start.strftime("%Y-%m-%d %H:%M") if task.planned_start else ""
+        pe_str = task.planned_end.strftime("%Y-%m-%d %H:%M") if task.planned_end else ""
+        ps_f = _mk("计划开始 (YYYY-MM-DD HH:MM)", ps_str, readonly=time_ro)
+        pe_f = _mk("计划完成 (YYYY-MM-DD HH:MM)", pe_str, readonly=time_ro)
+        hrs_f = _mk("计划工时 (h)", str(task.estimated_hours) if task.estimated_hours else "", width=120, readonly=time_ro)
+
+        # 交接班日志
+        log_f = ft.TextField(
+            label="交接班日志", value=task.shift_handover_log or "",
             border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
-            bgcolor=theme.card,
-        )
-        ata_f = ft.TextField(
-            label="ATA 章节", value=task.ata_chapter, width=200,
-            border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
-            bgcolor=theme.card,
-        )
-        assignee_f = ft.TextField(
-            label="负责人", value=task.assignee or "", width=200,
-            border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
-            bgcolor=theme.card,
-        )
-        zone_f = ft.TextField(
-            label="区域 (Zone)", value=task.zone or "", width=200,
-            border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
-            bgcolor=theme.card,
+            text_style=ft.TextStyle(color=theme.text_primary, size=s(13), font_family=ff),
+            bgcolor=theme.card, multiline=True, min_lines=2, max_lines=4,
+            border_radius=s(6), dense=True,
         )
 
         def save(_):
-            t = (title_f.value or "").strip()
-            if not t: Toast.show(self._page, "请输入标题", "warning"); return
-            task.title = t
-            task.aircraft_reg = (reg_f.value or "").strip()
-            task.ata_chapter = (ata_f.value or "").strip()
-            task.assignee = (assignee_f.value or "").strip() or None
-            task.zone = (zone_f.value or "").strip() or None
+            from app.ui.widgets.toast import Toast
+            ttl = (title_f.value or "").strip()
+            if not ttl:
+                Toast.show(self._page, "请输入标题", "warning"); return
+
+            changes = {"title": ttl, "description": (desc_f.value or "").strip()}
+            if not reg_ro:
+                changes["aircraft_reg"] = (reg_f.value or "").strip().upper()
+            if not ata_ro:
+                changes["ata_chapter"] = (ata_f.value or "").strip()
+            if not emp_ro:
+                changes["employee_id"] = (emp_id_f.value or "").strip()
+                changes["employee_name"] = (emp_name_f.value or "").strip()
+                if changes["employee_name"] and not changes.get("assignee"):
+                    changes["assignee"] = changes["employee_name"]
+            if not time_ro:
+                try:
+                    psv = (ps_f.value or "").strip()
+                    if psv:
+                        changes["planned_start"] = datetime.strptime(psv, "%Y-%m-%d %H:%M")
+                    else:
+                        changes["planned_start"] = None
+                except ValueError:
+                    changes["planned_start"] = task.planned_start
+                try:
+                    pev = (pe_f.value or "").strip()
+                    if pev:
+                        changes["planned_end"] = datetime.strptime(pev, "%Y-%m-%d %H:%M")
+                    else:
+                        changes["planned_end"] = None
+                except ValueError:
+                    changes["planned_end"] = task.planned_end
+                try:
+                    hv = (hrs_f.value or "").strip()
+                    changes["estimated_hours"] = float(hv) if hv else 0.0
+                except ValueError:
+                    pass
+            changes["shift_handover_log"] = (log_f.value or "").strip()
+
+            task_service.update_task(task.id, **changes)
             dlg.close()
             self._refresh_board()
             Toast.show(self._page, "任务已更新", "success")
 
-        from app.ui.components.modal_dialog import ModalDialog
-        content = ft.Column([
-            ft.Text("编辑任务", size=theme.font_lg, weight=ft.FontWeight.W_600,
+        header_items = [
+            ft.Text("编辑任务", size=s(14), weight=ft.FontWeight.W_600,
                     color=theme.text_primary, font_family=ff),
-            ft.Container(height=8),
-            title_f,
-            ft.Row([reg_f, ata_f], spacing=12),
-            ft.Row([assignee_f, zone_f], spacing=12),
-            ft.Container(height=8),
-            ft.Row([
-                ft.Container(expand=True),
-                ft.TextButton("取消", on_click=lambda e: dlg.close()),
-                ft.ElevatedButton("保存", on_click=save, style=ft.ButtonStyle(bgcolor=theme.info)),
-            ]),
+            ft.Text(f"状态: {task.status.value} | 工卡号: {task.work_order_id or task.id}",
+                    size=s(11), color=theme.text_secondary, font_family=ff),
+        ]
+
+        body_items = [
+            ft.Container(height=s(6)),
+            title_f, desc_f,
+            ft.Row([reg_f, ata_f], spacing=s(10)),
+            ft.Row([emp_id_f, emp_name_f], spacing=s(10)),
+            ft.Row([ps_f, pe_f], spacing=s(10)),
+            hrs_f,
+            log_f,
+        ]
+
+        # parts_hold 额外显示取消阻塞按钮
+        if st == "parts_hold" and task.is_blocked:
+            def _unblock_btn(e):
+                try:
+                    task_service.unblock_task(task.id, user="user")
+                    dlg.close()
+                    self._refresh_board()
+                    from app.ui.widgets.toast import Toast
+                    Toast.show(self._page, "已取消阻塞", "success")
+                except Exception as ex:
+                    from app.ui.widgets.toast import Toast
+                    Toast.show(self._page, f"取消失败: {ex}", "error")
+            body_items.append(
+                ft.OutlinedButton("取消阻塞", icon=ft.Icons.LOCK_OPEN_OUTLINED,
+                    on_click=_unblock_btn,
+                    style=ft.ButtonStyle(
+                        color=theme.error, side=ft.BorderSide(1, theme.error),
+                        shape=ft.RoundedRectangleBorder(radius=s(6)))))
+
+        footer_items = ft.Row([
+            ft.Container(expand=True),
+            ft.TextButton("取消", on_click=lambda e: dlg.close()),
+            ft.ElevatedButton("保存", on_click=save,
+                style=ft.ButtonStyle(bgcolor=theme.info)),
+        ])
+
+        from app.ui.components.modal_dialog import ModalDialog
+        from datetime import datetime
+        content = ft.Column([
+            ft.Column(header_items, spacing=s(2), tight=True),
+            ft.ListView([ft.Column(body_items, spacing=s(4), tight=True)],
+                        spacing=0, expand=True, padding=0),
+            footer_items,
         ], spacing=0, tight=True)
-        dlg = ModalDialog(self._page, content, width=460)
+        dlg = ModalDialog(self._page, content, width=520)
         dlg.open()
 
     def _dlg_filter(self):

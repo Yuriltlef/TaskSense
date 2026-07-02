@@ -18,6 +18,9 @@ class EventType(str, Enum):
     COMPLIANCE_ALERT = "compliance_alert"
     REPORT_GENERATED = "report_generated"
     FILTER_CHANGED = "filter_changed"
+    AI_PROPOSAL_CREATED = "ai_proposal_created"
+    AI_PROPOSAL_ACCEPTED = "ai_proposal_accepted"
+    AI_PROPOSAL_REJECTED = "ai_proposal_rejected"
 
 
 @dataclass

@@ -10,6 +10,7 @@ from app.core.events import AppEvent, EventType, event_bus
 from app.core.models.aircraft import Aircraft, AircraftStatus
 from app.core.models.kanban import BoardState, ColumnConfig, FilterState
 from app.core.models.task import Priority, Task, TaskStatus, TaskType
+from app.core.logging import log
 
 
 class AppState:
@@ -92,11 +93,17 @@ class AppState:
 
     def create_task(self, **kwargs) -> Task:
         """创建新任务，自动放入 Backlog 列。"""
+        from app.core.models.task import _generate_work_order_id
+
         task_id = kwargs.pop("id", str(uuid.uuid4())[:8])
         now = datetime.now()
 
+        # 自动生成工卡号
+        wo_id = kwargs.pop("work_order_id", None) or _generate_work_order_id()
+
         task = Task(
             id=task_id,
+            work_order_id=wo_id,
             created_at=now,
             updated_at=now,
             status=TaskStatus.BACKLOG,
@@ -107,11 +114,21 @@ class AppState:
             task.ata_section = task.ata_chapter.split("-")[0]
         self._tasks[task_id] = task
         self._task_order["backlog"].insert(0, task_id)  # 新任务排最前
+        log.info("state.create_task", task_id=task_id, wo=wo_id, title=task.title[:30])
 
         event_bus.emit(AppEvent(
             type=EventType.TASK_CREATED,
             data={"task_id": task_id},
         ))
+        # 日志
+        from app.core.models.log_entry import LogType
+        from app.core.services.log_service import log_service
+        log_service.log(
+            log_type=LogType.CREATE_TASK,
+            task_id=task_id,
+            task_title=task.title,
+            description=f"创建任务: {task.title}",
+        )
         self._notify()
         return task
 
@@ -127,11 +144,23 @@ class AppState:
 
         task.updated_at = datetime.now()
         self._tasks[task_id] = task
+        log.info("state.update_task", task_id=task_id, fields=",".join(list(changes.keys())[:5]))
 
         event_bus.emit(AppEvent(
             type=EventType.TASK_UPDATED,
             data={"task_id": task_id, "changes": changes},
         ))
+        # 日志
+        from app.core.models.log_entry import LogType
+        from app.core.services.log_service import log_service
+        changed_fields = ", ".join(changes.keys())
+        log_service.log(
+            log_type=LogType.EDIT_TASK,
+            task_id=task_id,
+            task_title=task.title,
+            description=f"更新字段: {changed_fields}",
+            details=changes,
+        )
         self._notify()
         return task
 
@@ -164,6 +193,7 @@ class AppState:
         # 更新任务状态
         old_status = task.status
         task.transition_to(TaskStatus(to_col), changed_by)
+        log.info("state.move_task", task_id=task_id, from_col=from_col, to_col=to_col, by=changed_by)
 
         event_bus.emit(AppEvent(
             type=EventType.TASK_MOVED,
@@ -175,6 +205,21 @@ class AppState:
                 "new_status": to_col,
             },
         ))
+        # 日志
+        from app.core.models.log_entry import LogType
+        from app.core.services.log_service import log_service
+        if changed_by == "system":
+            log_type = LogType.SYSTEM_AUTO
+        else:
+            log_type = LogType.KANBAN_MOVE
+        log_service.log(
+            log_type=log_type,
+            task_id=task_id,
+            task_title=task.title,
+            user=changed_by,
+            description=f"移动: {old_status.value} → {to_col}",
+            details={"from_col": from_col, "to_col": to_col},
+        )
         self._notify()
         return task
 
@@ -182,6 +227,10 @@ class AppState:
         """删除任务（从所有列移除，不保留数据）。"""
         if task_id not in self._tasks:
             return False
+
+        # 先获取任务信息用于日志
+        task = self._tasks[task_id]
+        task_title = task.title
 
         for task_ids in self._task_order.values():
             if task_id in task_ids:
@@ -193,6 +242,15 @@ class AppState:
             type=EventType.TASK_DELETED,
             data={"task_id": task_id},
         ))
+        # 日志
+        from app.core.models.log_entry import LogType
+        from app.core.services.log_service import log_service
+        log_service.log(
+            log_type=LogType.DELETE_TASK,
+            task_id=task_id,
+            task_title=task_title,
+            description=f"删除任务: {task_title}",
+        )
         self._notify()
         return True
 
@@ -344,6 +402,87 @@ class AppState:
             and t.status not in (TaskStatus.COMPLETED, TaskStatus.ARCHIVED)
         )
         return stats
+
+    # ═══════════════════════════════════════════════════
+    # 序列化 / 持久化
+    # ═══════════════════════════════════════════════════
+
+    def to_dict(self) -> dict:
+        """将完整状态序列化为字典。"""
+        return {
+            "columns": {
+                cid: {
+                    "id": col.id,
+                    "title": col.title,
+                    "wip_limit": col.wip_limit,
+                    "order": col.order,
+                    "visible": col.visible,
+                }
+                for cid, col in self._columns.items()
+            },
+            "tasks": {tid: t.to_dict() for tid, t in self._tasks.items()},
+            "task_order": {cid: list(ids) for cid, ids in self._task_order.items()},
+            "aircraft": [
+                {
+                    "registration": ac.registration,
+                    "model": ac.model,
+                    "msn": ac.msn,
+                    "status": ac.status.value,
+                    "total_hours": ac.total_hours,
+                    "total_cycles": ac.total_cycles,
+                    "current_location": ac.current_location,
+                    "open_defects": ac.open_defects,
+                    "due_tasks_count": ac.due_tasks_count,
+                    "overdue_tasks_count": ac.overdue_tasks_count,
+                }
+                for ac in self._aircraft.values()
+            ],
+        }
+
+    def load_from_dict(self, data: dict):
+        """从字典恢复状态。"""
+        # 恢复列
+        for col_id, col_data in data.get("columns", {}).items():
+            if col_id in self._columns:
+                self._columns[col_id].title = col_data.get("title", col_id)
+                self._columns[col_id].wip_limit = col_data.get("wip_limit")
+                self._columns[col_id].order = col_data.get("order", 0)
+                self._columns[col_id].visible = col_data.get("visible", True)
+
+        # 恢复任务
+        self._tasks.clear()
+        self._task_order.clear()
+        for col_id in self._columns:
+            self._task_order[col_id] = []
+
+        for tid, tdict in data.get("tasks", {}).items():
+            task = Task.from_dict(tdict)
+            self._tasks[tid] = task
+
+        for col_id, task_ids in data.get("task_order", {}).items():
+            if col_id in self._task_order:
+                self._task_order[col_id] = [
+                    tid for tid in task_ids if tid in self._tasks
+                ]
+
+        # 恢复飞机
+        self._aircraft.clear()
+        for ac_data in data.get("aircraft", []):
+            ac = Aircraft(
+                registration=ac_data["registration"],
+                model=ac_data.get("model", ""),
+                msn=ac_data.get("msn", ""),
+                status=AircraftStatus(ac_data.get("status", "operational")),
+                total_hours=ac_data.get("total_hours", 0.0),
+                total_cycles=ac_data.get("total_cycles", 0),
+                current_location=ac_data.get("current_location", ""),
+                open_defects=ac_data.get("open_defects", 0),
+                due_tasks_count=ac_data.get("due_tasks_count", 0),
+                overdue_tasks_count=ac_data.get("overdue_tasks_count", 0),
+            )
+            self._aircraft[ac.registration] = ac
+
+        self._notify()
 
 
 # 全局状态实例

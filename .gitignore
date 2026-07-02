@@ -220,5 +220,7 @@ __marimo__/
 .idea
 data/vector_store
 data/knowledge_base/processed/
+data/logs/
+data/board_state.json
 .model_cache/
 *.db

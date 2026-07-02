@@ -1,0 +1,22 @@
+[
+  {"employee_id": "ZH001", "name": "张工", "trade": "mechanical", "certifications": ["B737", "A320"], "shift": "day", "available": true},
+  {"employee_id": "ZH002", "name": "李工", "trade": "avionics", "certifications": ["A320", "A330", "B777"], "shift": "day", "available": true},
+  {"employee_id": "ZH003", "name": "王工", "trade": "powerplant", "certifications": ["B777", "B787"], "shift": "day", "available": true},
+  {"employee_id": "ZH004", "name": "赵工", "trade": "mechanical", "certifications": ["B747", "A340"], "shift": "night", "available": true},
+  {"employee_id": "ZH005", "name": "陈工", "trade": "structures", "certifications": ["B737", "B757", "B767"], "shift": "day", "available": true},
+  {"employee_id": "ZH006", "name": "刘工", "trade": "avionics", "certifications": ["A350", "B787"], "shift": "night", "available": true},
+  {"employee_id": "ZH007", "name": "孙工", "trade": "mechanical", "certifications": ["B737", "A320", "DC9"], "shift": "day", "available": true},
+  {"employee_id": "ZH008", "name": "周工", "trade": "powerplant", "certifications": ["B747", "B777"], "shift": "night", "available": true},
+  {"employee_id": "ZH009", "name": "吴工", "trade": "structures", "certifications": ["A300", "A310", "A330"], "shift": "day", "available": true},
+  {"employee_id": "ZH010", "name": "郑工", "trade": "avionics", "certifications": ["B757", "B767", "A320"], "shift": "day", "available": true},
+  {"employee_id": "ZH011", "name": "冯工", "trade": "mechanical", "certifications": ["B737", "B777", "A350"], "shift": "night", "available": true},
+  {"employee_id": "ZH012", "name": "褚工", "trade": "inspector", "certifications": ["B737", "A320", "B777", "A330"], "shift": "day", "available": true},
+  {"employee_id": "ZH013", "name": "卫工", "trade": "inspector", "certifications": ["B747", "A340", "B787", "A350"], "shift": "night", "available": true},
+  {"employee_id": "ZH014", "name": "蒋工", "trade": "powerplant", "certifications": ["B737", "A320", "B757"], "shift": "day", "available": false},
+  {"employee_id": "ZH015", "name": "沈工", "trade": "structures", "certifications": ["B777", "A350", "B787"], "shift": "day", "available": true},
+  {"employee_id": "ZH016", "name": "韩工", "trade": "avionics", "certifications": ["A320", "A330", "B737"], "shift": "night", "available": true},
+  {"employee_id": "ZH017", "name": "杨工", "trade": "mechanical", "certifications": ["B757", "B767", "DC9"], "shift": "night", "available": false},
+  {"employee_id": "ZH018", "name": "朱工", "trade": "mechanical", "certifications": ["A300", "A310", "B747"], "shift": "day", "available": true},
+  {"employee_id": "ZH019", "name": "秦工", "trade": "inspector", "certifications": ["B737", "A320", "B757", "B767"], "shift": "day", "available": true},
+  {"employee_id": "ZH020", "name": "何工", "trade": "avionics", "certifications": ["B787", "A350", "B777"], "shift": "night", "available": true}
+]

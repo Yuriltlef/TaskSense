@@ -1,6 +1,7 @@
 """UI 应用初始化 — VS Code 风格无边框窗口 + HarmonyOS 字体."""
 
 import os
+from datetime import datetime
 import flet as ft
 
 from app.config.theme import theme, SCALE, s
@@ -26,9 +27,32 @@ class TaskSenseApp:
         mgr.load()
         api_ready = bool(mgr.get("llm", "api_key", ""))
 
+        # ── 加载持久化状态（若存在）──
+        from app.core.services.persistence_service import persistence_service
+        from app.core.services.employee_service import employee_service
+        from app.core.services.log_service import log_service
         from app.ui.pages.board_page import BoardPage
+
+        employee_service.load()
+        persistence_service.set_path("data/board_state.json")
+        from app.core.logging import log
+        log.section("TaskSense 启动")
+        log.info("boot", f"employees={employee_service.employee_count()}")
+        log_dir = "data/logs"
+        os.makedirs(log_dir, exist_ok=True)
+        log_service.set_path(
+            f"{log_dir}/log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+        loaded = persistence_service.load()
+
         self.board_page = BoardPage(api_ready=api_ready)
-        self.board_page.load_demo_data()
+        if not loaded:
+            # 无持久化数据时加载演示数据
+            self.board_page.load_demo_data()
+        persistence_service.start_auto_save(debounce_seconds=5.0)
+
+        # ── 启动自动流转调度器 ──
+        from app.core.services.board_scheduler import board_scheduler
+        board_scheduler.start(interval=10.0)
 
         self.main_content.content = self.board_page.build(page)
         self._build_unified_title_bar()
@@ -216,6 +240,8 @@ class TaskSenseApp:
             icon_btn(ft.Icons.REFRESH, lambda e: bp._refresh_board(), "刷新看板"),
             ft.Container(width=s(4)),
             icon_btn(ft.Icons.FILTER_LIST, bp._on_filter_click, "筛选任务"),
+            ft.Container(width=s(4)),
+            self._build_ai_menu_button(bp),
             ft.Container(expand=True),
             search_box,
             ft.Container(expand=True),
@@ -326,6 +352,83 @@ class TaskSenseApp:
     # ═══════════════════════════════
     # 键盘
     # ═══════════════════════════════
+
+    # ═══════════════════════════════
+    # AI 工具菜单 (overlay 定位)
+    # ═══════════════════════════════
+
+    def _build_ai_menu_button(self, bp):
+        """AI 工具菜单按钮 + overlay 下拉。"""
+        return ft.IconButton(
+            icon=ft.Icons.MENU, icon_size=s(16), icon_color=ft.Colors.GREY_400,
+            tooltip="AI 工具",
+            style=ft.ButtonStyle(
+                bgcolor=ft.Colors.TRANSPARENT,
+                overlay_color="#22ffffff",
+                shape=ft.RoundedRectangleBorder(radius=s(4)),
+            ),
+            on_click=lambda e: self._show_ai_menu(bp, e),
+        )
+
+    def _show_ai_menu(self, bp, e):
+        ff = theme.font_family
+        cmds = [
+            ("生成大纲", ft.Icons.ARTICLE_OUTLINED, "outline"),
+            ("生成任务", ft.Icons.PLAYLIST_ADD_OUTLINED, "gen_tasks"),
+            ("自动分类", ft.Icons.LABEL_OUTLINED, "classify"),
+            ("自动排程", ft.Icons.SCHEDULE_OUTLINED, "schedule"),
+            ("自动验收", ft.Icons.VERIFIED_OUTLINED, "acceptance"),
+            ("生成报表", ft.Icons.ASSESSMENT_OUTLINED, "report"),
+            ("任务审核", ft.Icons.FACT_CHECK_OUTLINED, "review"),
+        ]
+        items = []
+        for label, icon, cmd in cmds:
+            items.append(ft.TextButton(
+                content=ft.Row([
+                    ft.Icon(icon, size=s(14), color=theme.info),
+                    ft.Text(label, size=s(12), color=theme.text_primary, font_family=ff),
+                ], spacing=s(8)),
+                style=ft.ButtonStyle(
+                    bgcolor=ft.Colors.TRANSPARENT,
+                    overlay_color=theme.card_hover,
+                    shape=ft.RoundedRectangleBorder(radius=s(4)),
+                    padding=ft.padding.symmetric(horizontal=s(10), vertical=s(4)),
+                ),
+                on_click=lambda _, c=cmd: self._close_ai_menu(bp, c),
+            ))
+
+        # 定位在 AI 工具按钮正下方（标题栏左侧，搜索框之前）
+        menu_left = s(230)
+        menu = ft.Container(
+            content=ft.Column(items, spacing=s(2), tight=True),
+            bgcolor=theme.surface,
+            border=ft.border.all(1, theme.border),
+            border_radius=s(8),
+            padding=ft.padding.all(s(6)),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=16, color="#000000aa"),
+            left=menu_left, top=s(40),
+            width=180,
+        )
+
+        dimmer = ft.Container(
+            ft.GestureDetector(on_tap=lambda e: self._close_ai_menu(bp, None)),
+            width=self.page.width, height=self.page.height,
+        )
+        overlay = ft.Stack([dimmer, menu], width=self.page.width, height=self.page.height)
+        self.page.overlay.append(overlay)
+        self._ai_menu_overlay = overlay
+        self.page.update()
+
+    def _close_ai_menu(self, bp, cmd):
+        if hasattr(self, '_ai_menu_overlay') and self._ai_menu_overlay:
+            try:
+                self.page.overlay.remove(self._ai_menu_overlay)
+            except Exception:
+                pass
+            self._ai_menu_overlay = None
+            self.page.update()
+        if cmd:
+            bp._run_agent_command(cmd)
 
     def _setup_keyboard(self, page: ft.Page):
         def on_kb(e: ft.KeyboardEvent):

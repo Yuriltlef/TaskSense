@@ -16,7 +16,7 @@
 import json
 
 import flet as ft
-from app.config.constants import ALLOWED_TRANSITIONS
+from app.config.constants import ALLOWED_TRANSITIONS, ALLOWED_DRAG_TRANSITIONS
 from app.config.theme import theme, s
 from app.core.models.kanban import ColumnConfig
 from app.core.models.task import Task
@@ -276,7 +276,7 @@ class KanbanColumn(ft.Container):
         """检查从 src_col 到本列是否允许。同列永远允许。"""
         if src_col == self.column.id:
             return True
-        allowed = ALLOWED_TRANSITIONS.get(src_col, [])
+        allowed = ALLOWED_DRAG_TRANSITIONS.get(src_col, [])
         return self.column.id in allowed
 
     # ═══════════════════════ 视觉：列边框 ═══════════════════════

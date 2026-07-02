@@ -260,6 +260,132 @@ class AIChatPanel(ft.Container):
         if hasattr(self, '_cancel_event') and self._cancel_event:
             self._cancel_event.set()
 
+    def _build_proposal_actions(self, proposed, mw):
+        """构建 AI 任务建议的接受/拒绝按钮条。"""
+        from app.core.state import state as app_state
+        ff = theme.font_family
+        items = []
+        self._proposal_rows = {}  # tid → Container
+        for t in proposed:
+            row = ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.TASK_ALT_OUTLINED, size=s(12), color=theme.info),
+                    ft.Text(t.title[:25], size=s(11), color=theme.text_primary, font_family=ff),
+                    ft.Container(expand=True),
+                    ft.TextButton("接受", style=ft.ButtonStyle(
+                        color=theme.success, padding=ft.padding.symmetric(horizontal=s(6)),
+                        text_style=ft.TextStyle(size=s(10), font_family=ff)),
+                        on_click=lambda e, tid=t.id: self._accept_proposal(tid)),
+                    ft.TextButton("拒绝", style=ft.ButtonStyle(
+                        color=theme.error, padding=ft.padding.symmetric(horizontal=s(6)),
+                        text_style=ft.TextStyle(size=s(10), font_family=ff)),
+                        on_click=lambda e, tid=t.id: self._reject_proposal(tid)),
+                ], spacing=s(4), tight=True),
+                bgcolor=ft.Colors.with_opacity(0.06, theme.info),
+                border=ft.border.all(1, ft.Colors.with_opacity(0.2, theme.info)),
+                border_radius=s(6),
+                padding=ft.padding.all(s(8)),
+                width=mw,
+            )
+            self._proposal_rows[t.id] = row
+            items.append(row)
+        if not items:
+            return ft.Container(height=0)
+
+        # 批量按钮
+        self._batch_row = ft.Row([
+            ft.ElevatedButton("接受全部", icon=ft.Icons.DONE_ALL,
+                style=ft.ButtonStyle(bgcolor=theme.success, color=ft.Colors.WHITE,
+                    shape=ft.RoundedRectangleBorder(radius=s(6)),
+                    padding=ft.padding.symmetric(horizontal=s(12), vertical=s(4)),
+                    text_style=ft.TextStyle(size=s(10), font_family=ff)),
+                on_click=lambda e: self._accept_all_proposals()),
+            ft.OutlinedButton("拒绝全部", icon=ft.Icons.CLOSE,
+                style=ft.ButtonStyle(color=theme.error,
+                    side=ft.BorderSide(1, theme.error),
+                    shape=ft.RoundedRectangleBorder(radius=s(6)),
+                    padding=ft.padding.symmetric(horizontal=s(12), vertical=s(4)),
+                    text_style=ft.TextStyle(size=s(10), font_family=ff)),
+                on_click=lambda e: self._reject_all_proposals()),
+        ], spacing=s(8))
+        items.append(self._batch_row)
+        return ft.Column(items, spacing=s(6), tight=True)
+
+    def _accept_proposal(self, tid):
+        from app.core.state import state as app_state
+        t = app_state.get_task(tid)
+        title = t.title if t else ""
+        app_state.update_task(tid, ai_proposed=False)
+        self._update_proposal_row(tid, "accepted", title)
+        if self.page:
+            from app.ui.widgets.toast import Toast
+            Toast.show(self.page, "任务已接受", "success")
+
+    def _reject_proposal(self, tid):
+        from app.core.state import state as app_state
+        t = app_state.get_task(tid)
+        title = t.title if t else ""
+        app_state.delete_task(tid)
+        self._update_proposal_row(tid, "rejected", title)
+        if self.page:
+            from app.ui.widgets.toast import Toast
+            Toast.show(self.page, "任务已拒绝", "info")
+
+    def _update_proposal_row(self, tid, result, title):
+        """就地更新提案行：隐藏按钮，显示结果。"""
+        row = self._proposal_rows.get(tid)
+        if row is None:
+            return
+        try:
+            color = theme.success if result == "accepted" else theme.error
+            label = "已接受" if result == "accepted" else "已拒绝"
+            row.content = ft.Row([
+                ft.Icon(ft.Icons.CHECK if result == "accepted" else ft.Icons.CLOSE,
+                        size=s(12), color=color),
+                ft.Text(f"{label}: {title[:25]}", size=s(11),
+                        color=theme.text_secondary, font_family=theme.font_family),
+            ], spacing=s(6))
+            row.border = ft.border.all(1, ft.Colors.with_opacity(0.15, color))
+            row.bgcolor = ft.Colors.with_opacity(0.04, color)
+            row.update()
+            del self._proposal_rows[tid]
+            self._update_batch_buttons()
+        except Exception:
+            pass
+
+    def _update_batch_buttons(self):
+        """如果所有提案都已处理，隐藏批量按钮。"""
+        from app.core.state import state as app_state
+        remaining = [t for t in app_state.get_all_tasks() if t.ai_proposed]
+        if not remaining and hasattr(self, '_batch_row') and self._batch_row:
+            self._batch_row.visible = False
+            try:
+                self._batch_row.update()
+            except Exception:
+                pass
+
+    def _accept_all_proposals(self):
+        from app.core.state import state as app_state
+        for t in list(app_state.get_all_tasks()):
+            if t.ai_proposed:
+                self._update_proposal_row(t.id, "accepted", t.title)
+                app_state.update_task(t.id, ai_proposed=False)
+        self._update_batch_buttons()
+        if self.page:
+            from app.ui.widgets.toast import Toast
+            Toast.show(self.page, "全部任务已接受", "success")
+
+    def _reject_all_proposals(self):
+        from app.core.state import state as app_state
+        for t in list(app_state.get_all_tasks()):
+            if t.ai_proposed:
+                self._update_proposal_row(t.id, "rejected", t.title)
+                app_state.delete_task(t.id)
+        self._update_batch_buttons()
+        if self.page:
+            from app.ui.widgets.toast import Toast
+            Toast.show(self.page, "全部任务已拒绝", "info")
+
     def _refresh(self, e):
         if self._busy or not self._msg_pairs:
             return
@@ -306,6 +432,13 @@ class AIChatPanel(ft.Container):
             if self._is_error(r) \
             else ai_bubble(r, mw, on_copy=self._copy, on_refresh=self._refresh)
         self._chat.controls.append(bubble)
+
+        # 检测 AI 是否创建了幽灵任务，添加接受/拒绝按钮
+        from app.core.state import state as app_state
+        proposed = [t for t in app_state.get_all_tasks() if t.ai_proposed]
+        if proposed:
+            self._chat.controls.append(self._build_proposal_actions(proposed, mw))
+
         self._msg_pairs.append((txt, r, ts))
 
         self._busy = False

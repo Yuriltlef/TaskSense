@@ -36,13 +36,15 @@ class KanbanBoard(ft.Container):
             task_ids = board_state.tasks.get(col.id, [])
             col_tasks = [tasks_map[tid] for tid in task_ids if tid in tasks_map]
             col.task_count = len(col_tasks)
-            column_controls.append(KanbanColumn(
+            column = KanbanColumn(
                 column=col, tasks=col_tasks,
                 on_card_click=self._on_card_click,
                 on_card_context_menu=self._on_card_context_menu,
                 on_drop=self._on_drop,
                 on_column_menu=self._on_column_menu,
-            ))
+            )
+            self._columns[col.id] = column
+            column_controls.append(column)
         self.column_row.controls = column_controls
         if do_update:
             self.update()

@@ -71,17 +71,26 @@ DEFAULT_COLUMNS = [
     {"id": "archived",      "title": "已归档",   "wip_limit": None, "order": 8, "visible": False},
 ]
 
-# 允许的状态转换
+# 允许的状态转换（系统级，含自动流转）
 ALLOWED_TRANSITIONS = {
     "backlog":      ["triage", "archived"],
     "triage":       ["scheduled", "backlog"],
     "scheduled":    ["ready", "backlog", "triage"],
-    "ready":        ["in_progress", "scheduled"],
+    "ready":        ["in_progress", "scheduled", "parts_hold"],
     "in_progress":  ["inspection", "parts_hold", "completed"],
     "inspection":   ["completed", "in_progress"],
     "parts_hold":   ["ready", "scheduled"],
     "completed":    ["archived"],
     "archived":     [],
+}
+
+# 用户可拖拽的状态转换（仅 backlog/triage/scheduled 间的前向+回退）
+# scheduled 之后的列由系统自动流转，不可拖拽
+ALLOWED_DRAG_TRANSITIONS = {
+    "backlog":      ["triage"],
+    "triage":       ["scheduled", "backlog"],
+    "scheduled":    ["backlog", "triage"],
+    # ready / in_progress / inspection / parts_hold / completed / archived: 不可拖拽
 }
 
 
@@ -122,12 +131,23 @@ ATA_PAGE_BLOCK_MAP = {
 }
 
 
-# ── ATA 章节列表（核心章节）─
+# ── ATA 章节列表（ATA 100 标准，来源：ATA_100_Chapters.pdf）─
 
 ATA_CHAPTERS = [
     # (章节号, 标题, 大类)
+    # -- 飞机总体 (Aircraft General) --
+    ("01", "概述/介绍", ATACategory.GENERAL),
     ("05", "时限/维修检查", ATACategory.GENERAL),
-    ("12", "勤务", ATACategory.GENERAL),
+    ("06", "尺寸与区域", ATACategory.GENERAL),
+    ("07", "顶升与支撑", ATACategory.GENERAL),
+    ("08", "水平与称重", ATACategory.GENERAL),
+    ("09", "牵引与滑行", ATACategory.GENERAL),
+    ("10", "停放/系留/存储与复役", ATACategory.GENERAL),
+    ("11", "标牌与标记", ATACategory.GENERAL),
+    ("12", "勤务/例行维护", ATACategory.GENERAL),
+    ("18", "振动与噪声分析（仅直升机）", ATACategory.GENERAL),
+    # -- 机身系统 (Airframe Systems) --
+    ("20", "标准施工-机身", ATACategory.SYSTEMS),
     ("21", "空调与增压", ATACategory.SYSTEMS),
     ("22", "自动飞行", ATACategory.SYSTEMS),
     ("23", "通信", ATACategory.SYSTEMS),
@@ -144,17 +164,47 @@ ATA_CHAPTERS = [
     ("34", "导航", ATACategory.SYSTEMS),
     ("35", "氧气", ATACategory.SYSTEMS),
     ("36", "气源", ATACategory.SYSTEMS),
+    ("37", "真空系统", ATACategory.SYSTEMS),
     ("38", "水/废水", ATACategory.SYSTEMS),
-    ("49", "APU辅助动力装置", ATACategory.SYSTEMS),
+    ("39", "电子电气面板与多功能组件", ATACategory.SYSTEMS),
+    ("41", "水配重", ATACategory.SYSTEMS),
+    ("45", "中央维护系统（CMS）", ATACategory.SYSTEMS),
+    ("46", "信息系统", ATACategory.SYSTEMS),
+    ("49", "机载辅助动力装置（APU）", ATACategory.SYSTEMS),
+    # -- 结构 (Structure) --
+    ("51", "标准施工-结构", ATACategory.STRUCTURE),
     ("52", "舱门", ATACategory.STRUCTURE),
     ("53", "机身", ATACategory.STRUCTURE),
+    ("54", "吊舱/挂架", ATACategory.STRUCTURE),
+    ("55", "安定面", ATACategory.STRUCTURE),
+    ("56", "窗户", ATACategory.STRUCTURE),
     ("57", "机翼", ATACategory.STRUCTURE),
+    # -- 螺旋桨/旋翼 (Propeller/Rotor) --
+    ("60", "标准施工-螺旋桨/旋翼", ATACategory.PROPELLER),
+    ("61", "螺旋桨/推进器", ATACategory.PROPELLER),
+    ("62", "主旋翼", ATACategory.PROPELLER),
+    ("63", "主旋翼驱动", ATACategory.PROPELLER),
+    ("64", "尾旋翼", ATACategory.PROPELLER),
+    ("65", "尾旋翼驱动", ATACategory.PROPELLER),
+    ("66", "旋翼桨叶与尾撑折叠", ATACategory.PROPELLER),
+    ("67", "旋翼飞行控制", ATACategory.PROPELLER),
+    # -- 动力装置 (Power Plant) --
+    ("70", "标准施工-发动机", ATACategory.POWERPLANT),
     ("71", "动力装置总成", ATACategory.POWERPLANT),
     ("72", "发动机", ATACategory.POWERPLANT),
     ("73", "发动机燃油与控制", ATACategory.POWERPLANT),
     ("74", "点火", ATACategory.POWERPLANT),
+    ("75", "引气", ATACategory.POWERPLANT),
+    ("76", "发动机控制", ATACategory.POWERPLANT),
+    ("77", "发动机指示", ATACategory.POWERPLANT),
+    ("78", "排气", ATACategory.POWERPLANT),
     ("79", "滑油", ATACategory.POWERPLANT),
     ("80", "起动", ATACategory.POWERPLANT),
+    ("81", "涡轮（活塞发动机）", ATACategory.POWERPLANT),
+    ("82", "喷水加力", ATACategory.POWERPLANT),
+    ("83", "附件齿轮箱（发动机驱动）", ATACategory.POWERPLANT),
+    ("84", "推进增升装置", ATACategory.POWERPLANT),
+    ("91", "图表", ATACategory.POWERPLANT),
 ]
 
 
