@@ -8,22 +8,22 @@ from app.config.theme import theme
 class Badge(ft.Container):
     def __init__(self, text: str, color="#808080", bg_color=None,
                  icon=None, size="sm", tooltip=None):
-        fs = {"xs": 10, "sm": 11, "md": 12, "lg": 14}.get(size, 11)
-        # (vertical, horizontal)
-        pad = {"xs": (2, 6), "sm": (3, 8), "md": (4, 10), "lg": (5, 12)}.get(size, (3, 8))
+        fs = {"xs": 9, "sm": 10, "md": 11, "lg": 13}.get(size, 10)
+        pad = {"xs": (1, 5), "sm": (1, 6), "md": (2, 8), "lg": (3, 10)}.get(size, (1, 6))
 
-        content = ft.Text(text, size=round(fs * 1.5),
+        content = ft.Text(text, size=round(fs * 1.3),
                           color=color, weight=ft.FontWeight.W_600,
                           font_family=theme.font_family)
         if icon:
-            content = ft.Row([ft.Text(icon, size=round(fs * 1.5)), content], spacing=2)
+            content = ft.Row([ft.Text(icon, size=round(fs * 1.3)), content], spacing=2)
 
         super().__init__(
             content=content,
             padding=ft.padding.only(left=pad[1], top=pad[0],
                                     right=pad[1], bottom=pad[0]),
             border_radius=theme.radius_sm,
-            bgcolor=bg_color or self._alpha(color, 0.15),
+            border=ft.border.all(1, self._alpha(color, 0.35)),
+            bgcolor=bg_color or self._alpha(color, 0.10),
             tooltip=tooltip or text,
         )
 
@@ -56,13 +56,14 @@ class ATABadge(Badge):
 class TaskTypeBadge(Badge):
     def __init__(self, task_type: str, size="sm"):
         c = theme.task_type_color(task_type)
-        icons = {"troubleshoot": "🔧", "inspection": "🔍", "servicing": "🛢️",
-                 "removal_install": "🔩", "test": "📏", "repair": "🔨"}
-        labels = {"troubleshoot": "排故", "inspection": "检查",
-                  "servicing": "勤务", "removal_install": "拆装",
-                  "test": "测试", "repair": "修复"}
-        super().__init__(text=labels.get(task_type, task_type),
-                         color=c, icon=icons.get(task_type), size=size)
+        labels = {"troubleshoot": "T/SHOOT", "inspection": "INSPECT",
+                  "servicing": "SERVICE", "removal_install": "R/I",
+                  "test": "TEST", "repair": "REPAIR"}
+        tips = {"troubleshoot": "排故", "inspection": "检查",
+                "servicing": "勤务", "removal_install": "拆装",
+                "test": "测试", "repair": "修复"}
+        super().__init__(text=labels.get(task_type, task_type.upper()),
+                         color=c, size=size, tooltip=tips.get(task_type, task_type))
 
 
 class StatusBadge(Badge):
