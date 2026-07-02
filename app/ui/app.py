@@ -33,6 +33,7 @@ class TaskSenseApp:
         self.main_content.content = self.board_page.build(page)
         self._build_unified_title_bar()
         self._setup_keyboard(page)
+        page.on_resized = self._on_window_resized
         page.update()
 
         # 启动后提示
@@ -169,13 +170,14 @@ class TaskSenseApp:
                 sf,
                 clear_btn,
             ], spacing=s(6)),
-            width=300,
+            width=max(320, self.page.width // 3),
             height=s(28),
             bgcolor="#1a1a1a",
             border=ft.border.all(1, "#2a2a2a"),
             border_radius=s(6),
             padding=ft.padding.symmetric(horizontal=s(10)),
             alignment=ft.alignment.center_left,
+            animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
         )
         bp._search_box = search_box
 
@@ -253,6 +255,12 @@ class TaskSenseApp:
     # ═══════════════════════════════
     # 窗口操作
     # ═══════════════════════════════
+
+    def _on_window_resized(self, e):
+        bp = self.board_page
+        if bp._search_box and self.page:
+            bp._search_box.width = max(320, self.page.width // 3)
+            bp._search_box.update()
 
     def _on_title_hover(self, e):
         """标题栏悬停时检测最大化状态变化（Win+↑ / 拖拽顶部等外部操作）。"""

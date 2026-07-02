@@ -401,129 +401,137 @@ class BoardPage:
         dlg.open()
 
     def _dlg_schedule(self, tid, col, index):
-        """triage → scheduled：补充时间和人员。"""
+        """triage → scheduled：补充时间、工时和人员。"""
         ff = theme.font_family
 
-        due_f = ft.TextField(
-            hint_text="YYYY-MM-DD，如 2026-07-10",
-            border_color=theme.border,
-            focused_border_color=theme.info,
-            cursor_color=theme.info,
-            text_style=ft.TextStyle(
-                color="#e0e0e0", size=s(12), font_family=ff),
-            hint_style=ft.TextStyle(
-                color=theme.text_secondary, size=s(11), font_family=ff),
-            bgcolor=theme.card, dense=True,
-            border_radius=s(6),
-            content_padding=ft.padding.only(
-                left=s(10), top=s(8), right=s(10), bottom=s(8)),
-        )
-        assignee_f = ft.TextField(
-            hint_text="负责人，如 张工",
-            border_color=theme.border,
-            focused_border_color=theme.info,
-            cursor_color=theme.info,
-            text_style=ft.TextStyle(
-                color="#e0e0e0", size=s(12), font_family=ff),
-            hint_style=ft.TextStyle(
-                color=theme.text_secondary, size=s(11), font_family=ff),
-            bgcolor=theme.card, dense=True,
-            border_radius=s(6),
-            content_padding=ft.padding.only(
-                left=s(10), top=s(8), right=s(10), bottom=s(8)),
-        )
+        def _field(hint="", width=None):
+            return ft.TextField(
+                hint_text=hint, border_color=theme.border,
+                focused_border_color=theme.info, cursor_color=theme.info,
+                text_style=ft.TextStyle(color="#e0e0e0", size=s(12), font_family=ff),
+                hint_style=ft.TextStyle(color=theme.text_secondary, size=s(11), font_family=ff),
+                bgcolor=theme.card, dense=True, border_radius=s(6),
+                content_padding=ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8)),
+                width=width)
 
-        def _label(t):
-            return ft.Text(t, size=s(11), color=theme.text_primary,
-                           font_family=ff, weight=ft.FontWeight.W_500)
+        def _label(text, required=False):
+            if required:
+                return ft.Text(spans=[
+                    ft.TextSpan(text, ft.TextStyle(color=theme.text_primary, size=s(11), font_family=ff, weight=ft.FontWeight.W_500)),
+                    ft.TextSpan(" *", ft.TextStyle(color=theme.error, size=s(11), font_family=ff, weight=ft.FontWeight.W_500))])
+            return ft.Text(text, size=s(11), color=theme.text_primary, font_family=ff, weight=ft.FontWeight.W_500)
+
+        def _col(lbl, ctrl):
+            return ft.Column([lbl, ctrl], spacing=s(4), tight=True, expand=True)
+
+        hours_f = _field("计划工时 (h)，如 4.5", width=220)
+        assignee_id_f = _field("员工 ID，如 ZH001")
+        assignee_name_f = _field("姓名，如 张工")
+
+        def _date_picker():
+            from datetime import datetime as dt
+            state = {"date": None, "time": ""}
+            dp = ft.DatePicker(first_date=dt(2024,1,1), last_date=dt(2030,12,31),
+                on_change=lambda e: _on_pick(e))
+            display = ft.Text("", size=s(12), color=theme.text_secondary, font_family=ff)
+            hour_opts = [(f"{h:02d}:00", f"{h:02d}:00") for h in range(0, 24, 2)]
+            time_dd = ft.Dropdown(value="", options=[ft.dropdown.Option(k,v) for k,v in hour_opts],
+                dense=True, width=s(78), max_menu_height=s(150),
+                border_color=theme.border, focused_border_color=theme.info, bgcolor=theme.card,
+                text_style=ft.TextStyle(color="#e0e0e0", size=s(11), font_family=ff),
+                border_radius=s(6),
+                content_padding=ft.padding.only(left=s(6), top=s(3), right=s(4), bottom=s(3)),
+                on_change=lambda e: _on_time(e))
+            container = ft.Container(
+                content=ft.Row([ft.Icon(ft.Icons.CALENDAR_TODAY_OUTLINED, size=s(14), color=theme.text_secondary),
+                    display, ft.Container(expand=True),
+                    ft.Icon(ft.Icons.SCHEDULE, size=s(14), color=theme.text_secondary), time_dd], spacing=s(6)),
+                bgcolor=theme.card, border_radius=s(6), border=ft.border.all(1, theme.border),
+                padding=ft.padding.only(left=s(10), top=s(6), right=s(10), bottom=s(6)),
+                on_click=lambda e: self._page.open(dp), ink=True)
+            def _on_pick(e):
+                if e.control.value: state["date"]=e.control.value; display.value=state["date"].strftime("%Y-%m-%d"); display.color="#e0e0e0"; container.update(); _recalc()
+            def _on_time(e):
+                state["time"]=time_dd.value or ""; time_dd.border_color=theme.border; _recalc()
+            def _set_err(msg): display.value=msg; display.color=theme.error; container.border=ft.border.all(1,theme.error); container.update()
+            def _clear_err():
+                if state["date"]: display.value=state["date"].strftime("%Y-%m-%d"); display.color="#e0e0e0"
+                else: display.value=""; display.color=theme.text_secondary
+                container.border=ft.border.all(1,theme.border); container.update()
+            def _get_dt():
+                d=state["date"]; t=state["time"]
+                if not d: return None
+                if t:
+                    try: h,m=t.split(":"); return dt(d.year,d.month,d.day,int(h),int(m))
+                    except: pass
+                return d
+            return container, state, _set_err, _clear_err, _get_dt
+
+        start_ctrl, start_state, start_err, start_clr, start_get = _date_picker()
+        due_ctrl, due_state, due_err, due_clr, due_get = _date_picker()
+
+        def _recalc():
+            sd=start_get(); ed=due_get()
+            if sd and ed:
+                diff=(ed-sd).total_seconds()/3600
+                if diff>0: hours_f.value=f"{diff:.1f}"; hours_f.update()
 
         def _confirm(_):
-            due_str = (due_f.value or "").strip()
-            assignee = (assignee_f.value or "").strip() or None
+            from app.ui.widgets.toast import Toast
+            start_dt=start_get(); due_dt=due_get()
+            hs=(hours_f.value or "").strip()
+            aid=(assignee_id_f.value or "").strip()
+            aname=(assignee_name_f.value or "").strip()
+            start_clr(); due_clr()
+            for c,h in [(hours_f,"计划工时 (h)，如 4.5"),(assignee_id_f,"员工 ID，如 ZH001"),(assignee_name_f,"姓名，如 张工")]:
+                c.border_color=theme.border; c.hint_text=h
+            if not start_dt: start_err("请选择开始日期"); return
+            if not due_dt: due_err("请选择完成日期"); return
+            if not hs: hours_f.border_color=theme.error; hours_f.hint_text="请输入计划工时"; hours_f.update(); return
+            if not aid: assignee_id_f.border_color=theme.error; assignee_id_f.hint_text="请输入员工 ID"; assignee_id_f.update(); return
+            if not aname: assignee_name_f.border_color=theme.error; assignee_name_f.hint_text="请输入姓名"; assignee_name_f.update(); return
             try:
-                task_service.move_task(tid, col, index=index)
-                updates = {}
-                if assignee:
-                    updates["assignee"] = assignee
-                if due_str:
-                    from datetime import datetime
-                    try:
-                        updates["due_date"] = datetime.strptime(
-                            due_str, "%Y-%m-%d")
-                    except ValueError:
-                        pass
-                if updates:
-                    task_service.update_task(tid, **updates)
-                Toast.show(self._page, "已排程", "success")
-            except Exception as e:
-                Toast.show(self._page, str(e), "warning")
+                task_service.move_task(tid,col,index=index)
+                updates={"assignee":f"{aid} {aname}"}
+                try: updates["estimated_hours"]=float(hs)
+                except: pass
+                updates["due_date"]=due_dt
+                task_service.update_task(tid,**updates)
+                Toast.show(self._page,"已排程","success")
+            except Exception as ex: Toast.show(self._page,str(ex),"warning")
             dlg.close()
 
         from app.ui.components.modal_dialog import ModalDialog
-
-        header = ft.Container(
-            ft.Row([
-                ft.Icon(ft.Icons.CALENDAR_MONTH_OUTLINED,
-                        size=s(15), color="#5294e2"),
-                ft.Text("排程信息", size=s(14),
-                        weight=ft.FontWeight.W_600,
-                        color=theme.text_primary, font_family=ff),
+        header=ft.Container(
+            ft.Row([ft.Icon(ft.Icons.CALENDAR_MONTH_OUTLINED,size=s(15),color="#5294e2"),
+                ft.Text("排程信息",size=s(14),weight=ft.FontWeight.W_600,color=theme.text_primary,font_family=ff),
                 ft.Container(expand=True),
-                ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
-                              icon_color=theme.text_secondary,
-                              style=ft.ButtonStyle(
-                                  bgcolor=ft.Colors.TRANSPARENT,
-                                  overlay_color=ft.Colors.RED_900,
-                                  shape=ft.RoundedRectangleBorder(radius=s(4))),
-                              on_click=lambda e: dlg.close()),
-            ], spacing=s(8)),
-            padding=ft.padding.only(
-                left=s(14), top=s(8), right=s(6), bottom=s(8)),
-            border=ft.border.only(
-                bottom=ft.BorderSide(1, theme.border)),
-        )
-
-        form = ft.Container(
-            ft.Column([
-                _label("计划完成日期"),
-                due_f,
-                ft.Divider(height=s(14), color=ft.Colors.TRANSPARENT),
-                _label("负责人"),
-                assignee_f,
-            ], spacing=s(4), tight=True),
-            padding=ft.padding.all(s(14)),
-        )
-
-        btn_style = ft.ButtonStyle(
-            shape=ft.RoundedRectangleBorder(radius=s(6)),
-            padding=ft.padding.only(
-                left=s(18), top=s(7), right=s(18), bottom=s(7)),
-            text_style=ft.TextStyle(size=s(12), font_family=ff),
-        )
-        footer = ft.Container(
-            ft.Row([
-                ft.Container(expand=True),
-                ft.OutlinedButton("取消", on_click=lambda e: dlg.close(),
-                    style=ft.ButtonStyle(
-                        shape=btn_style.shape, padding=btn_style.padding,
-                        text_style=btn_style.text_style,
-                        side=ft.BorderSide(1, theme.border),
-                        color=theme.text_secondary)),
-                ft.ElevatedButton("确认排程", on_click=_confirm,
-                    style=ft.ButtonStyle(
-                        shape=btn_style.shape, padding=btn_style.padding,
-                        text_style=btn_style.text_style,
-                        bgcolor="#5294e2", color=ft.Colors.WHITE,
-                        elevation=0)),
-            ], spacing=s(8)),
-            padding=ft.padding.only(
-                left=s(14), top=s(8), right=s(14), bottom=s(10)),
-            border=ft.border.only(
-                top=ft.BorderSide(1, theme.border)),
-        )
-
-        content = ft.Column([header, form, footer], spacing=0, tight=True)
-        dlg = ModalDialog(self._page, content, width=440)
+                ft.IconButton(ft.Icons.CLOSE,icon_size=s(16),icon_color=theme.text_secondary,on_click=lambda e: dlg.close())],spacing=s(8)),
+            padding=ft.padding.only(left=s(14),top=s(8),right=s(6),bottom=s(8)),
+            border=ft.border.only(bottom=ft.BorderSide(1,theme.border)))
+        sep=ft.Divider(height=s(12),color=ft.Colors.TRANSPARENT)
+        form=ft.Container(
+            ft.Column([_label("计划开始日期",required=True),start_ctrl,sep,
+                _label("计划完成日期",required=True),due_ctrl,sep,
+                ft.Row([_col(_label("计划工时",required=True),hours_f),ft.Container(expand=True)],spacing=s(12)),sep,
+                ft.Row([_col(_label("员工 ID",required=True),assignee_id_f),_col(_label("姓名",required=True),assignee_name_f)],spacing=s(12)),
+            ],spacing=s(4),tight=True),
+            padding=ft.padding.all(s(14)))
+        bs=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=s(6)),
+            padding=ft.padding.only(left=s(18),top=s(7),right=s(18),bottom=s(7)),
+            text_style=ft.TextStyle(size=s(12),font_family=ff))
+        footer=ft.Container(
+            ft.Row([ft.Container(expand=True),
+                ft.OutlinedButton("取消",on_click=lambda e: dlg.close(),
+                    style=ft.ButtonStyle(shape=bs.shape,padding=bs.padding,text_style=bs.text_style,
+                        side=ft.BorderSide(1,theme.border),color=theme.text_secondary)),
+                ft.ElevatedButton("确认排程",on_click=_confirm,
+                    style=ft.ButtonStyle(shape=bs.shape,padding=bs.padding,text_style=bs.text_style,
+                        bgcolor="#5294e2",color=ft.Colors.WHITE,elevation=0))],spacing=s(8)),
+            padding=ft.padding.only(left=s(14),top=s(8),right=s(14),bottom=s(10)),
+            border=ft.border.only(top=ft.BorderSide(1,theme.border)))
+        content=ft.Column([header,form,footer],spacing=0,tight=True)
+        dlg=ModalDialog(self._page,content,width=520,bgcolor="#1c1c1c")
         dlg.open()
 
     def _on_column_menu(self, cid):
