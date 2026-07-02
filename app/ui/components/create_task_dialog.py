@@ -36,7 +36,7 @@ class CreateTaskDialog:
         ff = theme.font_family
         page = cls._page
 
-        def _field(hint="", width=None, multiline=False, min_lines=1):
+        def _field(hint="", width=None, multiline=False, min_lines=1, height=None):
             return ft.TextField(
                 hint_text=hint, border_color=theme.border,
                 focused_border_color=theme.info, cursor_color=theme.info,
@@ -82,11 +82,11 @@ class CreateTaskDialog:
 
         title_f = _field("描述故障或维护需求...")
         desc_f = _field("详细任务描述、步骤说明...",
-                        multiline=True, min_lines=2)
-        reg_f = _field("飞机注册号，如 B-5823")
-        ata_f = _field("ATA 章节，如 32-41-03")
-        assignee_f = _field("负责人，如 张工")
-        zone_f = _field("区域 (Zone)，如 710")
+                        multiline=True, min_lines=3)
+        reg_f = _field("飞机注册号，如 B-5823", width=220)
+        ata_f = _field("ATA 章节，如 32-41-03", width=220)
+        assignee_f = _field("负责人，如 张工", width=220)
+        zone_f = _field("区域 (Zone)，如 710", width=220)
 
         ghost_hint = ft.Text(
             "", size=s(11), color=theme.type_removal_install,
@@ -171,6 +171,10 @@ class CreateTaskDialog:
                 ft.IconButton(
                     ft.Icons.CLOSE, icon_size=s(16),
                     icon_color=theme.text_secondary,
+                    style=ft.ButtonStyle(
+                        bgcolor=ft.Colors.TRANSPARENT,
+                        overlay_color=ft.Colors.RED_900,
+                        shape=ft.RoundedRectangleBorder(radius=s(4))),
                     on_click=lambda e: cls.close())], spacing=s(8)),
             padding=ft.padding.only(
                 left=s(14), top=s(8), right=s(6), bottom=s(8)),
@@ -222,14 +226,14 @@ class CreateTaskDialog:
             border=ft.border.only(
                 top=ft.BorderSide(1, theme.border)))
 
-        P_W, P_H = 600, 620
+        P_W, P_H = 660, 580
         cx = (page.width - P_W) // 2
         cy = (page.height - P_H) // 2
         return ft.Container(
             content=ft.Column(
                 [header, form, footer], spacing=0, tight=True,
                 scroll=ft.ScrollMode.AUTO),
-            width=P_W, height=P_H, bgcolor="#1c1c1c",
+            width=P_W, height=P_H, bgcolor=theme.surface,
             border_radius=s(10),
             border=ft.border.all(1, theme.border),
             shadow=ft.BoxShadow(

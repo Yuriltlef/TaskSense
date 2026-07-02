@@ -122,7 +122,8 @@ class TaskSenseApp:
                     shape=ft.RoundedRectangleBorder(radius=0),
                 ),
                 tooltip=ft.Tooltip(message=tooltip, bgcolor="#202020",
-                                   text_style=_tt_style),
+                                   text_style=_tt_style,
+                                   wait_duration=1500),
                 on_click=on_click,
             )
 
@@ -138,7 +139,8 @@ class TaskSenseApp:
                 ),
                 mouse_cursor=ft.MouseCursor.BASIC,
                 tooltip=ft.Tooltip(message=tooltip, bgcolor="#202020",
-                                   text_style=_tt_style),
+                                   text_style=_tt_style,
+                                   wait_duration=1500),
                 on_click=on_click,
             )
 

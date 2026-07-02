@@ -10,7 +10,7 @@ from app.ui.widgets.badge import ATABadge, PriorityBadge, StatusBadge, TaskTypeB
 class SidePanel(ft.Container):
     def __init__(self, on_close=None, on_edit=None, **_kw):
         super().__init__(
-            width=theme.side_panel_width, bgcolor="#161616",
+            width=theme.side_panel_width, bgcolor=theme.surface,
             border=ft.border.only(left=ft.BorderSide(1, theme.border)),
             visible=False, padding=0,
         )
@@ -45,11 +45,16 @@ class SidePanel(ft.Container):
         close_btn = ft.IconButton(
             icon=ft.Icons.CLOSE, icon_size=s(16),
             icon_color=theme.text_secondary,
+            style=ft.ButtonStyle(
+                bgcolor=ft.Colors.TRANSPARENT,
+                overlay_color=ft.Colors.RED_900,
+                shape=ft.RoundedRectangleBorder(radius=s(4))),
             on_click=lambda e: self.close())
         edit_btn = ft.IconButton(
             icon=ft.Icons.EDIT_OUTLINED, icon_size=s(16),
             icon_color=theme.text_secondary,
-            tooltip=ft.Tooltip(message="Edit", bgcolor=theme.card),
+            tooltip=ft.Tooltip(message="Edit", bgcolor=theme.card,
+                text_style=ft.TextStyle(color=ft.Colors.WHITE, font_family=theme.font_family)),
             on_click=lambda e: self._on_edit and self._on_edit(t))
 
         header = ft.Container(
@@ -68,16 +73,19 @@ class SidePanel(ft.Container):
         badges = ft.Container(
             ft.Column([
                 ft.Row([
-                    PriorityBadge(t.priority.value if hasattr(t.priority, "value") else str(t.priority)),
-                    StatusBadge(t.status.value if hasattr(t.status, "value") else str(t.status)),
-                    TaskTypeBadge(t.task_type.value if hasattr(t.task_type, "value") else str(t.task_type)),
-                    ATABadge(t.ata_chapter) if t.ata_chapter
+                    PriorityBadge(t.priority.value if hasattr(t.priority, "value") else str(t.priority), size="md"),
+                    StatusBadge(t.status.value if hasattr(t.status, "value") else str(t.status), size="md"),
+                    TaskTypeBadge(t.task_type.value if hasattr(t.task_type, "value") else str(t.task_type), size="md"),
+                    ATABadge(t.ata_chapter, "md") if t.ata_chapter
                     else ft.Text(""),
                 ], spacing=s(6), wrap=True),
-                ft.Container(height=s(4)),
-                ft.Text(f"工卡号  {t.id}", size=s(10),
-                        color=theme.text_disabled, font_family=ff),
-            ], spacing=0, tight=True),
+                ft.Container(height=s(6)),
+                ft.Text(f"工卡号  {t.id}", size=s(13),
+                        color=theme.text_primary, font_family=ff,
+                        weight=ft.FontWeight.W_700,
+                        text_align=ft.TextAlign.CENTER),
+            ], spacing=0, tight=True, alignment=ft.MainAxisAlignment.CENTER,
+               horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             padding=ft.padding.only(
                 left=g, right=g, top=s(10), bottom=s(6)),
         )

@@ -427,78 +427,91 @@ class BoardPage:
         hours_f = _field("计划工时 (h)，如 4.5", width=220)
         assignee_id_f = _field("员工 ID，如 ZH001")
         assignee_name_f = _field("姓名，如 张工")
+        start_hour_f = _field("08", width=s(62))
+        start_min_f = _field("30", width=s(62))
+        due_hour_f = _field("08", width=s(62))
+        due_min_f = _field("30", width=s(62))
 
-        def _date_picker():
+        # ── 输入校验 ──
+        def _clamp_tf(tf, hi):
+            val = (tf.value or "").strip()
+            if val:
+                if not val.isdigit(): tf.value = ""; tf.update(); return
+                n = int(val)
+                if n > hi: tf.value = str(hi); tf.update()
+        for _tf, _hi in [(start_hour_f, 23), (start_min_f, 59),
+                          (due_hour_f, 23), (due_min_f, 59)]:
+            _tf.on_blur = lambda e, t=_tf, h=_hi: _clamp_tf(t, h)
+
+        def _make_date_picker():
             from datetime import datetime as dt
-            state = {"date": None, "time": ""}
+            state = {"date": None}
             dp = ft.DatePicker(first_date=dt(2024,1,1), last_date=dt(2030,12,31),
                 on_change=lambda e: _on_pick(e))
-            display = ft.Text("", size=s(12), color=theme.text_secondary, font_family=ff)
-            hour_opts = [(f"{h:02d}:00", f"{h:02d}:00") for h in range(0, 24, 2)]
-            time_dd = ft.Dropdown(value="", options=[ft.dropdown.Option(k,v) for k,v in hour_opts],
-                dense=True, width=s(78), max_menu_height=s(150),
-                border_color=theme.border, focused_border_color=theme.info, bgcolor=theme.card,
-                text_style=ft.TextStyle(color="#e0e0e0", size=s(11), font_family=ff),
-                border_radius=s(6),
-                content_padding=ft.padding.only(left=s(6), top=s(3), right=s(4), bottom=s(3)),
-                on_change=lambda e: _on_time(e))
-            container = ft.Container(
-                content=ft.Row([ft.Icon(ft.Icons.CALENDAR_TODAY_OUTLINED, size=s(14), color=theme.text_secondary),
-                    display, ft.Container(expand=True),
-                    ft.Icon(ft.Icons.SCHEDULE, size=s(14), color=theme.text_secondary), time_dd], spacing=s(6)),
-                bgcolor=theme.card, border_radius=s(6), border=ft.border.all(1, theme.border),
-                padding=ft.padding.only(left=s(10), top=s(6), right=s(10), bottom=s(6)),
+            display = ft.Text("点击选择日期", size=s(12), color=theme.text_secondary, font_family=ff)
+            ctrl = ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.CALENDAR_TODAY_OUTLINED, size=s(14), color=theme.text_secondary),
+                    display,
+                ], spacing=s(6)),
+                bgcolor=theme.card, border_radius=s(6),
+                border=ft.border.all(1, theme.border),
+                padding=ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8)),
                 on_click=lambda e: self._page.open(dp), ink=True)
             def _on_pick(e):
-                if e.control.value: state["date"]=e.control.value; display.value=state["date"].strftime("%Y-%m-%d"); display.color="#e0e0e0"; container.update(); _recalc()
-            def _on_time(e):
-                state["time"]=time_dd.value or ""; time_dd.border_color=theme.border; _recalc()
-            def _set_err(msg): display.value=msg; display.color=theme.error; container.border=ft.border.all(1,theme.error); container.update()
+                if e.control.value: state["date"]=e.control.value; display.value=state["date"].strftime("%Y-%m-%d"); display.color="#e0e0e0"; ctrl.update(); _recalc()
+            def _set_err(msg): display.value=msg; display.color=theme.error; ctrl.border=ft.border.all(1,theme.error); ctrl.update()
             def _clear_err():
                 if state["date"]: display.value=state["date"].strftime("%Y-%m-%d"); display.color="#e0e0e0"
-                else: display.value=""; display.color=theme.text_secondary
-                container.border=ft.border.all(1,theme.border); container.update()
-            def _get_dt():
-                d=state["date"]; t=state["time"]
-                if not d: return None
-                if t:
-                    try: h,m=t.split(":"); return dt(d.year,d.month,d.day,int(h),int(m))
-                    except: pass
-                return d
-            return container, state, _set_err, _clear_err, _get_dt
+                else: display.value="点击选择日期"; display.color=theme.text_secondary
+                ctrl.border=ft.border.all(1,theme.border); ctrl.update()
+            return ctrl, state, _set_err, _clear_err
 
-        start_ctrl, start_state, start_err, start_clr, start_get = _date_picker()
-        due_ctrl, due_state, due_err, due_clr, due_get = _date_picker()
+        start_date_ctrl, start_date_state, start_date_err, start_date_clr = _make_date_picker()
+        due_date_ctrl, due_date_state, due_date_err, due_date_clr = _make_date_picker()
+
+        def _get_dt(date_state, h_f, m_f):
+            d = date_state["date"]
+            if not d: return None
+            from datetime import datetime as dt
+            h = (h_f.value or "").strip()
+            m = (m_f.value or "").strip()
+            if h and m:
+                try: return dt(d.year, d.month, d.day, int(h), int(m))
+                except: pass
+            return d
 
         def _recalc():
-            sd=start_get(); ed=due_get()
+            sd = _get_dt(start_date_state, start_hour_f, start_min_f)
+            ed = _get_dt(due_date_state, due_hour_f, due_min_f)
             if sd and ed:
-                diff=(ed-sd).total_seconds()/3600
-                if diff>0: hours_f.value=f"{diff:.1f}"; hours_f.update()
+                diff = (ed - sd).total_seconds() / 3600
+                if diff > 0: hours_f.value = f"{diff:.1f}"; hours_f.update()
 
         def _confirm(_):
             from app.ui.widgets.toast import Toast
-            start_dt=start_get(); due_dt=due_get()
-            hs=(hours_f.value or "").strip()
-            aid=(assignee_id_f.value or "").strip()
-            aname=(assignee_name_f.value or "").strip()
-            start_clr(); due_clr()
-            for c,h in [(hours_f,"计划工时 (h)，如 4.5"),(assignee_id_f,"员工 ID，如 ZH001"),(assignee_name_f,"姓名，如 张工")]:
-                c.border_color=theme.border; c.hint_text=h
-            if not start_dt: start_err("请选择开始日期"); return
-            if not due_dt: due_err("请选择完成日期"); return
-            if not hs: hours_f.border_color=theme.error; hours_f.hint_text="请输入计划工时"; hours_f.update(); return
-            if not aid: assignee_id_f.border_color=theme.error; assignee_id_f.hint_text="请输入员工 ID"; assignee_id_f.update(); return
-            if not aname: assignee_name_f.border_color=theme.error; assignee_name_f.hint_text="请输入姓名"; assignee_name_f.update(); return
+            start_dt = _get_dt(start_date_state, start_hour_f, start_min_f)
+            due_dt = _get_dt(due_date_state, due_hour_f, due_min_f)
+            hs = (hours_f.value or "").strip()
+            aid = (assignee_id_f.value or "").strip()
+            aname = (assignee_name_f.value or "").strip()
+            start_date_clr(); due_date_clr()
+            for c, h in [(hours_f, "计划工时 (h)，如 4.5"), (assignee_id_f, "员工 ID，如 ZH001"), (assignee_name_f, "姓名，如 张工")]:
+                c.border_color = theme.border; c.hint_text = h
+            if not start_dt: start_date_err("请选择开始日期"); return
+            if not due_dt: due_date_err("请选择完成日期"); return
+            if not hs: hours_f.border_color = theme.error; hours_f.hint_text = "请输入计划工时"; hours_f.update(); return
+            if not aid: assignee_id_f.border_color = theme.error; assignee_id_f.hint_text = "请输入员工 ID"; assignee_id_f.update(); return
+            if not aname: assignee_name_f.border_color = theme.error; assignee_name_f.hint_text = "请输入姓名"; assignee_name_f.update(); return
             try:
-                task_service.move_task(tid,col,index=index)
-                updates={"assignee":f"{aid} {aname}"}
-                try: updates["estimated_hours"]=float(hs)
+                task_service.move_task(tid, col, index=index)
+                updates = {"assignee": f"{aid} {aname}"}
+                try: updates["estimated_hours"] = float(hs)
                 except: pass
-                updates["due_date"]=due_dt
-                task_service.update_task(tid,**updates)
-                Toast.show(self._page,"已排程","success")
-            except Exception as ex: Toast.show(self._page,str(ex),"warning")
+                updates["due_date"] = due_dt
+                task_service.update_task(tid, **updates)
+                Toast.show(self._page, "已排程", "success")
+            except Exception as ex: Toast.show(self._page, str(ex), "warning")
             dlg.close()
 
         from app.ui.components.modal_dialog import ModalDialog
@@ -506,16 +519,31 @@ class BoardPage:
             ft.Row([ft.Icon(ft.Icons.CALENDAR_MONTH_OUTLINED,size=s(15),color="#5294e2"),
                 ft.Text("排程信息",size=s(14),weight=ft.FontWeight.W_600,color=theme.text_primary,font_family=ff),
                 ft.Container(expand=True),
-                ft.IconButton(ft.Icons.CLOSE,icon_size=s(16),icon_color=theme.text_secondary,on_click=lambda e: dlg.close())],spacing=s(8)),
+                ft.IconButton(ft.Icons.CLOSE,icon_size=s(16),icon_color=theme.text_secondary,
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.TRANSPARENT,
+                        overlay_color=ft.Colors.RED_900,
+                        shape=ft.RoundedRectangleBorder(radius=s(4))),
+                    on_click=lambda e: dlg.close())],spacing=s(8)),
             padding=ft.padding.only(left=s(14),top=s(8),right=s(6),bottom=s(8)),
             border=ft.border.only(bottom=ft.BorderSide(1,theme.border)))
-        sep=ft.Divider(height=s(12),color=ft.Colors.TRANSPARENT)
+        sep=ft.Divider(height=s(12), color=ft.Colors.TRANSPARENT)
+        def _date_row(label_text, date_ctrl, h_f, m_f):
+            return ft.Column([
+                _label(label_text, required=True),
+                ft.Row([
+                    ft.Container(content=date_ctrl, expand=True),
+                    ft.Container(width=s(4)),
+                    h_f, ft.Text("时", size=s(11), color=theme.text_secondary, font_family=ff),
+                    m_f, ft.Text("分", size=s(11), color=theme.text_secondary, font_family=ff),
+                ], spacing=s(4), vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ], spacing=s(4), tight=True)
         form=ft.Container(
-            ft.Column([_label("计划开始日期",required=True),start_ctrl,sep,
-                _label("计划完成日期",required=True),due_ctrl,sep,
-                ft.Row([_col(_label("计划工时",required=True),hours_f),ft.Container(expand=True)],spacing=s(12)),sep,
-                ft.Row([_col(_label("员工 ID",required=True),assignee_id_f),_col(_label("姓名",required=True),assignee_name_f)],spacing=s(12)),
-            ],spacing=s(4),tight=True),
+            ft.Column([
+                _date_row("计划开始日期", start_date_ctrl, start_hour_f, start_min_f), sep,
+                _date_row("计划完成日期", due_date_ctrl, due_hour_f, due_min_f), sep,
+                ft.Row([_col(_label("计划工时", required=True), hours_f), ft.Container(expand=True)], spacing=s(12)), sep,
+                ft.Row([_col(_label("员工 ID", required=True), assignee_id_f), _col(_label("姓名", required=True), assignee_name_f)], spacing=s(12)),
+            ], spacing=s(4), tight=True),
             padding=ft.padding.all(s(14)))
         bs=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=s(6)),
             padding=ft.padding.only(left=s(18),top=s(7),right=s(18),bottom=s(7)),
@@ -531,7 +559,7 @@ class BoardPage:
             padding=ft.padding.only(left=s(14),top=s(8),right=s(14),bottom=s(10)),
             border=ft.border.only(top=ft.BorderSide(1,theme.border)))
         content=ft.Column([header,form,footer],spacing=0,tight=True)
-        dlg=ModalDialog(self._page,content,width=520,bgcolor="#1c1c1c")
+        dlg=ModalDialog(self._page,content,width=520)
         dlg.open()
 
     def _on_column_menu(self, cid):
