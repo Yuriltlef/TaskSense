@@ -155,16 +155,98 @@ class CreateTaskDialog:
                 b.content.color=ft.Colors.WHITE if pv==v else c;b.update()
         pri_row = ft.Row([_mk_pb(v,l,c) for v,l,c in _PRI_OPTS],spacing=s(6),tight=True)
 
-        # ── time ──
-        sd=_norm_tf("2026-07-02",width=120);sh=_norm_tf("08",width=58);sm=_norm_tf("00",width=58)
-        ed=_norm_tf("2026-07-02",width=120);eh=_norm_tf("12",width=58);em=_norm_tf("00",width=58)
-        def _dp(tf):
-            def o(e_): dp_=ft.DatePicker(on_change=lambda e,t=tf: _on_dp(t,e));page.overlay.append(dp_);dp_.pick_date()
-            return o
-        def _on_dp(tf,e):
-            if e.control.value: tf.value=e.control.value.strftime("%Y-%m-%d");tf.update()
-        sd.read_only=True;sd.on_click=_dp(sd);ed.read_only=True;ed.on_click=_dp(ed)
+        # ── time（照搬 _dlg_schedule 的 _make_date_picker 模式）──
+        from datetime import datetime as dt
+        sh = _norm_tf("08", width=s(56)); sm = _norm_tf("00", width=s(56))
+        eh = _norm_tf("12", width=s(56)); em = _norm_tf("00", width=s(56))
         hours_f = _norm_tf("（可选）", width=120)
+
+        def _make_date_picker():
+            state = {"date": None}
+            dp = ft.DatePicker(first_date=dt(2024, 1, 1), last_date=dt(2030, 12, 31),
+                               on_change=lambda e: _on_pick(e))
+            display = ft.Text("点击选择日期", size=s(12), color=theme.text_secondary, font_family=ff)
+            ctrl = ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.CALENDAR_TODAY_OUTLINED, size=s(14), color=theme.text_secondary),
+                    display,
+                ], spacing=s(6)),
+                bgcolor=theme.card, border_radius=s(6),
+                border=ft.border.all(1, theme.border),
+                padding=ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8)),
+                on_click=lambda e: page.open(dp), ink=True)
+            def _on_pick(e):
+                if e.control.value:
+                    state["date"] = e.control.value
+                    display.value = state["date"].strftime("%Y-%m-%d")
+                    display.color = "#e0e0e0"
+                    ctrl.update(); _recalc_hours()
+            def _set_err(msg):
+                display.value = msg; display.color = theme.error
+                ctrl.border = ft.border.all(1, theme.error); ctrl.update()
+            def _clear_err():
+                if state["date"]:
+                    display.value = state["date"].strftime("%Y-%m-%d"); display.color = "#e0e0e0"
+                else:
+                    display.value = "点击选择日期"; display.color = theme.text_secondary
+                ctrl.border = ft.border.all(1, theme.border); ctrl.update()
+            return ctrl, state, _set_err, _clear_err
+
+        start_date_ctrl, start_date_state, start_date_err, start_date_clr = _make_date_picker()
+        due_date_ctrl, due_date_state, due_date_err, due_date_clr = _make_date_picker()
+
+        def _get_dt(date_state, h_f, m_f):
+            d = date_state["date"]
+            if not d: return None
+            h = (h_f.value or "").strip()
+            m = (m_f.value or "").strip()
+            if h and m:
+                try: return dt(d.year, d.month, d.day, int(h), int(m))
+                except: pass
+            return d
+
+        def _recalc_hours():
+            sd_dt = _get_dt(start_date_state, sh, sm)
+            ed_dt = _get_dt(due_date_state, eh, em)
+            if sd_dt and ed_dt:
+                diff = (ed_dt - sd_dt).total_seconds() / 3600
+                if diff > 0:
+                    hours_f.value = f"{diff:.1f}"
+                    try: hours_f.update()
+                    except Exception: pass
+                else:
+                    due_date_state["date"] = None
+                    eh.value = ""; em.value = ""
+                    try: eh.update(); em.update()
+                    except Exception: pass
+                    due_date_clr()
+                    hours_f.value = ""
+                    try: hours_f.update()
+                    except Exception: pass
+                    from app.ui.widgets.toast import Toast
+                    Toast.show(page, "完成时间必须晚于开始时间", "warning")
+
+        # ── 时/分字段：blur 时先 clamp 再重算工时 ──
+        def _clamp_tf(tf, hi):
+            val = (tf.value or "").strip()
+            if val:
+                if not val.isdigit(): tf.value = ""; tf.update(); return
+                n = int(val)
+                if n > hi: tf.value = str(hi); tf.update()
+
+        for _tf, _hi in [(sh, 23), (sm, 59), (eh, 23), (em, 59)]:
+            _tf.on_blur = lambda e, t=_tf, h=_hi: (_clamp_tf(t, h), _recalc_hours())
+
+        def _date_row(label_text, date_ctrl, h_f, m_f):
+            """单行日期选择器，照搬 _dlg_schedule 布局。"""
+            return ft.Row([
+                ft.Text(label_text, size=s(11), color=theme.text_secondary, font_family=ff, width=s(36)),
+                ft.Container(content=date_ctrl, expand=True),
+                h_f,
+                ft.Text("时", size=s(11), color=theme.text_secondary, font_family=ff),
+                m_f,
+                ft.Text("分", size=s(11), color=theme.text_secondary, font_family=ff),
+            ], spacing=s(4), vertical_alignment=ft.CrossAxisAlignment.CENTER)
         zone_f = _norm_tf("区域 (Zone)，如 710")
         cls._fields["zone"] = zone_f
 
@@ -195,22 +277,11 @@ class CreateTaskDialog:
                 try:TaskValidators.validate_employee(eid)
                 except BusinessRuleError as e:_err(emp_id_f,e.message);return
 
-            from datetime import datetime;ps=pe=None
-            try:
-                sd_=(sd.value or "").strip()
-                if sd_:
-                    sh_=(sh.value or "0").strip();sm_=(sm.value or "0").strip()
-                    ps=datetime.strptime(f"{sd_} {int(sh_):02d}:{int(sm_):02d}","%Y-%m-%d %H:%M")
-            except (ValueError,OverflowError):_err(sd,"日期无效");return
-            try:
-                ed_=(ed.value or "").strip()
-                if ed_:
-                    eh_=(eh.value or "0").strip();em_=(em.value or "0").strip()
-                    pe=datetime.strptime(f"{ed_} {int(eh_):02d}:{int(em_):02d}","%Y-%m-%d %H:%M")
-            except (ValueError,OverflowError):_err(ed,"日期无效");return
+            ps = _get_dt(start_date_state, sh, sm)
+            pe = _get_dt(due_date_state, eh, em)
             if ps and pe:
                 try:TaskValidators.validate_planned_time(ps,pe)
-                except BusinessRuleError as e:_err(sd,e.message);return
+                except BusinessRuleError as e:start_date_err(e.message);return
 
             h=0.0;hv=(hours_f.value or "").strip()
             if hv:
@@ -252,14 +323,9 @@ class CreateTaskDialog:
             ft.Row([_col(_label("任务类型"),type_dd),ft.Container(width=s(12)),
                     _col(_label("计划工时"),hours_f)],spacing=s(0)),sep,
             _label("计划时间"),
-            ft.Row([ft.Text("开始",size=s(11),color=theme.text_secondary,font_family=ff),
-                sd,sh,ft.Text("时",size=s(11),color=theme.text_secondary,font_family=ff),
-                sm,ft.Text("分",size=s(11),color=theme.text_secondary,font_family=ff),
-                ft.Container(width=s(16)),
-                ft.Text("完成",size=s(11),color=theme.text_secondary,font_family=ff),
-                ed,eh,ft.Text("时",size=s(11),color=theme.text_secondary,font_family=ff),
-                em,ft.Text("分",size=s(11),color=theme.text_secondary,font_family=ff),
-            ],spacing=s(6),wrap=True),sep,
+            _date_row("开始", start_date_ctrl, sh, sm),
+            ft.Container(height=s(4)),
+            _date_row("完成", due_date_ctrl, eh, em),
             ft.Row([_col(_label("区域"),zone_f)],spacing=s(12)),
         ],spacing=s(4),tight=True),padding=ft.padding.only(left=s(14),top=s(14),right=s(14),bottom=s(14)))
 

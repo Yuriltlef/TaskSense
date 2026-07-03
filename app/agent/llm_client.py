@@ -89,6 +89,7 @@ class LLMClient:
                 messages=messages,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
+                timeout=30.0,  # 30s 超时
             )
             return response.choices[0].message.content
         except Exception as e:

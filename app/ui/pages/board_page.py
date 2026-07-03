@@ -524,12 +524,15 @@ class BoardPage:
                           (due_hour_f, 23), (due_min_f, 59)]:
             _tf.on_blur = lambda e, t=_tf, h=_hi: _clamp_tf(t, h)
 
-        def _make_date_picker():
+        def _make_date_picker(initial_date=None):
             from datetime import datetime as dt
-            state = {"date": None}
+            state = {"date": initial_date}
             dp = ft.DatePicker(first_date=dt(2024,1,1), last_date=dt(2030,12,31),
                 on_change=lambda e: _on_pick(e))
-            display = ft.Text("点击选择日期", size=s(12), color=theme.text_secondary, font_family=ff)
+            if initial_date:
+                display = ft.Text(initial_date.strftime("%Y-%m-%d"), size=s(12), color="#e0e0e0", font_family=ff)
+            else:
+                display = ft.Text("点击选择日期", size=s(12), color=theme.text_secondary, font_family=ff)
             ctrl = ft.Container(
                 content=ft.Row([
                     ft.Icon(ft.Icons.CALENDAR_TODAY_OUTLINED, size=s(14), color=theme.text_secondary),
@@ -548,8 +551,25 @@ class BoardPage:
                 ctrl.border=ft.border.all(1,theme.border); ctrl.update()
             return ctrl, state, _set_err, _clear_err
 
-        start_date_ctrl, start_date_state, start_date_err, start_date_clr = _make_date_picker()
-        due_date_ctrl, due_date_state, due_date_err, due_date_clr = _make_date_picker()
+        # ── 预填任务已有的计划时间/人员 ──
+        t = state.get_task(tid)
+        start_date_ctrl, start_date_state, start_date_err, start_date_clr = _make_date_picker(
+            initial_date=t.planned_start if t else None)
+        due_date_ctrl, due_date_state, due_date_err, due_date_clr = _make_date_picker(
+            initial_date=t.planned_end if t else None)
+        if t:
+            if t.planned_start:
+                start_hour_f.value = t.planned_start.strftime("%H")
+                start_min_f.value = t.planned_start.strftime("%M")
+            if t.planned_end:
+                due_hour_f.value = t.planned_end.strftime("%H")
+                due_min_f.value = t.planned_end.strftime("%M")
+            if t.estimated_hours:
+                hours_f.value = str(t.estimated_hours)
+            if t.employee_id:
+                assignee_id_f.value = t.employee_id
+            if t.employee_name:
+                assignee_name_f.value = t.employee_name
 
         def _get_dt(date_state, h_f, m_f):
             d = date_state["date"]
@@ -567,7 +587,25 @@ class BoardPage:
             ed = _get_dt(due_date_state, due_hour_f, due_min_f)
             if sd and ed:
                 diff = (ed - sd).total_seconds() / 3600
-                if diff > 0: hours_f.value = f"{diff:.1f}"; hours_f.update()
+                if diff > 0:
+                    hours_f.value = f"{diff:.1f}"; hours_f.update()
+                else:
+                    due_date_state["date"] = None
+                    due_hour_f.value = ""; due_min_f.value = ""
+                    try: due_hour_f.update(); due_min_f.update()
+                    except Exception: pass
+                    due_date_clr()
+                    hours_f.value = ""
+                    try: hours_f.update()
+                    except Exception: pass
+                    from app.ui.widgets.toast import Toast
+                    Toast.show(self._page, "完成时间必须晚于开始时间", "warning")
+
+        # 时/分字段 blur 时同步 clamp + 重算工时
+        for _tf, _hi in [(start_hour_f, 23), (start_min_f, 59),
+                          (due_hour_f, 23), (due_min_f, 59)]:
+            _prev = _tf.on_blur
+            _tf.on_blur = lambda e, t=_tf, h=_hi, p=_prev: (_clamp_tf(t, h), _recalc())
 
         def _confirm(_):
             from app.ui.widgets.toast import Toast
@@ -743,51 +781,260 @@ class BoardPage:
             Toast.show(self._page, f"未知命令: {cmd}", "warning")
 
     def _run_agent_command(self, cmd: str):
-        """执行 AI 工具菜单命令。"""
+        """AI 工具菜单命令分发。"""
         from app.ui.services.agent_service import AgentService
-        cmd_handlers = {
-            "outline": lambda: (
-                self._show_ai_in_panel("生成大纲", "请在 AI 对话面板中输入维护需求，AI 将为您生成任务大纲。\n\n提示：输入 > 描述你的维护需求")),
-            "gen_tasks": lambda: self._run_agent_with_prompt("gen_tasks"),
-            "classify": lambda: self._run_agent_with_prompt("classify"),
-            "schedule": lambda: self._run_agent_with_prompt("schedule"),
-            "acceptance": lambda: self._run_agent_with_prompt("acceptance"),
-            "report": lambda: self._run_agent_with_prompt("report"),
-            "review": lambda: self._run_agent_with_prompt("review"),
-        }
-        handler = cmd_handlers.get(cmd)
-        if handler:
-            handler()
+
+        if cmd == "outline":
+            self._cmd_outline()
+        elif cmd == "gen_tasks":
+            self._cmd_gen_tasks()
+        elif cmd == "classify":
+            self._cmd_classify()
+        elif cmd == "schedule":
+            self._cmd_schedule()
+        elif cmd == "acceptance":
+            self._cmd_acceptance()
+        elif cmd == "report":
+            self._cmd_report()
+        elif cmd == "review":
+            self._cmd_review()
         else:
             Toast.show(self._page, f"未知 AI 命令: {cmd}", "warning")
 
-    def _run_agent_with_prompt(self, cmd: str):
-        """在 AI 面板中运行 Agent 命令。"""
-        self._open_ai_panel()
-        from app.ui.services.agent_service import AgentService
-        prompt_map = {
-            "gen_tasks": ("生成任务", AgentService.generate_tasks),
-            "classify": ("自动分类", AgentService.auto_classify),
-            "schedule": ("自动排程", AgentService.auto_schedule),
-            "acceptance": ("自动验收", AgentService.auto_acceptance),
-            "report": ("生成报表", AgentService.generate_report),
-            "review": ("任务审核", AgentService.task_review),
-        }
-        if cmd in prompt_map:
-            label, func = prompt_map[cmd]
+    # ═══════════════════════════════════════════
+    # 1. 生成大纲 → 弹窗显示、可保存
+    # ═══════════════════════════════════════════
+
+    def _cmd_outline(self):
+        """打开大纲生成弹窗。"""
+        ff = theme.font_family
+        desc_f = ft.TextField(
+            hint_text="描述维护需求，如：B-5823 左发起落架收放测试...",
+            border_color=theme.border, focused_border_color=theme.info,
+            text_style=ft.TextStyle(color="#e0e0e0", size=s(13), font_family=ff),
+            bgcolor=theme.card, multiline=True, min_lines=3, max_lines=6,
+            border_radius=s(6), dense=True,
+        )
+        result_f = ft.TextField(
+            value="", read_only=True, multiline=True, min_lines=8, max_lines=16,
+            border_color=theme.border,
+            text_style=ft.TextStyle(color="#c0c0c0", size=s(11), font_family=ff),
+            bgcolor=theme.card, border_radius=s(6),
+        )
+        progress = ft.ProgressRing(width=s(16), height=s(16), visible=False)
+
+        def _generate(e):
+            q = (desc_f.value or "").strip()
+            if not q:
+                Toast.show(self._page, "请输入维护需求描述", "warning"); return
+            progress.visible = True; result_f.value = "正在生成大纲..."; progress.update(); result_f.update()
             try:
-                result = func()
-                self._show_ai_in_panel(label, result)
-            except Exception as e:
-                Toast.show(self._page, f"{label} 失败: {e}", "warning")
-        else:
-            Toast.show(self._page, "请在 AI 面板中输入完整指令", "info")
+                from app.ui.services.agent_service import AgentService
+                outline = AgentService.generate_outline(q)
+                result_f.value = outline
+            except Exception as ex:
+                result_f.value = f"生成失败: {ex}"
+            progress.visible = False; progress.update(); result_f.update()
+
+        def _save_file(e):
+            import os
+            os.makedirs("data/outlines", exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            path = f"data/outlines/outline_{ts}.md"
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(result_f.value or "")
+            Toast.show(self._page, f"已保存: {path}", "success"); dlg.close()
+
+        content = ft.Column([
+            ft.Text("AI 生成任务大纲", size=s(14), weight=ft.FontWeight.W_600,
+                    color=theme.text_primary, font_family=ff),
+            ft.Text("描述维护需求，AI 将搜索知识库并生成结构化大纲", size=s(11),
+                    color=theme.text_secondary, font_family=ff),
+            ft.Container(height=s(8)),
+            desc_f,
+            ft.Row([ft.ElevatedButton("生成大纲", on_click=_generate,
+                    style=ft.ButtonStyle(bgcolor=theme.info, color=ft.Colors.WHITE,
+                        shape=ft.RoundedRectangleBorder(radius=s(6)))),
+                    progress], spacing=s(8)),
+            ft.Container(height=s(8)),
+            result_f,
+            ft.Container(height=s(8)),
+            ft.Row([
+                ft.Container(expand=True),
+                ft.TextButton("关闭", on_click=lambda e: dlg.close()),
+                ft.ElevatedButton("保存到文件", on_click=_save_file,
+                    style=ft.ButtonStyle(bgcolor=theme.success, color=ft.Colors.WHITE,
+                        shape=ft.RoundedRectangleBorder(radius=s(6)))),
+            ]),
+        ], spacing=0, tight=True)
+        from app.ui.components.modal_dialog import ModalDialog
+        dlg = ModalDialog(self._page, content, width=620)
+        dlg.open()
+
+    # ═══════════════════════════════════════════
+    # 2. 生成任务 → Agent 调用 create_task 工具 → 幽灵卡
+    # 3. 自动分类 → Agent 调用 classify_task 工具 → 幽灵卡
+    # 4. 自动排程 → Agent 调用 schedule_task 工具 → 幽灵卡
+    # 5. 自动验收 → Agent 审核建议 → 对话面板
+    # ═══════════════════════════════════════════
+
+    _CMD_PROMPTS = {
+        "gen_tasks": (
+            "根据当前看板上下文，为待处理的任务生成详细任务卡片。"
+            "使用 create_task 工具为每个任务创建到待处理列。"
+            "任务应包含标题、描述、ATA 章节、优先级和任务类型。"
+        ),
+        "classify": (
+            "检查所有待处理（backlog）任务，根据航空维修优先级规则为每个任务分配优先级。"
+            "使用 classify_task 工具将每个待处理任务移至已分类列。"
+            "AOG > Cat A (当日) > Cat B (72h) > Cat C (10天) > Cat D (120天)。"
+        ),
+        "schedule": (
+            "检查所有已分类（triage）任务，为每个任务排程。"
+            "使用 search_employees 查找合适的员工，使用 schedule_task 工具排程。"
+            "设置合理的计划开始/完成时间和工时。考虑员工技能和可用性。"
+        ),
+        "acceptance": (
+            "检查所有验收中（inspection）任务，评估提交质量。"
+            "对每个任务给出审核建议：同意/驳回/需补充信息，并说明理由。"
+            "不要直接移动任务——只提供建议供人工审核。"
+        ),
+    }
+
+    def _cmd_gen_tasks(self):
+        self._run_agent_cmd("gen_tasks", self._CMD_PROMPTS["gen_tasks"])
+
+    def _cmd_classify(self):
+        self._run_agent_cmd("classify", self._CMD_PROMPTS["classify"])
+
+    def _cmd_schedule(self):
+        self._run_agent_cmd("schedule", self._CMD_PROMPTS["schedule"])
+
+    def _cmd_acceptance(self):
+        self._run_agent_cmd("acceptance", self._CMD_PROMPTS["acceptance"])
+
+    def _run_agent_cmd(self, cmd: str, prompt: str):
+        """通用 Agent 命令——打开 AI 面板并执行。"""
+        self._open_ai_panel()
+        if not self.ai_chat:
+            return
+        # 将命令注入 AI 面板的 send 流程
+        try:
+            from app.ui.services.agent_service import AgentService
+            result = AgentService.ask(prompt, session_id=cmd)
+            self._show_ai_in_panel(_cmd_labels.get(cmd, cmd), result)
+        except Exception as e:
+            Toast.show(self._page, f"执行失败: {e}", "warning")
+
+    # ═══════════════════════════════════════════
+    # 6. 生成报表 → 弹窗显示 MD 报表、可保存
+    # ═══════════════════════════════════════════
+
+    def _cmd_report(self):
+        ff = theme.font_family
+        report_f = ft.TextField(
+            value="正在生成报表...", read_only=True, multiline=True,
+            min_lines=12, max_lines=20,
+            border_color=theme.border,
+            text_style=ft.TextStyle(color="#c0c0c0", size=s(11), font_family=ff),
+            bgcolor=theme.card, border_radius=s(6),
+        )
+        progress = ft.ProgressRing(width=s(16), height=s(16))
+
+        def _save(e):
+            import os
+            os.makedirs("data/reports", exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            path = f"data/reports/report_{ts}.md"
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(report_f.value or "")
+            Toast.show(self._page, f"已保存: {path}", "success"); dlg.close()
+
+        content = ft.Column([
+            ft.Row([
+                ft.Text("生成维护报表", size=s(14), weight=ft.FontWeight.W_600,
+                        color=theme.text_primary, font_family=ff),
+                progress,
+            ], spacing=s(8)),
+            ft.Container(height=s(8)),
+            report_f,
+            ft.Container(height=s(8)),
+            ft.Row([
+                ft.Container(expand=True),
+                ft.TextButton("关闭", on_click=lambda e: dlg.close()),
+                ft.ElevatedButton("保存报表", on_click=_save,
+                    style=ft.ButtonStyle(bgcolor=theme.success, color=ft.Colors.WHITE,
+                        shape=ft.RoundedRectangleBorder(radius=s(6)))),
+            ]),
+        ], spacing=0, tight=True)
+        from app.ui.components.modal_dialog import ModalDialog
+        dlg = ModalDialog(self._page, content, width=640)
+        dlg.open()
+
+        # 异步生成报表
+        import threading
+        def _gen():
+            try:
+                from app.ui.services.agent_service import AgentService
+                r = AgentService.generate_report("daily")
+                report_f.value = r
+            except Exception as ex:
+                report_f.value = f"生成失败: {ex}"
+            progress.visible = False
+            try: progress.update(); report_f.update()
+            except Exception: pass
+        threading.Thread(target=_gen, daemon=True).start()
+
+    # ═══════════════════════════════════════════
+    # 7. 任务审核 → 弹窗显示合规问题
+    # ═══════════════════════════════════════════
+
+    def _cmd_review(self):
+        ff = theme.font_family
+        review_f = ft.TextField(
+            value="正在审核任务合规性...", read_only=True, multiline=True,
+            min_lines=10, max_lines=18,
+            border_color=theme.border,
+            text_style=ft.TextStyle(color="#c0c0c0", size=s(11), font_family=ff),
+            bgcolor=theme.card, border_radius=s(6),
+        )
+        progress = ft.ProgressRing(width=s(16), height=s(16))
+
+        content = ft.Column([
+            ft.Row([
+                ft.Text("任务合规审核", size=s(14), weight=ft.FontWeight.W_600,
+                        color=theme.text_primary, font_family=ff),
+                progress,
+            ], spacing=s(8)),
+            ft.Container(height=s(8)),
+            review_f,
+            ft.Container(height=s(8)),
+            ft.Row([
+                ft.Container(expand=True),
+                ft.TextButton("关闭", on_click=lambda e: dlg.close()),
+            ]),
+        ], spacing=0, tight=True)
+        from app.ui.components.modal_dialog import ModalDialog
+        dlg = ModalDialog(self._page, content, width=640)
+        dlg.open()
+
+        import threading
+        def _review():
+            try:
+                from app.ui.services.agent_service import AgentService
+                r = AgentService.task_review()
+                review_f.value = r
+            except Exception as ex:
+                review_f.value = f"审核失败: {ex}"
+            progress.visible = False
+            try: progress.update(); review_f.update()
+            except Exception: pass
+        threading.Thread(target=_review, daemon=True).start()
 
     def _show_ai_in_panel(self, title: str, content: str):
         """在 AI 对话面板中显示结果。"""
         if not self.ai_chat or not self.ai_chat.is_open:
             self._open_ai_panel()
-        # 直接追加到聊天面板
         try:
             if hasattr(self.ai_chat, '_msg_pairs'):
                 from datetime import datetime
@@ -806,12 +1053,6 @@ class BoardPage:
             self._show_ai_in_panel(f"AI: {question[:50]}", result)
         except Exception as e:
             Toast.show(self._page, f"AI 未就绪: {e}", "warning")
-
-    def _show_ai_in_panel(self, title: str, content: str):
-        if self.ai_chat:
-            if self.side_panel and self.side_panel.is_open: self.side_panel.close()
-            self.ai_chat.open()
-            self._page.update()
 
     def _card_action(self, tid, action):
         if action == "delete":
@@ -1171,3 +1412,10 @@ class BoardPage:
         content = ft.Column([header, form, footer], spacing=0, tight=True)
         dlg = ModalDialog(self._page, content, width=360)
         dlg.open()
+
+
+_cmd_labels = {
+    "gen_tasks": "生成任务", "classify": "自动分类",
+    "schedule": "自动排程", "acceptance": "自动验收",
+    "report": "生成报表", "review": "任务审核",
+}
