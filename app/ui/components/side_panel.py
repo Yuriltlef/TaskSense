@@ -322,39 +322,179 @@ class SidePanel(ft.Container):
             Toast.show(self.page, f"取消失败: {e}", "error")
 
     def _build_ai_review(self, t, ff):
-        """AI 审核区域。"""
+        """AI 审核区域 — 调用 Agent + JSON 美化渲染。"""
+        import json, re, threading
         s_ = s
-        ai_output = ft.TextField(
-            value="",
-            hint_text="点击「AI 建议」获取审核建议...",
-            multiline=True, min_lines=4, max_lines=8,
-            read_only=True,
-            border_color=theme.border,
-            focused_border_color=theme.info,
-            text_style=ft.TextStyle(color="#c0c0c0", size=s_(11), font_family=ff),
-            hint_style=ft.TextStyle(color=theme.text_disabled, size=s_(11), font_family=ff),
-            bgcolor=theme.card,
-            content_padding=ft.padding.all(s_(10)),
-            border_radius=s_(6),
-        )
+
+        # ── 加载动画 ──
+        progress = ft.ProgressRing(width=s_(14), height=s_(14), visible=False)
+        status_text = ft.Text("", size=s_(11), color=theme.text_secondary, font_family=ff)
+
+        # ── 辅助：迷你分区 ──
+        def _mini_section(title: str, items: list, ff_: str, s__):
+            return ft.Container(
+                ft.Column([
+                    ft.Text(title, size=s__(10), weight=ft.FontWeight.W_600,
+                            color=theme.text_secondary, font_family=ff_),
+                    ft.Container(height=s__(4)),
+                    ft.Column(items, spacing=s__(4), tight=True),
+                ], spacing=0, tight=True),
+                bgcolor="#0a0a0a",
+                border_radius=s__(6),
+                padding=ft.padding.all(s__(8)),
+            )
+
+        # ── 结果容器 ──
+        result_col = ft.Column([], spacing=s_(8), tight=True, visible=False)
+        error_text = ft.Text("", size=s_(11), color=theme.error, font_family=ff, visible=False)
+
+        def _parse_response(raw: str) -> dict | None:
+            """尝试解析 AI 返回的 JSON。"""
+            if not raw:
+                return None
+            # 去掉 ```json ... ``` 围栏
+            m = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw, re.DOTALL)
+            if m:
+                raw = m.group(1)
+            # 找第一个 JSON 对象
+            m = re.search(r'\{[^{}]*\}', raw, re.DOTALL)
+            if m:
+                try:
+                    return json.loads(m.group())
+                except json.JSONDecodeError:
+                    pass
+            return None
+
+        def _render_json(data: dict):
+            """将 JSON 评审结果渲染为美化卡片。"""
+            result_col.controls.clear()
+
+            rec = data.get("recommendation", "")
+            conf = data.get("confidence", 0)
+            summary = data.get("summary", "")
+            reasons = data.get("reasons", [])
+            missing = data.get("missing_items", [])
+            comp_notes = data.get("compliance_notes", "")
+            actions = data.get("suggested_actions", [])
+            risk = data.get("risk_level", "")
+
+            rec_config = {
+                "approve": ("✅ 建议通过", theme.success, ft.Icons.CHECK_CIRCLE_OUTLINE),
+                "reject": ("🔴 建议驳回", theme.error, ft.Icons.CANCEL_OUTLINED),
+                "need_more_info": ("⚠ 需要补充信息", theme.warning, ft.Icons.INFO_OUTLINE),
+            }
+            rec_label, rec_color, rec_icon = rec_config.get(rec, ("📋 审核意见", theme.info, ft.Icons.PSYCHOLOGY_OUTLINED))
+
+            # 标题行：结论 + 置信度
+            result_col.controls.append(
+                ft.Container(
+                    ft.Row([
+                        ft.Icon(rec_icon, size=s_(16), color=rec_color),
+                        ft.Text(rec_label, size=s_(13), weight=ft.FontWeight.W_600,
+                                color=rec_color, font_family=ff),
+                        ft.Container(expand=True),
+                        ft.Text(f"置信度 {conf:.0%}" if isinstance(conf, (int, float)) else "",
+                                size=s_(10), color=theme.text_secondary, font_family=ff),
+                    ], spacing=s_(6)),
+                    bgcolor=ft.Colors.with_opacity(0.08, rec_color),
+                    border_radius=s_(6),
+                    padding=ft.padding.all(s_(10)),
+                )
+            )
+
+            # 摘要
+            if summary:
+                result_col.controls.append(
+                    ft.Text(summary, size=s_(11), color="#c0c0c0", font_family=ff))
+
+            # 原因
+            if reasons:
+                items = []
+                for r in reasons:
+                    items.append(ft.Row([
+                        ft.Text("•", size=s_(11), color=theme.text_secondary, font_family=ff),
+                        ft.Text(r, size=s_(11), color="#c0c0c0", font_family=ff),
+                    ], spacing=s_(6)))
+                result_col.controls.append(_mini_section("驳回原因" if rec == "reject" else "审核要点", items, ff, s_))
+
+            # 缺失项
+            if missing:
+                items = []
+                for m in missing:
+                    items.append(ft.Row([
+                        ft.Icon(ft.Icons.ERROR_OUTLINE, size=s_(12), color=theme.warning),
+                        ft.Text(m, size=s_(11), color=theme.warning, font_family=ff),
+                    ], spacing=s_(6)))
+                result_col.controls.append(_mini_section("缺失项", items, ff, s_))
+
+            # 合规说明
+            if comp_notes:
+                result_col.controls.append(_mini_section("合规说明", [
+                    ft.Text(comp_notes, size=s_(10), color=theme.text_secondary, font_family=ff),
+                ], ff, s_))
+
+            # 建议操作
+            if actions:
+                items = []
+                for i, a in enumerate(actions, 1):
+                    items.append(ft.Row([
+                        ft.Text(f"{i}.", size=s_(11), color=theme.info, font_family=ff),
+                        ft.Text(a, size=s_(11), color="#c0c0c0", font_family=ff),
+                    ], spacing=s_(6)))
+                result_col.controls.append(_mini_section("建议操作", items, ff, s_))
+
+            # 风险等级
+            if risk:
+                risk_colors = {"low": theme.success, "medium": theme.warning, "high": theme.error}
+                rc = risk_colors.get(risk, theme.text_secondary)
+                result_col.controls.append(
+                    ft.Container(
+                        ft.Row([
+                            ft.Icon(ft.Icons.WARNING_AMBER_OUTLINED, size=s_(12), color=rc),
+                            ft.Text(f"风险等级: {risk.upper()}", size=s_(10),
+                                    color=rc, weight=ft.FontWeight.W_600, font_family=ff),
+                        ], spacing=s_(6)),
+                        bgcolor=ft.Colors.with_opacity(0.06, rc),
+                        border_radius=s_(6),
+                        padding=ft.padding.symmetric(horizontal=s_(10), vertical=s_(6)),
+                    )
+                )
+
+        def _render_text(raw: str):
+            """纯文本回退渲染。"""
+            result_col.controls.clear()
+            result_col.controls.append(
+                ft.Text(raw, size=s_(11), color="#c0c0c0", font_family=ff))
 
         def _ai_suggest(e):
-            ai_output.value = "正在查询 AI 审核建议..."
-            ai_output.update()
+            progress.visible = True; status_text.value = "正在分析提交材料..."; status_text.visible = True
+            result_col.visible = False; error_text.visible = False
+            progress.update(); status_text.update(); result_col.update()
             try:
                 from app.ui.services.agent_service import AgentService
-                result = AgentService.get_board_summary()  # placeholder
-                ai_output.value = f"AI 审核建议:\n\n任务: {t.title}\nATA: {t.ata_chapter}\n\n建议: 请检查所有必检项目是否完成，确认签署完整。\n\n[详细建议可通过完善 Agent 工具获得]"
-                ai_output.update()
+                result = AgentService.review_submission(t.id)
+                data = _parse_response(result)
+                if data:
+                    _render_json(data)
+                else:
+                    _render_text(result)
+                result_col.visible = True
             except Exception as ex:
-                ai_output.value = f"AI 建议获取失败: {ex}"
-                ai_output.update()
+                error_text.value = f"获取失败: {ex}"
+                error_text.visible = True
+            progress.visible = False; status_text.visible = False
+            progress.update(); status_text.update(); result_col.update(); error_text.update()
 
         def _reject(e):
             from app.core.services.task_service import task_service
             from app.ui.widgets.toast import Toast
             try:
                 task_service.move_task(t.id, "in_progress", changed_by="reviewer")
+                from app.core.models.log_entry import LogType
+                from app.core.services.log_service import log_service
+                log_service.log(LogType.REVIEW_REJECT, task_id=t.id,
+                                task_title=t.title, user="reviewer",
+                                description="审核驳回，返回执行中")
                 Toast.show(self.page, "已驳回，任务返回执行中", "warning")
                 self.close()
             except Exception as ex:
@@ -380,7 +520,9 @@ class SidePanel(ft.Container):
                 ft.Text("AI 审核", size=s_(11), weight=ft.FontWeight.W_600,
                         color=theme.text_primary, font_family=ff),
                 ft.Container(height=s_(6)),
-                ai_output,
+                ft.Row([progress, status_text], spacing=s_(8)),
+                result_col,
+                error_text,
                 ft.Container(height=s_(8)),
                 ft.Row([
                     ft.ElevatedButton("AI 建议", icon=ft.Icons.PSYCHOLOGY_OUTLINED,

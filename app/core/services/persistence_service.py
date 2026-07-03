@@ -41,8 +41,9 @@ class PersistenceService:
     def set_path(self, path: str):
         """设置持久化文件路径。"""
         if not os.path.isabs(path):
+            # app/core/services/ → ../../.. → 项目根
             project_root = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "..", "..")
+                os.path.join(os.path.dirname(__file__), "..", "..", "..")
             )
             path = os.path.join(project_root, path)
         self._path = path

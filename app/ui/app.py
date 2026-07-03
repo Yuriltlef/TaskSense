@@ -43,11 +43,18 @@ class TaskSenseApp:
         log_service.set_path(
             f"{log_dir}/log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
         loaded = persistence_service.load()
+        print(f"[BOOT] persistence loaded={loaded}, path={persistence_service._path}")
 
         self.board_page = BoardPage(api_ready=api_ready)
         if not loaded:
-            # 无持久化数据时加载演示数据
+            print("[BOOT] no saved state, loading demo data")
             self.board_page.load_demo_data()
+        else:
+            # 即使加载成功，也检查是否为空（新文件/损坏文件）
+            from app.core.state import state
+            if len(state.get_all_tasks()) == 0:
+                print("[BOOT] loaded state is empty, loading demo data")
+                self.board_page.load_demo_data()
         persistence_service.start_auto_save(debounce_seconds=5.0)
 
         # ── 启动自动流转调度器 ──

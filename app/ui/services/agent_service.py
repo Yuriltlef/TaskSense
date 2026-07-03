@@ -186,6 +186,101 @@ class AgentService:
         return AgentService._try_agent("auto_acceptance.md",
             f"验收任务:\n{tasks_str}", "acceptance", fallback)
 
+    # ═══════════════════════════════════════════
+    # 任务提交审核（侧边栏 AI 建议 + 自动验收复用）
+    # ═══════════════════════════════════════════
+
+    @staticmethod
+    def _build_submission_context(task) -> str:
+        """构建任务提交审核上下文。可被 review_submission 和 auto_acceptance 复用。"""
+        t = task
+        lines = [
+            f"任务ID: {t.id}",
+            f"工卡号: {t.work_order_id or '无'}",
+            f"标题: {t.title}",
+            f"描述: {t.description or '无'}",
+            f"飞机注册号: {t.aircraft_reg or '未指定'}",
+            f"机型: {t.aircraft_model or '未指定'}",
+            f"ATA章节: {t.ata_chapter or '未指定'}",
+            f"区域: {t.zone or '未指定'}",
+            f"优先级: {t.priority.value if hasattr(t.priority, 'value') else str(t.priority)}",
+            f"任务类型: {t.task_type.value if hasattr(t.task_type, 'value') else str(t.task_type)}",
+            f"负责人: {t.employee_name or t.assignee or '未分配'} (ID: {t.employee_id or '无'})",
+            f"预估工时: {t.estimated_hours}h" if t.estimated_hours else "预估工时: 未设置",
+            f"实际工时: {t.actual_hours}h" if t.actual_hours else "实际工时: 未填写",
+            f"计划时间: {t.planned_start.strftime('%Y-%m-%d %H:%M') if t.planned_start else '未设置'} → {t.planned_end.strftime('%Y-%m-%d %H:%M') if t.planned_end else '未设置'}",
+            f"RII必检项目: {'是' if t.is_rii else '否'}",
+            f"检查员: {t.inspector or '未指定'}",
+            f"阻塞状态: {'是 — ' + t.block_reason if t.is_blocked else '否'}",
+            "",
+            f"=== 提交材料（交接班日志）===",
+            t.shift_handover_log if t.shift_handover_log else "（无提交日志 — 这是严重问题！）",
+        ]
+        # 检查清单
+        done, total = t.checklist_progress()
+        if total > 0:
+            lines.append("")
+            lines.append(f"=== 检查清单 ({done}/{total}) ===")
+            for ci in t.checklist:
+                status = "✓" if ci.completed else "✗"
+                lines.append(f"  [{status}] {ci.text}")
+        # 适航指令
+        if t.ad_numbers:
+            lines.append(f"AD: {', '.join(t.ad_numbers)}")
+        if t.sb_numbers:
+            lines.append(f"SB: {', '.join(t.sb_numbers)}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def review_submission(task_id: str) -> str:
+        """审核单个任务的提交质量。返回 AI 评审意见（approve/reject/need_more_info + 理由）。
+
+        此方法被侧边栏「AI 建议」按钮调用，也可被 auto_acceptance 工具复用。
+        """
+        t = state.get_task(task_id)
+        if not t:
+            return "任务不存在。"
+
+        ctx = AgentService._build_submission_context(t)
+
+        # 离线降级：基本合规检查
+        fallback = AgentService._offline_review(t)
+
+        return AgentService._try_agent("review_submission.md",
+            f"请审核以下任务提交:\n\n{ctx}", f"review_{task_id}", fallback)
+
+    @staticmethod
+    def _offline_review(task) -> str:
+        """离线模式下的基本合规检查。"""
+        t = task
+        issues = []
+        if not t.shift_handover_log:
+            issues.append("❌ 缺少交接班日志 — 建议驳回")
+        if not t.ata_chapter:
+            issues.append("⚠ 缺少 ATA 章节")
+        if not t.aircraft_reg:
+            issues.append("⚠ 缺少飞机注册号")
+        if t.is_rii and not t.inspector:
+            issues.append("❌ RII 必检项目未指定检查员 — 建议驳回")
+        if t.estimated_hours and t.actual_hours:
+            if t.actual_hours > t.estimated_hours * 1.5:
+                issues.append("⚠ 实际工时远超预估工时，需要说明原因")
+        if not t.employee_name and not t.assignee:
+            issues.append("⚠ 未指定负责人")
+
+        done, total = t.checklist_progress()
+        if total > 0 and done < total:
+            issues.append(f"⚠ 检查清单未完成 ({done}/{total})")
+
+        if not issues:
+            return ("✅ 建议：**同意**\n\n"
+                    "基本审核通过，未发现明显问题。\n\n"
+                    "如有疑问请人工复核提交日志细节。")
+
+        return "📋 AI 离线审核结果:\n\n" + "\n".join(issues) + (
+            "\n\n💡 建议：配置 LLM API Key 可获得更详细的智能审核意见（包括合规性检查、AD/SB 引用、知识库交叉验证）。"
+        )
+
     @staticmethod
     def generate_report(report_type: str = "daily") -> str:
         # 离线基础报表

@@ -201,7 +201,11 @@ class BoardPage:
             ("ready", "APU 滑油勤务", "B-5823", "49-91-01", "cat_c", "servicing", "赵", 1.5, "310"),
             ("in_progress", "起落架收放功能测试", "B-5823", "32-31-01", "cat_b", "test", "张", 3.0, "710"),
             ("in_progress", "右发燃油滤更换", "B-9076", "73-11-03", "cat_a", "removal_install", "李", 4.0, "420"),
+            # ── 验收中任务（不同质量等级，测试 AI 审核智能程度）──
             ("inspection", "C 检 — 机身结构详细检查", "B-5823", "53-10-01", "cat_c", "inspection", "王", 48.0, "100"),
+            ("inspection", "右发 N1 振动传感器更换", "B-9076", "77-11-01", "cat_a", "removal_install", "李", 2.5, "420"),
+            ("inspection", "左大翼前缘凹坑修理", "B-5823", "57-40-01", "cat_b", "repair", "赵", 12.0, "610"),
+            ("inspection", "客舱应急灯光系统检查", "B-2518", "33-51-01", "cat_c", "inspection", "张", 1.5, "510"),
             ("parts_hold", "左发点火电嘴更换", "B-9076", "74-11-03", "cat_a", "removal_install", "赵", 3.0, "420"),
             ("completed", "驾驶舱仪表灯光检查", "B-2518", "33-11-01", "cat_d", "inspection", "李", 1.0, "110"),
             ("completed", "APU 进气门清洁", "B-5823", "49-11-01", "cat_d", "servicing", "张", 2.0, "310"),
@@ -235,7 +239,57 @@ class BoardPage:
                         task_service.update_task(task.id, parts_available=False,
                                                  parts_required=["PN-REQUIRED"])
                     task_service.move_task(task.id, mid, changed_by="demo")
-                except Exception: pass
+                except Exception as ex:
+                    print(f"[DEMO] move failed: {title} → {mid}: {ex}")
+            print(f"[DEMO] created: {title} → {col_target} (status={task.status.value})")
+
+        # ── 补充交接班日志（不同质量等级，测试 AI 审核智能程度）──
+        _LOGS = {
+            # ✅ 详细日志 → AI 应建议同意
+            "C 检 — 机身结构详细检查": (
+                "【工作内容】按 C 检工卡完成机身结构详细检查。\n"
+                "【检查范围】前机身 (STA 178-360)、中机身 (STA 360-727)、后机身 (STA 727-947)。\n"
+                "【检查方法】目视检查 + 涡流探伤 (ET) 关键紧固件孔。\n"
+                "【发现问题】STA 420 处长桁有一处 3mm 腐蚀坑，已按 SRM 53-00-01 打磨处理，"
+                "剩余壁厚 1.27mm > 1.02mm 容差。\n"
+                "【测量值】腐蚀坑深度 0.3mm，打磨区域 15×20mm，NDT 确认无裂纹。\n"
+                "【工卡签署】全部 48 项检查已完成并签署。\n"
+                "【工具清点】已清点，无遗漏。\n"
+                "【备注】建议下次 C 检复查 STA 420 区域。"
+            ),
+            # ⚠ 日志太简略 → AI 应建议需要更多信息
+            "右发 N1 振动传感器更换": (
+                "更换右发 N1 振动传感器，测试正常。"
+            ),
+            # ⚠ RII 项目 + 详细日志 → AI 应提示 RII 需检查员签署
+            "左大翼前缘凹坑修理": (
+                "【工作内容】左大翼前缘 STA 580 处凹坑修理。\n"
+                "【修理方法】按 SRM 57-40-01 执行外修补贴片修理。\n"
+                "【材料】2024-T3 铝板 0.063\"，Hi-Lok HL18-6 紧固件 × 8。\n"
+                "【NDT】修理前后涡流探伤，无裂纹。\n"
+                "【气动外形】修理后外形在 AMM 容差范围内。"
+                "【备注】RII 项目，待检查员最终签署。"
+            ),
+            # ❌ 无日志 → AI 应建议驳回
+            "客舱应急灯光系统检查": "",
+        }
+        _RII_TASKS = {"左大翼前缘凹坑修理"}  # RII 必检项目
+        log_count = 0
+        for t in state.get_all_tasks():
+            if t.title in _LOGS:
+                sh_log = _LOGS[t.title]
+                is_rii = t.title in _RII_TASKS
+                updates = {}
+                if sh_log:
+                    updates["shift_handover_log"] = sh_log
+                if is_rii:
+                    updates["is_rii"] = True
+                    updates["inspector"] = "刘"  # RII 检查员
+                if updates:
+                    task_service.update_task(t.id, **updates)
+                    log_count += 1
+                    print(f"[DEMO] handover log set: {t.title} (rii={is_rii})")
+        print(f"[DEMO] handover logs applied: {log_count} tasks, inspection count: {sum(1 for t in state.get_all_tasks() if t.status.value == 'inspection')}")
 
     # ═══════════════════════ 事件 ═══════════════════════
 
@@ -311,7 +365,9 @@ class BoardPage:
     def _on_card_context_menu(self, tid, e):
         from app.ui.widgets.context_menu import ContextMenu
         t = state.get_task(tid)
-        submit_label = "提交任务" if t and t.status.value != "completed" else "已完成"
+        submit_label = "提交验收" if t and t.status.value == "in_progress" else (
+            "验收中" if t and t.status.value == "inspection" else (
+            "已完成" if t and t.status.value == "completed" else "提交任务"))
         ContextMenu(
             items=[
                 {"label": "编辑", "icon": ft.Icons.EDIT_OUTLINED, "action": "edit"},
@@ -1098,13 +1154,13 @@ class BoardPage:
     # ═══════════════════════ 对话框 ═══════════════════════
 
     def _dlg_submit(self, tid):
-        """提交任务结果弹窗。"""
+        """提交任务结果弹窗 → 进入验收队列。"""
         t = state.get_task(tid)
         if not t: return
         ff = theme.font_family
         result_f = ft.TextField(
-            label="完成结果", hint_text="描述完成情况、发现的问题...",
-            multiline=True, min_lines=3, max_lines=6,
+            label="交接班日志", hint_text="描述完成情况、发现的问题、遗留事项...",
+            multiline=True, min_lines=4, max_lines=8,
             border_color=theme.border, focused_border_color=theme.info,
             text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
             bgcolor=theme.card,
@@ -1115,40 +1171,51 @@ class BoardPage:
             text_style=ft.TextStyle(color=theme.text_primary, size=theme.font_md, font_family=ff),
             bgcolor=theme.card,
         )
+        # 预填已有日志（如有）
+        if t.shift_handover_log:
+            result_f.value = t.shift_handover_log
+        if t.actual_hours:
+            hours_f.value = str(t.actual_hours)
 
         def submit(_):
             result = (result_f.value or "").strip()
             if not result:
-                Toast.show(self._page, "请填写完成结果", "warning"); return
+                Toast.show(self._page, "请填写交接班日志", "warning"); return
             try:
                 actual_hours = float(hours_f.value or "0")
             except ValueError:
                 actual_hours = 0
             try:
-                task_service.move_task(tid, "completed", changed_by="user")
-                t.actual_hours = actual_hours
-                if result:
-                    t.description = f"{t.description}\n\n[提交结果] {result}"
+                task_service.update_task(tid, shift_handover_log=result,
+                                         actual_hours=actual_hours)
+                task_service.move_task(tid, "inspection", changed_by="user")
                 dlg.close()
-                Toast.show(self._page, "任务已提交完成", "success")
+                from app.core.models.log_entry import LogType
+                from app.core.services.log_service import log_service
+                log_service.log(LogType.SUBMISSION, task_id=tid,
+                                task_title=t.title, user="user",
+                                description=f"提交验收: {result[:60]}...")
+                Toast.show(self._page, "已提交验收，等待审核", "success")
             except Exception as e:
                 Toast.show(self._page, str(e), "warning")
 
         from app.ui.components.modal_dialog import ModalDialog
         content = ft.Column([
-            ft.Text(f"提交任务: {t.title[:30]}...", size=theme.font_lg,
+            ft.Text(f"提交验收: {t.title[:30]}...", size=theme.font_lg,
                     weight=ft.FontWeight.W_600, color=theme.text_primary, font_family=ff),
+            ft.Text("交接班日志将作为 AI 审核的提交材料", size=s(11),
+                    color=theme.text_secondary, font_family=ff),
             ft.Container(height=8),
             result_f, hours_f,
             ft.Container(height=8),
             ft.Row([
                 ft.Container(expand=True),
                 ft.TextButton("取消", on_click=lambda e: dlg.close()),
-                ft.ElevatedButton("提交完成", on_click=submit,
-                                  style=ft.ButtonStyle(bgcolor=theme.success)),
+                ft.ElevatedButton("提交验收", on_click=submit,
+                                  style=ft.ButtonStyle(bgcolor=theme.info)),
             ]),
         ], spacing=0, tight=True)
-        dlg = ModalDialog(self._page, content, width=420)
+        dlg = ModalDialog(self._page, content, width=460)
         dlg.open()
 
     def _dlg_edit(self, task):

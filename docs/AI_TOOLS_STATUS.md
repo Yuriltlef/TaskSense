@@ -12,7 +12,7 @@
 | 2 | 生成任务 | ✅ 基础可用 | 菜单/AI 面板 | 提示配置 API Key |
 | 3 | 自动分类 | ⚠️ 框架完成 | 菜单/AI 面板 | 列出任务 + 提示 |
 | 4 | 自动排程 | ⚠️ 框架完成 | 菜单/AI 面板 | 列出任务 + 提示 |
-| 5 | 自动验收 | ⚠️ 框架完成 | 菜单/AI 面板 | 列出任务 + 提示 |
+| 5 | 自动验收 | ✅ 基础可用 | 菜单/AI 面板 | 列出任务 + 提示 + 复用 review_submission |
 | 6 | 生成报表 | ✅ 基础可用 | 菜单/弹窗 | board_service 统计 |
 | 7 | 任务审核 | ✅ 基础可用 | 菜单/弹窗 | 基本合规检查 |
 
@@ -45,7 +45,48 @@
 | 1 | 内联自动补全 | ⚠️ 部分实现 | 标题+描述有 GhostTextField，ATA 字段缺失；Agent 调用不稳定 |
 | 2 | 定期合规审查 | ❌ 未实现 | 计划在 Phase 5B |
 | 3 | 增量操作 RAG | ❌ 未实现 | 计划在 Phase 5C |
-| 4 | 验收态任务审核 | ✅ 基础可用 | 侧边栏 AI 审核区域（AI 建议/驳回/同意）已实现 |
+| 4 | 验收态任务审核 | ✅ 基础可用 | 侧边栏 AI 审核区域，调用 review_submission Agent 工具 |
+
+---
+
+## review_submission 任务提交审核工具
+
+### 定位
+企业版功能 — 对验收中任务的提交材料进行 AI 智能审核。
+
+### 架构
+```
+侧边栏「AI 建议」按钮                    菜单「自动验收」
+       ↓                                        ↓
+AgentService.review_submission(task_id)    AgentService.auto_acceptance()
+       ↓                                        ↓
+_build_submission_context(task) ─── 共享 ──→ review_submission.md prompt
+       ↓                                        ↓
+  单任务评估                             批量评估（每个任务同标准）
+  {recommendation, reasons,              {同格式 × N}
+   confidence, risk_level, ...}
+```
+
+### 审核维度
+1. 完整性 — 必填字段、交接班日志、检查清单
+2. 合规性 — AMM/AD/SB 引用（Agent 会搜索知识库）
+3. 质量 — 日志详细程度（做了什么、发现了什么、遗留什么）
+4. 安全性 — RII 签署、MEL 条目
+
+### 输出格式
+```json
+{"recommendation": "approve|reject|need_more_info", "confidence": 0.85,
+ "summary": "...", "reasons": [...], "missing_items": [...],
+ "compliance_notes": "...", "suggested_actions": [...], "risk_level": "low|medium|high"}
+```
+
+### 离线降级
+LLM 不可用时自动执行基本合规检查：日志缺失、ATA/注册号、RII 签署、
+工时偏差、检查清单完成度。
+
+### 复用说明
+`AgentService._build_submission_context(task)` 和 `review_submission.md` prompt
+被侧边栏和批量自动验收 tool 共用，确保审核标准一致。
 
 ---
 
