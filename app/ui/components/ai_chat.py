@@ -313,9 +313,46 @@ class AIChatPanel(ft.Container):
 
     def _accept_proposal(self, tid):
         from app.core.state import state as app_state
+        from app.core.services.task_service import task_service
+        from datetime import datetime as dt
         t = app_state.get_task(tid)
         title = t.title if t else ""
-        app_state.update_task(tid, ai_proposed=False)
+
+        schedule_data = {}
+        for sug in (t.ai_suggestions or []):
+            if isinstance(sug, dict) and sug.get("proposal_type") == "schedule":
+                schedule_data = sug
+                break
+
+        if t and schedule_data:
+            if schedule_data.get("planned_start"):
+                try:
+                    app_state.update_task(tid,
+                        planned_start=dt.strptime(schedule_data["planned_start"], "%Y-%m-%d %H:%M"))
+                except ValueError: pass
+            if schedule_data.get("planned_end"):
+                try:
+                    app_state.update_task(tid,
+                        planned_end=dt.strptime(schedule_data["planned_end"], "%Y-%m-%d %H:%M"))
+                except ValueError: pass
+            if schedule_data.get("employee_id"):
+                app_state.update_task(tid, employee_id=schedule_data["employee_id"])
+            if schedule_data.get("employee_name"):
+                app_state.update_task(tid, employee_name=schedule_data["employee_name"],
+                                      assignee=schedule_data["employee_name"])
+            if schedule_data.get("estimated_hours"):
+                app_state.update_task(tid, estimated_hours=float(schedule_data["estimated_hours"]))
+            task_service.move_task(tid, "scheduled", changed_by="ai_agent")
+            ai_sug = [s for s in (t.ai_suggestions or [])
+                      if not (isinstance(s, dict) and s.get("proposal_type") == "schedule")]
+            app_state.update_task(tid, ai_proposed=False, ai_priority=None,
+                                  ai_suggestions=ai_sug)
+        elif t and t.ai_priority:
+            task_service.set_priority(tid, t.ai_priority.value)
+            task_service.move_task(tid, "triage", changed_by="ai_agent")
+            app_state.update_task(tid, ai_proposed=False, ai_priority=None)
+        else:
+            app_state.update_task(tid, ai_proposed=False)
         self._update_proposal_row(tid, "accepted", title)
         if self.page:
             from app.ui.widgets.toast import Toast
@@ -325,7 +362,18 @@ class AIChatPanel(ft.Container):
         from app.core.state import state as app_state
         t = app_state.get_task(tid)
         title = t.title if t else ""
-        app_state.delete_task(tid)
+        is_modify = (
+            t.ai_priority or
+            any(isinstance(s, dict) and s.get("proposal_type") == "schedule"
+                for s in (t.ai_suggestions or []))
+        ) if t else False
+        if t and is_modify:
+            ai_sug = [s for s in (t.ai_suggestions or [])
+                      if not (isinstance(s, dict) and s.get("proposal_type") == "schedule")]
+            app_state.update_task(tid, ai_proposed=False, ai_priority=None,
+                                  ai_suggestions=ai_sug)
+        else:
+            app_state.delete_task(tid)
         self._update_proposal_row(tid, "rejected", title)
         if self.page:
             from app.ui.widgets.toast import Toast
@@ -366,10 +414,46 @@ class AIChatPanel(ft.Container):
 
     def _accept_all_proposals(self):
         from app.core.state import state as app_state
+        from app.core.services.task_service import task_service
+        from datetime import datetime as dt
         for t in list(app_state.get_all_tasks()):
-            if t.ai_proposed:
-                self._update_proposal_row(t.id, "accepted", t.title)
+            if not t.ai_proposed:
+                continue
+
+            schedule_data = {}
+            for sug in (t.ai_suggestions or []):
+                if isinstance(sug, dict) and sug.get("proposal_type") == "schedule":
+                    schedule_data = sug
+                    break
+
+            if schedule_data:
+                if schedule_data.get("planned_start"):
+                    try: app_state.update_task(t.id,
+                        planned_start=dt.strptime(schedule_data["planned_start"], "%Y-%m-%d %H:%M"))
+                    except ValueError: pass
+                if schedule_data.get("planned_end"):
+                    try: app_state.update_task(t.id,
+                        planned_end=dt.strptime(schedule_data["planned_end"], "%Y-%m-%d %H:%M"))
+                    except ValueError: pass
+                if schedule_data.get("employee_id"):
+                    app_state.update_task(t.id, employee_id=schedule_data["employee_id"])
+                if schedule_data.get("employee_name"):
+                    app_state.update_task(t.id, employee_name=schedule_data["employee_name"],
+                                          assignee=schedule_data["employee_name"])
+                if schedule_data.get("estimated_hours"):
+                    app_state.update_task(t.id, estimated_hours=float(schedule_data["estimated_hours"]))
+                task_service.move_task(t.id, "scheduled", changed_by="ai_agent")
+                ai_sug = [s for s in (t.ai_suggestions or [])
+                          if not (isinstance(s, dict) and s.get("proposal_type") == "schedule")]
+                app_state.update_task(t.id, ai_proposed=False, ai_priority=None,
+                                      ai_suggestions=ai_sug)
+            elif t.ai_priority:
+                task_service.set_priority(t.id, t.ai_priority.value)
+                task_service.move_task(t.id, "triage", changed_by="ai_agent")
+                app_state.update_task(t.id, ai_proposed=False, ai_priority=None)
+            else:
                 app_state.update_task(t.id, ai_proposed=False)
+            self._update_proposal_row(t.id, "accepted", t.title)
         self._update_batch_buttons()
         if self.page:
             from app.ui.widgets.toast import Toast
@@ -378,8 +462,21 @@ class AIChatPanel(ft.Container):
     def _reject_all_proposals(self):
         from app.core.state import state as app_state
         for t in list(app_state.get_all_tasks()):
-            if t.ai_proposed:
-                self._update_proposal_row(t.id, "rejected", t.title)
+            if not t.ai_proposed:
+                continue
+
+            is_modify = (
+                t.ai_priority or
+                any(isinstance(s, dict) and s.get("proposal_type") == "schedule"
+                    for s in (t.ai_suggestions or []))
+            )
+            self._update_proposal_row(t.id, "rejected", t.title)
+            if is_modify:
+                ai_sug = [s for s in (t.ai_suggestions or [])
+                          if not (isinstance(s, dict) and s.get("proposal_type") == "schedule")]
+                app_state.update_task(t.id, ai_proposed=False, ai_priority=None,
+                                      ai_suggestions=ai_sug)
+            else:
                 app_state.delete_task(t.id)
         self._update_batch_buttons()
         if self.page:
