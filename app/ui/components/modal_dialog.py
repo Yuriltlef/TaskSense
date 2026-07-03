@@ -19,9 +19,11 @@ class ModalDialog:
 
     def __init__(self, page: ft.Page, content: ft.Control,
                  width: int = 460, height: int = 360,
-                 bgcolor: str | None = None, on_close=None):
+                 bgcolor: str | None = None, on_close=None,
+                 close_on_dimmer_click: bool = True):
         self._page = page
         self._on_close = on_close
+        self._close_on_dimmer = close_on_dimmer_click
         self._dimmer: OverlayDimmer | None = None
 
         panel_bg = bgcolor or theme.surface
@@ -42,7 +44,7 @@ class ModalDialog:
     def open(self):
         self._dimmer = OverlayDimmer.open(
             self._page, self._panel, dim_opacity=0.55,
-            on_dimmer_click=lambda: self.close())
+            on_dimmer_click=(lambda: self.close()) if self._close_on_dimmer else None)
 
     def close(self):
         if self._dimmer:
