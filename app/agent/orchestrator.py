@@ -69,6 +69,9 @@ class ToolExecutor:
             elif tool_name == "schedule_task":
                 from app.agent.tools.write_tools import schedule_task
                 return schedule_task.invoke(params)
+            elif tool_name == "get_active_task":
+                from app.agent.tools.task_state_tools import get_active_task
+                return get_active_task.invoke(params)
             else:
                 return f"[Error] Unknown tool: {tool_name}"
         except Exception as e:
@@ -234,6 +237,10 @@ class AgentOrchestrator:
     def ask(self, question: str, session_id: str = "default",
             strict: bool = False, cancel_event=None) -> str:
         """用户提问 → Agent 推理（可能含工具调用）→ 回答。"""
+        # 注入活跃任务上下文（防止 Agent 在工具执行期间偏离）
+        from app.agent.active_task import active_task_registry
+        question = active_task_registry.inject_context(question, session_id)
+
         conv = self.get_conversation(session_id, strict=strict)
 
         from app.agent.llm_client import llm as llm_client

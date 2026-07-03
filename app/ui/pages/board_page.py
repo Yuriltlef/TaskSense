@@ -11,6 +11,7 @@ from app.core.models.task import Priority
 from app.core.services.board_service import board_service
 from app.core.services.task_service import task_service
 from app.core.state import state
+from app.agent.active_task import active_task_registry
 from app.ui.components.ai_suggestion import FleetStatusBar
 from app.ui.components.command_bar import CommandBar
 from app.ui.components.kanban_board import KanbanBoard
@@ -420,6 +421,7 @@ class BoardPage:
     def _finish_task_card(self, label: str, status: str, color: str):
         """统一的任务卡片结束处理：停动画 + 显示结果气泡（保留在聊天历史）+ 延迟关闭卡片。"""
         import time
+        active_task_registry.clear()
         self.ai_chat.update_task_card(status, border_color=color)
         self.ai_chat.show_status_bubble(f"{label} {status}", color)
         time.sleep(2)
@@ -961,6 +963,8 @@ class BoardPage:
             Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
         self._open_ai_panel()
         self.ai_chat.show_task_card("生成大纲")
+        active_task_registry.set_active("outline", "生成大纲", "gathering_requirements",
+                                        "Generating task outline from user requirements")
 
         import threading, time
 
@@ -1033,6 +1037,8 @@ class BoardPage:
             Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
         self._open_ai_panel()
         self.ai_chat.show_task_card("生成任务")
+        active_task_registry.set_active("gen_tasks", "生成任务", "gathering_requirements",
+                                        "Generating task cards from user requirements")
 
         import threading, time
 
@@ -1107,6 +1113,8 @@ class BoardPage:
         self._open_ai_panel()
         self.ai_chat.show_task_card("自动分类")
         self.ai_chat.update_task_card(f"正在分析 {len(backlog)} 个任务...")
+        active_task_registry.set_active("classify", "自动分类", "executing",
+                                        f"Classifying {len(backlog)} backlog tasks")
 
         import threading, traceback
 
@@ -1161,6 +1169,8 @@ class BoardPage:
         self._open_ai_panel()
         self.ai_chat.show_task_card("自动排程")
         self.ai_chat.update_task_card(f"正在分析 {len(triage)} 个任务...")
+        active_task_registry.set_active("schedule", "自动排程", "executing",
+                                        f"Scheduling {len(triage)} triaged tasks")
 
         import threading
         def _do():
@@ -1205,6 +1215,8 @@ class BoardPage:
         self._open_ai_panel()
         self.ai_chat.show_task_card("自动验收")
         self.ai_chat.update_task_card(f"正在审核 {len(insp)} 个任务...")
+        active_task_registry.set_active("acceptance", "自动验收", "executing",
+                                        f"Reviewing {len(insp)} inspection tasks")
 
         import threading
         def _do():
@@ -1287,6 +1299,8 @@ class BoardPage:
         from app.ui.components.modal_dialog import ModalDialog
         dlg = ModalDialog(self._page, content, width=640)
         dlg.open()
+        active_task_registry.set_active("report", "生成报表", "executing",
+                                        "Generating daily maintenance report")
 
         # 异步生成报表
         import threading
@@ -1298,6 +1312,7 @@ class BoardPage:
             except Exception as ex:
                 report_f.value = f"生成失败: {ex}"
             progress.visible = False
+            active_task_registry.clear()
             try: progress.update(); report_f.update()
             except Exception: pass
         threading.Thread(target=_gen, daemon=True).start()
@@ -1334,6 +1349,8 @@ class BoardPage:
         from app.ui.components.modal_dialog import ModalDialog
         dlg = ModalDialog(self._page, content, width=640)
         dlg.open()
+        active_task_registry.set_active("review", "任务审核", "executing",
+                                        "Auditing active tasks for compliance")
 
         import threading
         def _review():
@@ -1344,6 +1361,7 @@ class BoardPage:
             except Exception as ex:
                 review_f.value = f"审核失败: {ex}"
             progress.visible = False
+            active_task_registry.clear()
             try: progress.update(); review_f.update()
             except Exception: pass
         threading.Thread(target=_review, daemon=True).start()

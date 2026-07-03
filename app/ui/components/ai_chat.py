@@ -674,6 +674,8 @@ class AIChatPanel(ft.Container):
 
     def hide_task_card(self, cancelled: bool = False):
         """移除任务进度卡片。"""
+        from app.agent.active_task import active_task_registry
+        active_task_registry.clear()
         self._task_card = None
         self._cancel_event = None
         self._task_area.visible = False
