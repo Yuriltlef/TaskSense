@@ -146,6 +146,13 @@ class BoardPage:
                 display_priority = t.priority.value
                 render_column = "scheduled"
                 source_column = "triage"
+            elif getattr(t, 'ai_acceptance_recommendation', None):
+                # ── 验收审核类型 ──
+                prop_type = "acceptance"
+                display_priority = t.priority.value
+                render_column = t.status.value
+                source_column = render_column
+                print(f"[GHOST] acceptance detected: {tid} rec={t.ai_acceptance_recommendation} reason={t.ai_acceptance_reason}")
             else:
                 prop_type = "new_task"
                 display_priority = t.priority.value
@@ -158,16 +165,34 @@ class BoardPage:
             if not hasattr(col, 'card_list') or not col.card_list:
                 continue
 
-            task_data = {
-                "id": tid, "title": t.title, "description": t.description,
-                "ata_chapter": t.ata_chapter, "aircraft_reg": t.aircraft_reg,
-                "priority": display_priority, "task_type": t.task_type.value,
-                "zone": t.zone, "estimated_hours": float(schedule_data.get("estimated_hours", t.estimated_hours)),
-            }
-            if schedule_data:
-                for k in ("planned_start", "planned_end", "employee_id", "employee_name"):
-                    if schedule_data.get(k):
-                        task_data[k] = schedule_data[k]
+            if prop_type == "acceptance":
+                rec = getattr(t, 'ai_acceptance_recommendation', '')
+                task_data = {
+                    "id": tid, "title": t.title,
+                    "recommendation": rec,
+                    "reason": getattr(t, 'ai_acceptance_reason', ''),
+                    "aircraft_reg": t.aircraft_reg,
+                    "ata_chapter": t.ata_chapter,
+                    "priority": display_priority,
+                    "employee_name": t.employee_name,
+                }
+                on_acc = lambda p, tid=tid, r=rec: self._accept_acceptance(tid, r)
+                on_rej = lambda p, tid=tid: self._reject_acceptance(tid)
+                print(f"[GHOST_BIND] {tid[:8]} acceptance -> _accept_acceptance / _reject_acceptance")
+            else:
+                task_data = {
+                    "id": tid, "title": t.title, "description": t.description,
+                    "ata_chapter": t.ata_chapter, "aircraft_reg": t.aircraft_reg,
+                    "priority": display_priority, "task_type": t.task_type.value,
+                    "zone": t.zone, "estimated_hours": float(schedule_data.get("estimated_hours", t.estimated_hours)),
+                }
+                if schedule_data:
+                    for k in ("planned_start", "planned_end", "employee_id", "employee_name"):
+                        if schedule_data.get(k):
+                            task_data[k] = schedule_data[k]
+                on_acc = lambda p, tid=tid: self._accept_ai_task(tid)
+                print(f"[GHOST_BIND] {tid[:8]} {prop_type} -> _accept_ai_task / _reject_ai_task")
+                on_rej = lambda p, tid=tid: self._reject_ai_task(tid)
 
             proposal = AIProposal(
                 id=f"ai_{tid}",
@@ -178,8 +203,8 @@ class BoardPage:
             )
             ghost = AIGhostCard(
                 proposal,
-                on_accept=lambda p, tid=tid: self._accept_ai_task(tid),
-                on_reject=lambda p, tid=tid: self._reject_ai_task(tid),
+                on_accept=on_acc,
+                on_reject=on_rej,
             )
             col.card_list.controls.insert(0, ghost)
         if ai_tasks:
@@ -204,153 +229,73 @@ class BoardPage:
         self._refresh_board()
 
     def _reject_ai_task(self, tid):
-        """拒绝 AI 建议任务——分类/排程提案仅清除标记，新建提案则删除任务。"""
+        """拒绝 AI 建议任务——验收/分类/排程仅清除标记，新建提案则删除任务。"""
         t = state.get_task(tid)
         if not t:
+            print(f"[REJECT_AI_TASK] tid={tid} TASK NOT FOUND")
             return
+        acc_rec = getattr(t, 'ai_acceptance_recommendation', None)
+        is_inspection = t.status.value == "inspection"
         is_modify = t.ai_priority or any(
             isinstance(s, dict) and s.get("proposal_type") in ("schedule",)
             for s in (t.ai_suggestions or [])
         )
+        print(f"[REJECT_AI_TASK] tid={tid} status={t.status.value} acc_rec={acc_rec} ai_proposed={t.ai_proposed} is_modify={is_modify} is_inspection={is_inspection}")
+
+        # 验收任务：只清标记，不删除
+        if acc_rec:
+            print(f"[REJECT_AI_TASK] -> clearing acceptance flags only")
+            state.update_task(tid, ai_proposed=False,
+                              ai_acceptance_recommendation=None,
+                              ai_acceptance_reason=None)
+            from app.ui.widgets.toast import Toast
+            Toast.show(self._page, "已取消，任务保留在验收中", "info")
+            self._refresh_board()
+            return
+
         if is_modify:
+            print(f"[REJECT_AI_TASK] -> modify proposal, clearing suggestion flags")
             ai_suggestions = [s for s in (t.ai_suggestions or [])
                               if not (isinstance(s, dict) and
                                       s.get("proposal_type") in ("schedule",))]
             state.update_task(tid, ai_proposed=False, ai_priority=None,
                               ai_suggestions=ai_suggestions)
+        elif is_inspection:
+            # 最后防线：验收中的任务绝不删除
+            print(f"[REJECT_AI_TASK] -> SAFETY NET: inspection task, clearing flags only")
+            state.update_task(tid, ai_proposed=False,
+                              ai_acceptance_recommendation=None,
+                              ai_acceptance_reason=None)
         else:
+            print(f"[REJECT_AI_TASK] -> DELETING task {tid}")
             state.delete_task(tid)
         from app.ui.widgets.toast import Toast
         Toast.show(self._page, "AI 建议已拒绝", "info")
         self._refresh_board()
 
-    def load_demo_data(self):
-        demo_aircraft = [
-            Aircraft(registration="B-5823", model="737-800", msn="39999",
-                     status=AircraftStatus.IN_MAINTENANCE, total_hours=28500,
-                     current_location="Hangar 3", open_defects=3, overdue_tasks_count=1),
-            Aircraft(registration="B-2518", model="A320neo", msn="8876",
-                     status=AircraftStatus.OPERATIONAL, total_hours=12400,
-                     current_location="Gate A12"),
-            Aircraft(registration="B-9076", model="A330-300", msn="1503",
-                     status=AircraftStatus.AOG, total_hours=32100,
-                     current_location="Hangar 1", open_defects=1),
-        ]
-        for ac in demo_aircraft: state.add_aircraft(ac)
+    def _accept_acceptance(self, tid, recommendation):
+        """用户确认验收建议 → 业务变更由 AIGhostCard 执行，此处仅清理筛选并刷新。"""
+        from app.ui.widgets.toast import Toast
+        from app.core.services.board_service import board_service
+        board_service.set_filters(FilterState())
+        if recommendation == "approve":
+            Toast.show(self._page, "验收通过，任务已移至已完成", "success")
+        else:
+            Toast.show(self._page, "验收驳回，任务已退回待处理", "info")
+        self._refresh_board()
 
-        now = datetime.now()
-        demo_tasks = [
-            ("backlog", "APU 启动时间超限检查", "B-5823", "49-11-01", "aog", "inspection", "张", 3.0, "310"),
-            ("backlog", "右发滑油消耗率偏高", "B-9076", "79-21-01", "aog", "troubleshoot", "李", 5.0, "420"),
-            ("backlog", "客舱空调出风口异响", "B-2518", "21-51-01", "cat_c", "troubleshoot", "王", 2.0, "510"),
-            ("triage", "前起落架转向异响排查", "B-5823", "32-41-03", "cat_a", "troubleshoot", "张", 4.5, "710"),
-            ("triage", "左发 N1 振动指示异常", "B-9076", "77-11-01", "cat_b", "troubleshoot", "赵", 6.0, "420"),
-            ("scheduled", "A 检 — 飞行控制面功能检查", "B-5823", "27-10-00", "cat_b", "inspection", "李", 8.0, "210"),
-            ("scheduled", "发动机滑油更换", "B-2518", "79-00-01", "cat_c", "servicing", "王", 2.0, "420"),
-            ("ready", "机翼前缘防冰管路测试", "B-5823", "30-11-01", "cat_c", "test", "张", 4.0, "610"),
-            ("ready", "APU 滑油勤务", "B-5823", "49-91-01", "cat_c", "servicing", "赵", 1.5, "310"),
-            ("in_progress", "起落架收放功能测试", "B-5823", "32-31-01", "cat_b", "test", "张", 3.0, "710"),
-            ("in_progress", "右发燃油滤更换", "B-9076", "73-11-03", "cat_a", "removal_install", "李", 4.0, "420"),
-            # ── 验收中任务（不同质量等级，测试 AI 审核智能程度）──
-            ("inspection", "C 检 — 机身结构详细检查", "B-5823", "53-10-01", "cat_c", "inspection", "王", 48.0, "100"),
-            ("inspection", "右发 N1 振动传感器更换", "B-9076", "77-11-01", "cat_a", "removal_install", "李", 2.5, "420"),
-            ("inspection", "左大翼前缘凹坑修理", "B-5823", "57-40-01", "cat_b", "repair", "赵", 12.0, "610"),
-            ("inspection", "客舱应急灯光系统检查", "B-2518", "33-51-01", "cat_c", "inspection", "张", 1.5, "510"),
-            ("parts_hold", "左发点火电嘴更换", "B-9076", "74-11-03", "cat_a", "removal_install", "赵", 3.0, "420"),
-            ("completed", "驾驶舱仪表灯光检查", "B-2518", "33-11-01", "cat_d", "inspection", "李", 1.0, "110"),
-            ("completed", "APU 进气门清洁", "B-5823", "49-11-01", "cat_d", "servicing", "张", 2.0, "310"),
-        ]
-        status_order = ["backlog", "triage", "scheduled", "ready",
-                        "in_progress", "inspection", "parts_hold", "completed"]
-        # 各目标列的正确路径（跳过不经过的中间状态）
-        _TARGET_PATHS = {
-            "backlog": [],
-            "triage": ["triage"],
-            "scheduled": ["triage", "scheduled"],
-            "ready": ["triage", "scheduled", "ready"],
-            "in_progress": ["triage", "scheduled", "ready", "in_progress"],
-            "inspection": ["triage", "scheduled", "ready", "in_progress", "inspection"],
-            "parts_hold": ["triage", "scheduled", "ready", "in_progress", "parts_hold"],
-            "completed": ["triage", "scheduled", "ready", "in_progress", "completed"],
-        }
-        # 员工映射：姓名 → (ID, 姓名)
-        _EMP_MAP = {"张": ("ZH001", "张工"), "李": ("ZH002", "李工"),
-                     "王": ("ZH003", "王工"), "赵": ("ZH004", "赵工")}
-        due_map = {"aog": 4, "cat_a": 24, "cat_b": 72, "cat_c": 168, "cat_d": 720}
-        for col_target, title, reg, ata, pri, ttype, who, hrs, zone in demo_tasks:
-            eid, ename = _EMP_MAP.get(who, ("", who))
-            task = task_service.create_task(
-                title=title, description=f"{title}。ATA {ata}，飞机 {reg}。",
-                aircraft_reg=reg, ata_chapter=ata, priority=pri, task_type=ttype,
-                assignee=who, employee_id=eid, employee_name=ename,
-                estimated_hours=hrs, zone=zone,
-                due_date=now + timedelta(hours=due_map.get(pri, 72)),
-            )
-            if not task: continue
-            path = _TARGET_PATHS.get(col_target, [])
-            for mid in path:
-                try:
-                    if mid == "parts_hold":
-                        task_service.update_task(task.id, parts_available=False,
-                                                 parts_required=["PN-REQUIRED"])
-                    task_service.move_task(task.id, mid, changed_by="demo")
-                except Exception as ex:
-                    print(f"[DEMO] move failed: {title} → {mid}: {ex}")
-            # 已排程及之后的任务补充计划时间
-            if col_target in ("scheduled", "ready", "in_progress", "inspection",
-                              "parts_hold", "completed"):
-                ps = now - timedelta(hours=hrs * 2)
-                pe = now + timedelta(hours=hrs)
-                task_service.update_task(task.id, planned_start=ps, planned_end=pe)
-            print(f"[DEMO] created: {title} → {col_target} (status={task.status.value})")
+    def _reject_acceptance(self, tid):
+        """用户取消验收建议 → 幽灵卡片已清除标记，此处清理筛选并刷新。"""
+        print(f"[REJECT_ACCEPTANCE] tid={tid} called")
+        from app.ui.widgets.toast import Toast
+        from app.core.services.board_service import board_service
+        board_service.set_filters(FilterState())
+        Toast.show(self._page, "已取消，任务保留在验收中", "info")
+        self._refresh_board()
+        print(f"[REJECT_ACCEPTANCE] tid={tid} done")
 
-        # ── 补充交接班日志（不同质量等级，测试 AI 审核智能程度）──
-        _LOGS = {
-            # ✅ 详细日志 → AI 应建议同意
-            "C 检 — 机身结构详细检查": (
-                "【工作内容】按 C 检工卡完成机身结构详细检查。\n"
-                "【检查范围】前机身 (STA 178-360)、中机身 (STA 360-727)、后机身 (STA 727-947)。\n"
-                "【检查方法】目视检查 + 涡流探伤 (ET) 关键紧固件孔。\n"
-                "【发现问题】STA 420 处长桁有一处 3mm 腐蚀坑，已按 SRM 53-00-01 打磨处理，"
-                "剩余壁厚 1.27mm > 1.02mm 容差。\n"
-                "【测量值】腐蚀坑深度 0.3mm，打磨区域 15×20mm，NDT 确认无裂纹。\n"
-                "【工卡签署】全部 48 项检查已完成并签署。\n"
-                "【工具清点】已清点，无遗漏。\n"
-                "【备注】建议下次 C 检复查 STA 420 区域。"
-            ),
-            # ⚠ 日志太简略 → AI 应建议需要更多信息
-            "右发 N1 振动传感器更换": (
-                "更换右发 N1 振动传感器，测试正常。"
-            ),
-            # ⚠ RII 项目 + 详细日志 → AI 应提示 RII 需检查员签署
-            "左大翼前缘凹坑修理": (
-                "【工作内容】左大翼前缘 STA 580 处凹坑修理。\n"
-                "【修理方法】按 SRM 57-40-01 执行外修补贴片修理。\n"
-                "【材料】2024-T3 铝板 0.063\"，Hi-Lok HL18-6 紧固件 × 8。\n"
-                "【NDT】修理前后涡流探伤，无裂纹。\n"
-                "【气动外形】修理后外形在 AMM 容差范围内。"
-                "【备注】RII 项目，待检查员最终签署。"
-            ),
-            # ❌ 无日志 → AI 应建议驳回
-            "客舱应急灯光系统检查": "",
-        }
-        _RII_TASKS = {"左大翼前缘凹坑修理"}  # RII 必检项目
-        log_count = 0
-        for t in state.get_all_tasks():
-            if t.title in _LOGS:
-                sh_log = _LOGS[t.title]
-                is_rii = t.title in _RII_TASKS
-                updates = {}
-                if sh_log:
-                    updates["shift_handover_log"] = sh_log
-                if is_rii:
-                    updates["is_rii"] = True
-                    updates["inspector"] = "刘"  # RII 检查员
-                if updates:
-                    task_service.update_task(t.id, **updates)
-                    log_count += 1
-                    print(f"[DEMO] handover log set: {t.title} (rii={is_rii})")
-        print(f"[DEMO] handover logs applied: {log_count} tasks, inspection count: {sum(1 for t in state.get_all_tasks() if t.status.value == 'inspection')}")
+    # load_demo_data() 已废弃 — 数据统一由 data/board_state.json 管理
+    # 用 scripts/gen_demo_json.py 生成/重置 JSON
 
     # ═══════════════════════ 事件 ═══════════════════════
 
@@ -447,7 +392,8 @@ class BoardPage:
                 return
             if i % 5 == 0:
                 self.ai_chat.update_task_card(f"{len(remaining)} 个待确认...", border_color=theme.warning)
-                self._refresh_board()
+                # 不需要每5秒刷新看板——幽灵卡片已在初始渲染中创建，仅在用户操作后状态变更时刷新
+                pass
         self._finish_task_card(label, "等待超时", theme.text_disabled)
 
     def _on_side_panel_close(self):
@@ -1024,9 +970,13 @@ class BoardPage:
             "设置合理的计划开始/完成时间和工时。考虑员工技能和可用性。"
         ),
         "acceptance": (
-            "检查所有验收中（inspection）任务，评估提交质量。"
-            "对每个任务给出审核建议：同意/驳回/需补充信息，并说明理由。"
-            "不要直接移动任务——只提供建议供人工审核。"
+            "以零容忍标准审核所有验收中（inspection）任务。默认判决：驳回。"
+            "逐一检查：交接日志质量、字段完整性、合规性、安全性、检查清单、数据一致性。"
+            "使用 get_task_detail 查看每个任务详情（尤其交接班日志内容），"
+            "使用 search_knowledge_base 验证 ATA 标准合规性。"
+            "对每个任务调用 acceptance_review 工具：recommendation=approve(零缺陷)或reject(有任何问题)。"
+            "驳回理由必须具体——引用日志中的模糊用语、缺失的测量值、未签的 RII。"
+            "必须对每个验收中任务调用一次 acceptance_review——不要写文字报告！"
         ),
     }
 
@@ -1127,6 +1077,10 @@ class BoardPage:
                 prompt = (f"{self._CMD_PROMPTS['classify']}\n\n"
                           f"待处理任务:\n{tasks_str}\n\n使用 classify_task 逐个分类。")
                 self.ai_chat.update_task_card("正在执行分类...", border_color=theme.warning)
+                # 清除残留 ai_proposed，确保能检测到新幽灵卡
+                for bt in backlog:
+                    if bt.ai_proposed:
+                        state.update_task(bt.id, ai_proposed=False, ai_priority=None)
                 pending_before = {t.id for t in state.get_all_tasks() if t.ai_proposed}
                 print(f"[CLASSIFY] before ask, pending_before={len(pending_before)}")
                 result = AgentService.ask(prompt, session_id="classify", cancel_event=cancel)
@@ -1181,6 +1135,10 @@ class BoardPage:
                           f"已分类任务:\n{tasks_str}\n\n"
                           f"使用 search_employees + schedule_task 逐个排程。")
                 self.ai_chat.update_task_card("正在执行排程...", border_color=theme.warning)
+                # 清除残留 ai_proposed，确保能检测到新幽灵卡
+                for tt in triage:
+                    if tt.ai_proposed:
+                        state.update_task(tt.id, ai_proposed=False)
                 pending_before = {t.id for t in state.get_all_tasks() if t.ai_proposed}
                 result = AgentService.ask(prompt, session_id="schedule", cancel_event=cancel)
                 if cancel.is_set():
@@ -1199,15 +1157,21 @@ class BoardPage:
         threading.Thread(target=_do, daemon=True).start()
 
     def _cmd_acceptance(self):
+        print("[ACCEPTANCE] ===== _cmd_acceptance called =====")
         if not self.ai_chat:
+            print("[ACCEPTANCE] no ai_chat!")
             Toast.show(self._page, "AI 面板未就绪", "warning"); return
         if self.ai_chat.is_task_running:
+            print("[ACCEPTANCE] task already running")
             Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
         insp = [t for t in state.get_all_tasks() if t.status.value == "inspection"]
+        print(f"[ACCEPTANCE] inspection tasks found: {len(insp)}")
         if not insp:
             self._open_ai_panel()
             self._show_ai_in_panel("自动验收", "验收列中没有任务。")
             return
+        for t in insp:
+            print(f"[ACCEPTANCE]   - {t.id}: {t.title} | log={'有' if t.shift_handover_log else '无'} | ai_proposed={t.ai_proposed} | rec={t.ai_acceptance_recommendation}")
         tasks_str = "\n".join(
             f"- [{t.id}] {t.title} (负责人: {t.employee_name or '未指定'})"
             for t in insp
@@ -1218,29 +1182,61 @@ class BoardPage:
         active_task_registry.set_active("acceptance", "自动验收", "executing",
                                         f"Reviewing {len(insp)} inspection tasks")
 
-        import threading
+        import threading, traceback
+
         def _do():
             cancel = self.ai_chat._cancel_event
+            print(f"[ACCEPTANCE] _do thread started, cancel_event={cancel}")
             try:
                 from app.ui.services.agent_service import AgentService
                 prompt = (f"{self._CMD_PROMPTS['acceptance']}\n\n"
                           f"验收任务:\n{tasks_str}\n\n"
-                          f"使用 get_task_detail 查看详情后给出审核建议。")
+                          f"对每个验收中任务，必须调用 acceptance_review 工具提交审核建议。\n"
+                          f"参数: task_id=任务ID, recommendation=approve(通过)或reject(驳回), reason=具体理由。\n"
+                          f"不要只是写文字报告——必须调用工具！工具调用会创建幽灵卡片供人工确认。")
+                print(f"[ACCEPTANCE] prompt length={len(prompt)}")
                 self.ai_chat.update_task_card("正在审核提交日志...", border_color=theme.warning)
+                # 清除验收中任务残留的 ai_proposed 标记，确保本次能检测到新幽灵卡
+                for t in insp:
+                    if t.ai_proposed:
+                        state.update_task(t.id, ai_proposed=False,
+                                          ai_acceptance_recommendation=None,
+                                          ai_acceptance_reason=None)
+                        print(f"[ACCEPTANCE] cleared stale ai_proposed for {t.id}")
+                pending_before = {t.id for t in state.get_all_tasks() if t.ai_proposed}
+                print(f"[ACCEPTANCE] pending_before={len(pending_before)}: {pending_before}")
+                print(f"[ACCEPTANCE] calling AgentService.ask()...")
                 result = AgentService.ask(prompt, session_id="acceptance", cancel_event=cancel)
+                print(f"[ACCEPTANCE] AgentService.ask() returned, len={len(result) if result else 0}")
+                print(f"[ACCEPTANCE] result[:300]={result[:300] if result else 'None'}")
                 if cancel.is_set():
+                    print("[ACCEPTANCE] cancelled after ask")
                     self._finish_task_card("自动验收", "已取消", theme.text_disabled)
                     return
-                self.ai_chat.update_task_card("验收完成", border_color=theme.success)
-                self.ai_chat.show_status_bubble("自动验收 完成", theme.success)
+                print("[ACCEPTANCE] about to call _refresh_board()")
+                self._refresh_board()
+                print("[ACCEPTANCE] _refresh_board() done")
+                # 在聊天面板显示 Agent 审核报告
                 self._show_ai_in_panel("自动验收", result)
+                pending_after = {t.id for t in state.get_all_tasks() if t.ai_proposed}
+                print(f"[ACCEPTANCE] pending_after={len(pending_after)}: {pending_after}")
+                pending = pending_after - pending_before
+                print(f"[ACCEPTANCE] new pending ghosts={len(pending)}: {pending}")
+                if pending:
+                    print("[ACCEPTANCE] entering _poll_ghost_resolution...")
+                    self._poll_ghost_resolution("自动验收", pending, cancel)
+                    print("[ACCEPTANCE] _poll_ghost_resolution returned")
+                else:
+                    print("[ACCEPTANCE] no pending ghosts, finishing")
+                    self._finish_task_card("自动验收", "完成（无幽灵卡）", theme.success)
             except Exception as ex:
-                self.ai_chat.update_task_card(f"失败: {ex}", border_color=theme.error)
-            finally:
-                import time; time.sleep(1.5)
-                self.ai_chat.hide_task_card()
+                traceback.print_exc()
+                print(f"[ACCEPTANCE] EXCEPTION: {ex}")
+                self._finish_task_card("自动验收", f"失败: {ex}", theme.error)
 
+        print("[ACCEPTANCE] starting thread")
         threading.Thread(target=_do, daemon=True).start()
+        print("[ACCEPTANCE] thread started")
 
     def _run_agent_cmd(self, cmd: str, prompt: str):
         """通用 Agent 命令——打开 AI 面板并执行。"""
@@ -1260,15 +1256,45 @@ class BoardPage:
     # ═══════════════════════════════════════════
 
     def _cmd_report(self):
+        """生成报表 — 对齐 CreateTaskDialog 风格。"""
         ff = theme.font_family
+
+        # ── body：报表内容 ──
         report_f = ft.TextField(
             value="正在生成报表...", read_only=True, multiline=True,
-            min_lines=12, max_lines=20,
+            expand=True,
             border_color=theme.border,
             text_style=ft.TextStyle(color="#c0c0c0", size=s(11), font_family=ff),
             bgcolor=theme.card, border_radius=s(6),
         )
-        progress = ft.ProgressRing(width=s(16), height=s(16))
+        progress = ft.ProgressRing(width=s(16), height=s(16), visible=True)
+
+        # ── header ──
+        header = ft.Container(
+            ft.Row([
+                ft.Icon(ft.Icons.ASSESSMENT_OUTLINED, size=s(15), color="#5294e2"),
+                ft.Text("生成维护报表", size=s(14), weight=ft.FontWeight.W_600,
+                        color=theme.text_primary, font_family=ff),
+                progress,
+                ft.Container(expand=True),
+                ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
+                              icon_color=theme.text_secondary,
+                              style=ft.ButtonStyle(
+                                  bgcolor=ft.Colors.TRANSPARENT,
+                                  overlay_color=ft.Colors.RED_900,
+                                  shape=ft.RoundedRectangleBorder(radius=s(4))),
+                              on_click=lambda e: dlg.close()),
+            ], spacing=s(8)),
+            padding=ft.padding.only(left=s(14), top=s(8), right=s(6), bottom=s(8)),
+            border=ft.border.only(bottom=ft.BorderSide(1, theme.border)),
+        )
+
+        # ── footer ──
+        btn_st = ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=s(6)),
+            padding=ft.padding.only(left=s(18), top=s(7), right=s(18), bottom=s(7)),
+            text_style=ft.TextStyle(size=s(12), font_family=ff),
+        )
 
         def _save(e):
             import os
@@ -1277,32 +1303,51 @@ class BoardPage:
             path = f"data/reports/report_{ts}.md"
             with open(path, "w", encoding="utf-8") as f:
                 f.write(report_f.value or "")
-            Toast.show(self._page, f"已保存: {path}", "success"); dlg.close()
+            Toast.show(self._page, f"已保存: {path}", "success")
+            dlg.close()
 
-        content = ft.Column([
-            ft.Row([
-                ft.Text("生成维护报表", size=s(14), weight=ft.FontWeight.W_600,
-                        color=theme.text_primary, font_family=ff),
-                progress,
-            ], spacing=s(8)),
-            ft.Container(height=s(8)),
-            report_f,
-            ft.Container(height=s(8)),
+        footer = ft.Container(
             ft.Row([
                 ft.Container(expand=True),
-                ft.TextButton("关闭", on_click=lambda e: dlg.close()),
+                ft.OutlinedButton("关闭", on_click=lambda e: dlg.close(),
+                    style=ft.ButtonStyle(
+                        shape=btn_st.shape, padding=btn_st.padding,
+                        text_style=btn_st.text_style,
+                        side=ft.BorderSide(1, theme.border),
+                        color=theme.text_secondary)),
                 ft.ElevatedButton("保存报表", on_click=_save,
-                    style=ft.ButtonStyle(bgcolor=theme.success, color=ft.Colors.WHITE,
-                        shape=ft.RoundedRectangleBorder(radius=s(6)))),
-            ]),
-        ], spacing=0, tight=True)
-        from app.ui.components.modal_dialog import ModalDialog
-        dlg = ModalDialog(self._page, content, width=640)
-        dlg.open()
-        active_task_registry.set_active("report", "生成报表", "executing",
-                                        "Generating daily maintenance report")
+                    style=ft.ButtonStyle(
+                        shape=btn_st.shape, padding=btn_st.padding,
+                        text_style=btn_st.text_style,
+                        bgcolor="#5294e2", color=ft.Colors.WHITE, elevation=0)),
+            ], spacing=s(8)),
+            padding=ft.padding.only(left=s(14), top=s(8), right=s(14), bottom=s(10)),
+            border=ft.border.only(top=ft.BorderSide(1, theme.border)),
+        )
 
-        # 异步生成报表
+        PW, PH = 720, 780
+        page_w = self._page.width or 1280
+        page_h = self._page.height or 900
+        cx = max(0, (page_w - PW) // 2)
+        cy = max(20, (page_h - PH) // 2)
+
+        panel = ft.Container(
+            content=ft.Column([
+                header,
+                ft.Container(report_f, padding=ft.padding.all(s(14)), expand=True),
+                footer,
+            ], spacing=0, expand=True, tight=True),
+            width=PW, height=PH, bgcolor=theme.surface, border_radius=s(10),
+            border=ft.border.all(1, theme.border),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=20, color="#000000aa"),
+            left=cx, top=cy,
+        )
+
+        from app.ui.widgets.overlay_dimmer import OverlayDimmer
+        dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.55,
+                                  on_dimmer_click=lambda: dlg.close())
+
+        # ── 异步生成 ──
         import threading
         def _gen():
             try:
@@ -1312,7 +1357,6 @@ class BoardPage:
             except Exception as ex:
                 report_f.value = f"生成失败: {ex}"
             progress.visible = False
-            active_task_registry.clear()
             try: progress.update(); report_f.update()
             except Exception: pass
         threading.Thread(target=_gen, daemon=True).start()
@@ -1322,49 +1366,312 @@ class BoardPage:
     # ═══════════════════════════════════════════
 
     def _cmd_review(self):
+        """任务审核 — 对齐 CreateTaskDialog 风格，每个问题可点击跳转到任务。"""
         ff = theme.font_family
-        review_f = ft.TextField(
-            value="正在审核任务合规性...", read_only=True, multiline=True,
-            min_lines=10, max_lines=18,
-            border_color=theme.border,
-            text_style=ft.TextStyle(color="#c0c0c0", size=s(11), font_family=ff),
-            bgcolor=theme.card, border_radius=s(6),
-        )
-        progress = ft.ProgressRing(width=s(16), height=s(16))
+        print("[REVIEW] ===== _cmd_review called =====")
 
-        content = ft.Column([
-            ft.Row([
-                ft.Text("任务合规审核", size=s(14), weight=ft.FontWeight.W_600,
-                        color=theme.text_primary, font_family=ff),
-                progress,
-            ], spacing=s(8)),
-            ft.Container(height=s(8)),
-            review_f,
-            ft.Container(height=s(8)),
+        # ── body：审核结果列表（先显示加载状态）──
+        issue_list = ft.ListView(spacing=s(8), expand=True,
+                                 padding=ft.padding.all(s(14)))
+        progress = ft.ProgressRing(width=s(16), height=s(16), visible=True)
+
+        issue_list.controls.append(
+            ft.Container(
+                ft.Column([
+                    progress,
+                    ft.Text("正在审核任务合规性...", size=s(13),
+                            color=theme.text_primary, font_family=ff),
+                    ft.Text("检查 ATA 章节、飞机注册号、RII 合规、排程可行性...",
+                            size=s(11), color=theme.text_secondary, font_family=ff),
+                ], spacing=s(12), alignment=ft.MainAxisAlignment.CENTER,
+                   horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=ft.padding.symmetric(vertical=s(50)),
+                alignment=ft.alignment.center,
+            ))
+
+        # ── 汇总行（加载时显示占位）──
+        summary_row = ft.Row([
+            ft.Text("正在审核...", size=s(11), color=theme.text_secondary,
+                    font_family=ff),
+        ], spacing=s(12))
+
+        # ── header ──
+        header = ft.Container(
+            ft.Column([
+                ft.Row([
+                    ft.Icon(ft.Icons.FACT_CHECK_OUTLINED, size=s(15), color="#5294e2"),
+                    ft.Text("任务合规审核", size=s(14), weight=ft.FontWeight.W_600,
+                            color=theme.text_primary, font_family=ff),
+                    ft.Container(expand=True),
+                    ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
+                                  icon_color=theme.text_secondary,
+                                  style=ft.ButtonStyle(
+                                      bgcolor=ft.Colors.TRANSPARENT,
+                                      overlay_color=ft.Colors.RED_900,
+                                      shape=ft.RoundedRectangleBorder(radius=s(4))),
+                                  on_click=lambda e: dlg.close()),
+                ], spacing=s(8)),
+                summary_row,
+            ], spacing=s(4), tight=True),
+            padding=ft.padding.only(left=s(14), top=s(8), right=s(6), bottom=s(8)),
+            border=ft.border.only(bottom=ft.BorderSide(1, theme.border)),
+        )
+
+        # ── footer ──
+        btn_st = ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=s(6)),
+            padding=ft.padding.only(left=s(18), top=s(7), right=s(18), bottom=s(7)),
+            text_style=ft.TextStyle(size=s(12), font_family=ff),
+        )
+        footer = ft.Container(
             ft.Row([
                 ft.Container(expand=True),
-                ft.TextButton("关闭", on_click=lambda e: dlg.close()),
-            ]),
-        ], spacing=0, tight=True)
-        from app.ui.components.modal_dialog import ModalDialog
-        dlg = ModalDialog(self._page, content, width=640)
-        dlg.open()
-        active_task_registry.set_active("review", "任务审核", "executing",
-                                        "Auditing active tasks for compliance")
+                ft.OutlinedButton("关闭", on_click=lambda e: dlg.close(),
+                    style=ft.ButtonStyle(
+                        shape=btn_st.shape, padding=btn_st.padding,
+                        text_style=btn_st.text_style,
+                        side=ft.BorderSide(1, theme.border),
+                        color=theme.text_secondary)),
+            ], spacing=s(8)),
+            padding=ft.padding.only(left=s(14), top=s(8), right=s(14), bottom=s(10)),
+            border=ft.border.only(top=ft.BorderSide(1, theme.border)),
+        )
+
+        PW, PH = 720, 780
+        page_w = self._page.width or 1280
+        page_h = self._page.height or 900
+        cx = max(0, (page_w - PW) // 2)
+        cy = max(20, (page_h - PH) // 2)
+
+        panel = ft.Container(
+            content=ft.Column([
+                header,
+                issue_list,
+                footer,
+            ], spacing=0, expand=True, tight=True),
+            width=PW, height=PH, bgcolor=theme.surface, border_radius=s(10),
+            border=ft.border.all(1, theme.border),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=20, color="#000000aa"),
+            left=cx, top=cy,
+        )
+
+        from app.ui.widgets.overlay_dimmer import OverlayDimmer
+        dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.55,
+                                  on_dimmer_click=lambda: dlg.close())
+
+        # ── 异步审核 → Agent 深度分析 + 本地规则兜底 ──
+        def _loading(msg):
+            return ft.Container(
+                ft.Column([
+                    ft.ProgressRing(width=s(24), height=s(24)),
+                    ft.Text(msg, size=s(13), color=theme.text_primary, font_family=ff),
+                    ft.Text("Agent 正在分析任务数据、检索知识库标准...",
+                            size=s(11), color=theme.text_secondary, font_family=ff),
+                ], spacing=s(12), alignment=ft.MainAxisAlignment.CENTER,
+                   horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=ft.padding.symmetric(vertical=s(50)),
+                alignment=ft.alignment.center)
 
         import threading
         def _review():
+            print("[REVIEW] _review thread started")
             try:
                 from app.ui.services.agent_service import AgentService
-                r = AgentService.task_review()
-                review_f.value = r
+                issue_list.controls[0] = _loading("Agent 深度审核中...")
+                try: issue_list.update()
+                except Exception: pass
+                print("[REVIEW] calling AgentService.task_review()...")
+                result = AgentService.task_review()
+                print(f"[REVIEW] task_review returned: tasks={result.get('tasks_reviewed',0)} issues={result.get('total_issues',0)} crit={result.get('critical_count',0)} warn={result.get('warning_count',0)} info={result.get('info_count',0)}")
             except Exception as ex:
-                review_f.value = f"审核失败: {ex}"
+                import traceback
+                traceback.print_exc()
+                print(f"[REVIEW] EXCEPTION in task_review: {ex}")
+                result = {"issues": [{
+                    "task_id": "", "title": "Agent 审核失败",
+                    "severity": "critical",
+                    "dimension": "系统错误",
+                    "description": f"Agent 未正常返回审核结果。请检查 LLM 配置或查看终端日志。",
+                    "recommendation": f"错误详情: {str(ex)[:200]}",
+                }], "total_issues": 1, "critical_count": 1,
+                          "warning_count": 0, "info_count": 0, "tasks_reviewed": 0}
+
+            # ── 更新 header 汇总行 ──
+            def _sev_badge(text, color):
+                return ft.Container(
+                    ft.Text(text, size=s(10), color=color,
+                            weight=ft.FontWeight.W_600, font_family=ff),
+                    padding=ft.padding.only(left=s(6), top=s(1), right=s(6), bottom=s(1)),
+                    border_radius=s(3),
+                    bgcolor=ft.Colors.with_opacity(0.10, color),
+                )
+
+            total = result.get("total_issues", 0)
+            tasks_r = result.get("tasks_reviewed", 0)
+            sc = [
+                ft.Text(f"审核 {tasks_r} 个任务", size=s(11),
+                        color=theme.text_secondary, font_family=ff),
+            ]
+            if total == 0:
+                sc.append(ft.Container(
+                    ft.Text("✅ 全部合规", size=s(11), color=theme.success,
+                            weight=ft.FontWeight.W_600, font_family=ff),
+                    padding=ft.padding.only(left=s(8), top=s(2), right=s(8), bottom=s(2)),
+                    border_radius=s(4),
+                    bgcolor=ft.Colors.with_opacity(0.12, theme.success)))
+            else:
+                crit = result.get("critical_count", 0)
+                warn = result.get("warning_count", 0)
+                info = result.get("info_count", 0)
+                if crit:
+                    sc.append(_sev_badge(f"🔴 {crit}", theme.error))
+                if warn:
+                    sc.append(_sev_badge(f"⚠ {warn}", theme.warning))
+                if info:
+                    sc.append(_sev_badge(f"ℹ {info}", theme.info))
+            header.content.controls[1] = ft.Row(sc, spacing=s(12))
+
+            # ── 构建 issue 卡片列表 ──
+            issue_list.controls.clear()
+            issues = result.get("issues", [])
+            if not issues:
+                issue_list.controls.append(
+                    ft.Container(
+                        ft.Column([
+                            ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, size=s(40),
+                                    color=theme.success),
+                            ft.Text("未发现合规问题", size=s(13),
+                                    color=theme.text_primary, font_family=ff),
+                            ft.Text("所有待审核任务均通过基础合规检查",
+                                    size=s(11), color=theme.text_secondary,
+                                    font_family=ff),
+                        ], spacing=s(8), alignment=ft.MainAxisAlignment.CENTER,
+                           horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                        padding=ft.padding.symmetric(vertical=s(50)),
+                        alignment=ft.alignment.center,
+                    ))
+            else:
+                sev_colors = {"critical": theme.error, "warning": theme.warning,
+                              "info": theme.info}
+                sev_labels = {"critical": "严重", "warning": "警告", "info": "提示"}
+                sev_icons = {"critical": ft.Icons.ERROR_OUTLINE,
+                             "warning": ft.Icons.WARNING_AMBER_OUTLINED,
+                             "info": ft.Icons.INFO_OUTLINE}
+
+                for issue in issues:
+                    sev = issue.get("severity", "info")
+                    accent = sev_colors.get(sev, theme.info)
+                    task_id = issue.get("task_id", "")
+                    task_title = issue.get("title", "")
+                    dimension = issue.get("dimension", "")
+                    description = issue.get("description", "")
+                    recommendation = issue.get("recommendation", "")
+
+                    def _nav_to(tid, d):
+                        return lambda e: self._navigate_to_issue(tid, d)
+
+                    card = ft.Container(
+                        ft.Row([
+                            # 左侧色条
+                            ft.Container(width=s(3), border_radius=s(2),
+                                         bgcolor=accent),
+                            ft.Column([
+                                # 严重度标签 + 维度
+                                ft.Row([
+                                    ft.Container(
+                                        ft.Row([
+                                            ft.Icon(sev_icons.get(sev, ft.Icons.INFO_OUTLINE),
+                                                    size=s(10), color=accent),
+                                            ft.Text(sev_labels.get(sev, sev), size=s(9),
+                                                    color=accent,
+                                                    weight=ft.FontWeight.W_600,
+                                                    font_family=ff),
+                                        ], spacing=s(3)),
+                                        padding=ft.padding.only(left=s(5), top=s(1),
+                                                               right=s(5), bottom=s(1)),
+                                        border_radius=s(3),
+                                        bgcolor=ft.Colors.with_opacity(0.10, accent)),
+                                    ft.Text(dimension, size=s(10),
+                                            color=theme.text_disabled, font_family=ff),
+                                ], spacing=s(6)),
+                                ft.Container(height=s(4)),
+                                # 任务标题
+                                ft.Text(task_title, size=s(12),
+                                        weight=ft.FontWeight.W_500,
+                                        color=theme.text_primary, font_family=ff),
+                                ft.Container(height=s(2)),
+                                # 问题描述
+                                ft.Text(description, size=s(11),
+                                        color=theme.text_primary, font_family=ff),
+                                # 建议
+                                ft.Text(recommendation, size=s(10),
+                                        color=theme.text_secondary, font_family=ff,
+                                        italic=True),
+                                ft.Container(height=s(4)),
+                                # 操作按钮
+                                ft.Row([
+                                    ft.Container(expand=True),
+                                    ft.TextButton(
+                                        content=ft.Text("查看任务 →", size=s(11),
+                                                        color=theme.info,
+                                                        font_family=ff),
+                                        style=ft.ButtonStyle(
+                                            bgcolor=ft.Colors.TRANSPARENT,
+                                            padding=ft.padding.symmetric(
+                                                horizontal=s(8), vertical=s(2)),
+                                        ),
+                                        on_click=_nav_to(task_id, dlg)),
+                                ]),
+                            ], spacing=0, tight=True, expand=True),
+                        ], spacing=s(10),
+                           vertical_alignment=ft.CrossAxisAlignment.START),
+                        padding=ft.padding.all(s(10)),
+                        border_radius=s(8),
+                        bgcolor=ft.Colors.with_opacity(0.04, accent),
+                        border=ft.border.only(
+                            left=ft.BorderSide(s(3), accent)),
+                    )
+                    issue_list.controls.append(card)
+
             progress.visible = False
-            active_task_registry.clear()
-            try: progress.update(); review_f.update()
-            except Exception: pass
+            print(f"[REVIEW] rendering {len(issues)} issue cards...")
+            try:
+                header.update()
+                issue_list.update()
+                print("[REVIEW] UI updated successfully")
+            except Exception:
+                print("[REVIEW] UI update failed")
+                pass
+
+        print("[REVIEW] starting review thread")
         threading.Thread(target=_review, daemon=True).start()
+        print("[REVIEW] review thread started")
+
+    def _navigate_to_issue(self, task_id: str, dlg=None):
+        """从审核弹窗跳转到任务卡片：关闭弹窗，清筛选，打开侧边栏。"""
+        if dlg:
+            try:
+                dlg.close()
+            except Exception:
+                pass
+
+        t = state.get_task(task_id)
+        if not t:
+            Toast.show(self._page, f"任务 {task_id} 不存在", "warning")
+            return
+
+        # 清除筛选确保任务可见
+        from app.core.services.board_service import board_service
+        board_service.set_filters(FilterState())
+        self._refresh_board()
+
+        # 打开侧边栏显示任务详情
+        if self.side_panel:
+            if self.ai_chat and self.ai_chat.is_open:
+                self.ai_chat.close()
+            self.side_panel.open_task(t)
+
+        self._page.update()
 
     def _show_ai_in_panel(self, title: str, content: str):
         """在 AI 对话面板中显示结果。有脆弱内容时不重建。"""

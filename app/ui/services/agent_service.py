@@ -322,8 +322,13 @@ class AgentService:
             f"请生成 {report_type} 报告", "report", fallback)
 
     @staticmethod
-    def task_review(task_ids: str = "") -> str:
-        # 离线基础审核
+    @staticmethod
+    def task_review(task_ids: str = "") -> dict:
+        """审核活跃任务 — 由 Agent 深度分析 + 本地基础检查兜底。
+
+        优先通过 LLM Agent 调用工具链（get_task_detail / search_knowledge_base
+        / search_related_tasks）进行深度审核。LLM 不可用时回退到本地规则检查。
+        """
         tasks = state.get_all_tasks()
         if task_ids:
             ids = set(task_ids.split(","))
@@ -331,35 +336,171 @@ class AgentService:
         else:
             tasks = [t for t in tasks if t.status.value not in ("completed", "archived")]
 
+        if not tasks:
+            print("[REVIEW_SVC] no tasks to review")
+            return {"issues": [], "total_issues": 0, "critical_count": 0,
+                    "warning_count": 0, "info_count": 0, "tasks_reviewed": 0}
+
+        print(f"[REVIEW_SVC] reviewing {len(tasks)} tasks")
+
+        # ── Agent 深度审核（失败则抛出异常，不做本地兜底）──
+        print("[REVIEW_SVC] attempting LLM deep review...")
+        llm_issues = AgentService._llm_task_review(tasks)
+        print(f"[REVIEW_SVC] LLM returned {len(llm_issues)} issues")
+        issues = llm_issues
+        print(f"[REVIEW_SVC] final: {len(issues)} issues")
+
+        severity_order = {"critical": 0, "warning": 1, "info": 2}
+        issues.sort(key=lambda i: severity_order.get(i["severity"], 99))
+
+        return {
+            "issues": issues,
+            "total_issues": len(issues),
+            "critical_count": sum(1 for i in issues if i["severity"] == "critical"),
+            "warning_count": sum(1 for i in issues if i["severity"] == "warning"),
+            "info_count": sum(1 for i in issues if i["severity"] == "info"),
+            "tasks_reviewed": len(tasks),
+        }
+
+    @staticmethod
+    def _local_task_review(tasks: list) -> list[dict]:
+        """本地规则检查（快速，LLM 不可用时的兜底）。"""
         issues = []
         for t in tasks:
+            tid, title = t.id, t.title
             if not t.ata_chapter:
-                issues.append(f"⚠ [{t.id}] {t.title}: 缺少 ATA 章节")
+                issues.append({"task_id": tid, "title": title, "severity": "warning",
+                    "dimension": "ATA 章节完整性", "description": "缺少 ATA 章节编号。",
+                    "recommendation": "请补充 ATA 章节信息。"})
             if not t.aircraft_reg:
-                issues.append(f"⚠ [{t.id}] {t.title}: 缺少飞机注册号")
+                issues.append({"task_id": tid, "title": title, "severity": "warning",
+                    "dimension": "信息完整性", "description": "缺少飞机注册号。",
+                    "recommendation": "请关联正确的飞机注册号。"})
             if t.is_rii and not t.inspector:
-                issues.append(f"🔴 [{t.id}] {t.title}: RII 必检项目未指定检查员")
+                issues.append({"task_id": tid, "title": title, "severity": "critical",
+                    "dimension": "RII 安全合规", "description": "RII 必检项目未指定检查员。",
+                    "recommendation": "请为 RII 项目指定授权检查员。"})
             if t.estimated_hours and t.estimated_hours > 48:
-                issues.append(f"⚠ [{t.id}] {t.title}: 计划工时 {t.estimated_hours}h 超过 48h")
+                issues.append({"task_id": tid, "title": title, "severity": "warning",
+                    "dimension": "工时合理性", "description": f"计划工时 {t.estimated_hours}h 超过 48h。",
+                    "recommendation": "建议拆分为多个子任务。"})
+            if t.estimated_hours is not None and t.estimated_hours <= 0:
+                issues.append({"task_id": tid, "title": title, "severity": "info",
+                    "dimension": "工时合理性", "description": "计划工时未填写。",
+                    "recommendation": "请填写预估工时。"})
+            if t.status.value == "scheduled":
+                if not t.planned_start:
+                    issues.append({"task_id": tid, "title": title, "severity": "warning",
+                        "dimension": "排程可行性", "description": "缺计划开始时间。",
+                        "recommendation": "请设置计划开始和完成时间。"})
+                if not t.planned_end:
+                    issues.append({"task_id": tid, "title": title, "severity": "warning",
+                        "dimension": "排程可行性", "description": "缺计划完成时间。",
+                        "recommendation": "请设置计划完成时间。"})
+                if not t.employee_id:
+                    issues.append({"task_id": tid, "title": title, "severity": "warning",
+                        "dimension": "人员匹配", "description": "已排程但未分配人员。",
+                        "recommendation": "请分配合适的员工。"})
+                if (t.planned_start and t.planned_end
+                        and t.planned_start >= t.planned_end):
+                    issues.append({"task_id": tid, "title": title, "severity": "critical",
+                        "dimension": "排程可行性", "description": "计划开始晚于或等于完成时间。",
+                        "recommendation": "请修正时间设置。"})
+        # 人员时间冲突
+        scheduled = [t for t in tasks if t.status.value == "scheduled"
+                     and t.employee_id and t.planned_start and t.planned_end]
+        by_emp: dict = {}
+        for t in scheduled:
+            by_emp.setdefault(t.employee_id, []).append(t)
+        for eid, emp_tasks in by_emp.items():
+            for i in range(len(emp_tasks)):
+                for j in range(i + 1, len(emp_tasks)):
+                    ta, tb = emp_tasks[i], emp_tasks[j]
+                    if (ta.planned_start < tb.planned_end
+                            and tb.planned_start < ta.planned_end):
+                        issues.append({
+                            "task_id": ta.id, "title": ta.title, "severity": "critical",
+                            "dimension": "人员冲突", "description":
+                            f"人员 {ta.employee_name or eid} 时间冲突: [{ta.id}] ↔ [{tb.id}]",
+                            "recommendation": "调整时间或更换人员。"})
+        return issues
 
-        if not issues:
-            summary = "所有任务基本合规。"
-        else:
-            summary = f"发现 {len(issues)} 个问题:\n" + "\n".join(issues)
+    @staticmethod
+    def _llm_task_review(tasks: list) -> list[dict]:
+        """Agent 深度审核：两阶段——先收集数据，再强制输出 JSON。"""
+        from app.agent.llm_client import llm
+        if not llm.is_available:
+            print("[REVIEW_SVC] LLM not available, skipping deep review")
+            return []
 
-        fallback = f"""# 任务合规审核报告
+        print(f"[REVIEW_SVC] LLM available, reviewing {len(tasks)} tasks...")
+        import re, json
+        try:
+            tasks_str = "\n".join(
+                f"- [{t.id}] {t.title} | ATA:{t.ata_chapter or '无'} | "
+                f"飞机:{t.aircraft_reg or '无'} | 优先级:{t.priority.value} | "
+                f"状态:{t.status.value} | 人员:{t.employee_name or '无'} | "
+                f"工时:{t.estimated_hours or '无'}h"
+                for t in tasks[:20]
+            )
+            from app.agent.orchestrator import agent, _load_prompt
 
-审核时间: {__import__('datetime').datetime.now().strftime("%Y-%m-%d %H:%M")}
-审核范围: {len(tasks)} 个活跃任务
+            # ── 阶段 1：Agent 收集数据（调工具但不要求 JSON）──
+            stage1 = (
+                f"{_load_prompt('task_review.md')}\n\n"
+                f"## 当前审核任务列表 ({len(tasks)} 个)\n\n{tasks_str}\n\n"
+                f"请使用 get_board_summary、get_task_detail（抽查至少 5 个不同状态的任务）、"
+                f"search_knowledge_base、search_employees 收集审核所需数据。"
+                f"收集完毕后回复 'DATA_COLLECTED' 即可，不要在此阶段输出审核结论。"
+            )
+            print(f"[REVIEW_SVC] === STAGE 1 === ({len(stage1)} chars)")
+            # 清空历史避免干扰
+            agent.clear_conversation("review")
+            result1 = agent.ask(stage1, session_id="review")
+            print(f"[REVIEW_SVC] Stage 1 returned: {len(result1)} chars")
+            print(f"[REVIEW_SVC] Stage 1 response: {result1[:500]}")
 
-## 审核结果
-{summary}
+            # ── 阶段 2：强制输出 JSON ──
+            stage2 = (
+                f"数据收集完成。现在基于以上全部信息，对这 {len(tasks)} 个任务逐条审核。\n\n"
+                f"## 输出要求（必须严格遵守）\n\n"
+                f"1. 先给出 2-4 句总览摘要\n"
+                f"2. 然后输出一个 JSON 数组，每个元素对应一个发现的问题\n"
+                f"3. JSON 格式：\n"
+                f'```json\n[\n'
+                f'  {{"task_id":"...","title":"...","severity":"critical|warning|info",'
+                f'"dimension":"ATA准确性|信息完整性|法规合规|排程可行性|人员匹配|安全",'
+                f'"description":"具体问题描述","recommendation":"修复建议"}}\n'
+                f']\n```\n\n'
+                f"## 审核维度（逐条检查）\n"
+                f"- ATA 章节是否匹配任务描述\n"
+                f"- 必填字段是否完整（飞机注册号、人员、计划时间）\n"
+                f"- scheduled/in_progress 任务是否有人员时间冲突\n"
+                f"- RII 任务是否有检查员\n"
+                f"- 工时是否合理\n\n"
+                f"## 任务列表\n\n{tasks_str}\n\n"
+                f"现在立即输出审核总览 + JSON 块。不要调用任何工具。"
+            )
+            print(f"[REVIEW_SVC] === STAGE 2 === ({len(stage2)} chars)")
+            result2 = agent.ask(stage2, session_id="review")
+            print(f"[REVIEW_SVC] === FINAL RESPONSE ({len(result2)} chars) ===")
+            print(result2)
+            print(f"[REVIEW_SVC] === END ===")
 
-## 审核维度
-- ATA 章节完整性
-- 飞机注册号
-- RII 必检项
-- 工时合理性
-"""
-        return AgentService._try_agent("task_review.md",
-            f"审核 {len(tasks)} 个任务", "review", fallback)
+            # 解析 JSON
+            if len(result2.strip()) < 80:
+                raise RuntimeError(f"Agent 返回过短 ({len(result2)} 字符)")
+            json_match = re.search(r'```json\s*\n(.*?)\n```', result2, re.DOTALL)
+            if json_match:
+                parsed = json.loads(json_match.group(1))
+                print(f"[REVIEW_SVC] parsed {len(parsed)} issues from JSON block")
+                return parsed
+            bare_json = re.search(r'\[\s*\{.*?\}\s*\]', result2, re.DOTALL)
+            if bare_json:
+                parsed = json.loads(bare_json.group(0))
+                print(f"[REVIEW_SVC] parsed {len(parsed)} issues from bare JSON")
+                return parsed
+            raise RuntimeError(f"Agent 未返回有效 JSON。响应: {result2[:300]}")
+        except Exception as e:
+            print(f"[REVIEW_SVC] LLM review FAILED: {e}")
+            raise

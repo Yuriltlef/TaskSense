@@ -78,7 +78,7 @@ ALLOWED_TRANSITIONS = {
     "scheduled":    ["ready", "backlog", "triage"],
     "ready":        ["in_progress", "scheduled", "parts_hold"],
     "in_progress":  ["inspection", "parts_hold", "completed"],
-    "inspection":   ["completed", "in_progress"],
+    "inspection":   ["completed", "in_progress", "backlog"],
     "parts_hold":   ["ready", "scheduled"],
     "completed":    ["archived"],
     "archived":     [],

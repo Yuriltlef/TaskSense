@@ -164,6 +164,8 @@ class Task:
     ai_ata_chapter: Optional[str] = None
     ai_suggestions: list[dict] = field(default_factory=list)
     rag_references: list[dict] = field(default_factory=list)
+    ai_acceptance_recommendation: Optional[str] = None  # 验收建议: "approve" | "reject"
+    ai_acceptance_reason: Optional[str] = None          # 验收建议理由
 
     def transition_to(self, new_status: TaskStatus, changed_by: str,
                       comment: str = "") -> "Task":
@@ -294,6 +296,8 @@ class Task:
             ai_ata_chapter=d.get("ai_ata_chapter"),
             ai_suggestions=d.get("ai_suggestions", []),
             rag_references=d.get("rag_references", []),
+            ai_acceptance_recommendation=d.get("ai_acceptance_recommendation"),
+            ai_acceptance_reason=d.get("ai_acceptance_reason"),
         )
         # 恢复 checklist
         for ci in d.get("checklist", []):
@@ -389,4 +393,6 @@ class Task:
             "ai_ata_chapter": self.ai_ata_chapter,
             "ai_suggestions": self.ai_suggestions,
             "rag_references": self.rag_references,
+            "ai_acceptance_recommendation": self.ai_acceptance_recommendation,
+            "ai_acceptance_reason": self.ai_acceptance_reason,
         }

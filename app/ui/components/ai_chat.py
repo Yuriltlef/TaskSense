@@ -363,6 +363,19 @@ class AIChatPanel(ft.Container):
         from datetime import datetime as dt
         t = app_state.get_task(tid)
         title = t.title if t else ""
+        if not t:
+            return
+
+        # 验收任务：根据 AI 建议移动
+        acc_rec = getattr(t, 'ai_acceptance_recommendation', None)
+        if acc_rec:
+            target = "completed" if acc_rec == "approve" else "backlog"
+            task_service.move_task(tid, target, changed_by="ai_agent")
+            app_state.update_task(tid, ai_proposed=False,
+                                  ai_acceptance_recommendation=None,
+                                  ai_acceptance_reason=None)
+            self._update_proposal_row(tid, "accepted", title)
+            return
 
         schedule_data = {}
         for sug in (t.ai_suggestions or []):
@@ -370,7 +383,7 @@ class AIChatPanel(ft.Container):
                 schedule_data = sug
                 break
 
-        if t and schedule_data:
+        if schedule_data:
             if schedule_data.get("planned_start"):
                 try:
                     app_state.update_task(tid,
@@ -411,25 +424,30 @@ class AIChatPanel(ft.Container):
         from app.core.state import state as app_state
         t = app_state.get_task(tid)
         title = t.title if t else ""
+        if not t:
+            return
+        # 验收任务：只清标记，不删除不移动
+        if getattr(t, 'ai_acceptance_recommendation', None):
+            print(f"[AI_CHAT] _reject_proposal: acceptance task {tid}, clearing flags only")
+            app_state.update_task(tid, ai_proposed=False,
+                                  ai_acceptance_recommendation=None,
+                                  ai_acceptance_reason=None)
+            self._update_proposal_row(tid, "rejected", title)
+            return
         is_modify = (
             t.ai_priority or
             any(isinstance(s, dict) and s.get("proposal_type") == "schedule"
                 for s in (t.ai_suggestions or []))
-        ) if t else False
-        if t and is_modify:
+        )
+        if is_modify:
             ai_sug = [s for s in (t.ai_suggestions or [])
                       if not (isinstance(s, dict) and s.get("proposal_type") == "schedule")]
             app_state.update_task(tid, ai_proposed=False, ai_priority=None,
                                   ai_suggestions=ai_sug)
         else:
+            print(f"[AI_CHAT] _reject_proposal: deleting task {tid}")
             app_state.delete_task(tid)
         self._update_proposal_row(tid, "rejected", title)
-        if self.page:
-            try:
-                from app.ui.widgets.toast import Toast
-                Toast.show(self.page, "任务已拒绝", "info")
-            except Exception:
-                pass  # Flet overlay update 偶发 __uid 为 None
 
     def _update_proposal_row(self, tid, result, title):
         """就地更新提案行：隐藏按钮，显示结果。"""
@@ -471,6 +489,17 @@ class AIChatPanel(ft.Container):
         from datetime import datetime as dt
         for t in list(app_state.get_all_tasks()):
             if not t.ai_proposed:
+                continue
+
+            # 验收任务：根据 AI 建议移动
+            acc_rec = getattr(t, 'ai_acceptance_recommendation', None)
+            if acc_rec:
+                target = "completed" if acc_rec == "approve" else "backlog"
+                task_service.move_task(t.id, target, changed_by="ai_agent")
+                app_state.update_task(t.id, ai_proposed=False,
+                                      ai_acceptance_recommendation=None,
+                                      ai_acceptance_reason=None)
+                self._update_proposal_row(t.id, "accepted", t.title)
                 continue
 
             schedule_data = {}
@@ -518,6 +547,14 @@ class AIChatPanel(ft.Container):
             if not t.ai_proposed:
                 continue
 
+            # 验收任务：只清标记，不删除不移动
+            if getattr(t, 'ai_acceptance_recommendation', None):
+                app_state.update_task(t.id, ai_proposed=False,
+                                      ai_acceptance_recommendation=None,
+                                      ai_acceptance_reason=None)
+                self._update_proposal_row(t.id, "rejected", t.title)
+                continue
+
             is_modify = (
                 t.ai_priority or
                 any(isinstance(s, dict) and s.get("proposal_type") == "schedule"
@@ -534,7 +571,7 @@ class AIChatPanel(ft.Container):
         self._update_batch_buttons()
         if self.page:
             from app.ui.widgets.toast import Toast
-            Toast.show(self.page, "全部任务已拒绝", "info")
+            Toast.show(self.page, "已取消全部验收建议", "info")
 
     def _refresh(self, e):
         if self._busy or not self._msg_pairs:

@@ -217,3 +217,68 @@ def schedule_task(task_id: str, planned_start: str = "",
         }, ensure_ascii=False)
     except Exception as e:
         return f"[Error] 排程失败: {e}"
+
+
+@tool
+def acceptance_review(task_id: str, recommendation: str,
+                       reason: str = "") -> str:
+    """对验收中（inspection）的任务给出审核建议。结果以幽灵卡片展示，需人工确认。
+
+    Args:
+        task_id: 任务 ID
+        recommendation: 审核建议 — "approve"（同意验收→移至已完成）或
+                       "reject"（驳回→返回待处理）
+        reason: 审核理由说明
+
+    Returns:
+        审核结果
+    """
+    print(f"[ACCEPTANCE_TOOL] called: task_id={task_id} rec={recommendation} reason={reason[:50]}...")
+    valid_recs = {"approve", "reject"}
+    if recommendation not in valid_recs:
+        print(f"[ACCEPTANCE_TOOL] INVALID recommendation: {recommendation}")
+        return f"[Error] 无效建议 '{recommendation}'，可选: approve, reject"
+
+    task = state.get_task(task_id)
+    if not task:
+        print(f"[ACCEPTANCE_TOOL] task not found: {task_id}")
+        return f"[Error] 任务 {task_id} 不存在"
+
+    if task.status.value != "inspection":
+        print(f"[ACCEPTANCE_TOOL] wrong status: {task.status.value}")
+        return (f"[Error] 任务 {task_id} 当前状态为 '{task.status.value}'，"
+                f"只能审核验收中任务")
+
+    # 存储审核建议到任务元数据，标记为 AI 提议
+    print(f"[ACCEPTANCE_TOOL] calling state.update_task: ai_proposed=True, rec={recommendation}")
+    state.update_task(task_id,
+        ai_proposed=True, created_by="ai_agent",
+        ai_acceptance_recommendation=recommendation,
+        ai_acceptance_reason=reason,
+    )
+
+    # Verify
+    task2 = state.get_task(task_id)
+    print(f"[ACCEPTANCE_TOOL] after update: ai_proposed={task2.ai_proposed} rec={task2.ai_acceptance_recommendation}")
+
+    # 发射幽灵提案事件
+    event_bus.emit(AppEvent(
+        type=EventType.AI_PROPOSAL_CREATED,
+        data={
+            "task_id": task_id,
+            "title": task.title,
+            "proposal_type": "acceptance",
+            "recommendation": recommendation,
+            "reason": reason,
+        },
+    ))
+
+    labels = {"approve": "同意验收 → 已完成", "reject": "驳回 → 待处理"}
+    return json.dumps({
+        "task_id": task_id,
+        "title": task.title,
+        "recommendation": recommendation,
+        "action": labels.get(recommendation, recommendation),
+        "reason": reason,
+        "confirm_needed": True,
+    }, ensure_ascii=False)

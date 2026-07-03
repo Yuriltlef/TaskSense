@@ -114,6 +114,30 @@ Example:
 get_active_task
 ```
 
+### acceptance_review
+Submit an acceptance recommendation for a task in the inspection column. **Zero tolerance policy: reject for any deficiency, no matter how minor.** Creates a ghost card proposal; user must confirm before the task is moved.
+
+Parameters:
+- `task_id` (required): Task ID
+- `recommendation` (required): "approve" ONLY if zero defects across all criteria, otherwise "reject"
+- `reason` (required): Specific, detailed rejection reasons citing exact missing fields, vague log language, or compliance gaps
+
+Example (reject — handover log too brief):
+```tool
+acceptance_review
+task_id=abc123
+recommendation=reject
+reason=交接日志仅"换完了"3字，严重不完整。缺少：①安装步骤与力矩值 ②新旧件号记录 ③功能测试数据 ④完工签署。需补充完整记录后重新提交。
+```
+
+Example (approve — perfect submission):
+```tool
+acceptance_review
+task_id=xyz789
+recommendation=approve
+reason=交接日志完整详实：按AMM 32-41-03执行，力矩值记录完整，功能测试通过，RII已签署，检查清单5/5完成。
+```
+
 ## Decision Rules
 1. **Always search** when asked about maintenance procedures, technical specs, regulations, or troubleshooting
 2. **Never fabricate** — if search returns nothing, say so honestly

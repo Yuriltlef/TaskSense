@@ -69,6 +69,9 @@ class ToolExecutor:
             elif tool_name == "schedule_task":
                 from app.agent.tools.write_tools import schedule_task
                 return schedule_task.invoke(params)
+            elif tool_name == "acceptance_review":
+                from app.agent.tools.write_tools import acceptance_review
+                return acceptance_review.invoke(params)
             elif tool_name == "get_active_task":
                 from app.agent.tools.task_state_tools import get_active_task
                 return get_active_task.invoke(params)

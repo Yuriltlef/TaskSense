@@ -47,14 +47,11 @@ class TaskSenseApp:
 
         self.board_page = BoardPage(api_ready=api_ready)
         if not loaded:
-            print("[BOOT] no saved state, loading demo data")
-            self.board_page.load_demo_data()
+            print("[BOOT] FATAL: board_state.json not found — run scripts/gen_demo_json.py first")
         else:
-            # 即使加载成功，也检查是否为空（新文件/损坏文件）
             from app.core.state import state
             if len(state.get_all_tasks()) == 0:
-                print("[BOOT] loaded state is empty, loading demo data")
-                self.board_page.load_demo_data()
+                print("[BOOT] FATAL: board_state.json is empty — run scripts/gen_demo_json.py first")
         persistence_service.start_auto_save(debounce_seconds=5.0)
 
         # ── 启动自动流转调度器 ──

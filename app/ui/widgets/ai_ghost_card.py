@@ -138,7 +138,7 @@ class AIGhostCard(ft.Container):
             detail_parts.append(td["employee_name"])
         detail_text = " · ".join(detail_parts)
 
-        return ft.Column([
+        ctrls = [
             ft.Row([
                 ft.Icon(ft.Icons.PSYCHOLOGY_OUTLINED, size=s(13), color=theme.info),
                 ft.Text(f"AI {type_label}", size=s(10),
@@ -150,27 +150,58 @@ class AIGhostCard(ft.Container):
                     weight=ft.FontWeight.W_500, max_lines=2),
             ft.Container(height=s(4)),
             ft.Text(detail_text, size=s(10), color=theme.text_secondary, font_family=ff),
-            ft.Container(height=s(8)),
-            ft.Row([
-                ft.ElevatedButton("接受",
-                    icon=ft.Icons.CHECK,
-                    style=ft.ButtonStyle(
-                        bgcolor=theme.success, color=ft.Colors.WHITE,
-                        shape=ft.RoundedRectangleBorder(radius=s(6)),
-                        padding=ft.padding.symmetric(horizontal=s(10), vertical=s(3)),
-                        text_style=ft.TextStyle(size=s(10), font_family=ff)),
-                    on_click=lambda e: self._do_accept()),
-                ft.OutlinedButton("拒绝",
-                    icon=ft.Icons.CLOSE,
-                    style=ft.ButtonStyle(
-                        color=theme.error,
-                        side=ft.BorderSide(1, theme.error),
-                        shape=ft.RoundedRectangleBorder(radius=s(6)),
-                        padding=ft.padding.symmetric(horizontal=s(10), vertical=s(3)),
-                        text_style=ft.TextStyle(size=s(10), font_family=ff)),
-                    on_click=lambda e: self._do_reject()),
-            ], spacing=s(6)),
-        ], spacing=0, tight=True)
+        ]
+
+        # ── 验收类型：显示 AI 建议标签和理由 ──
+        if ptype == "acceptance":
+            rec = td.get("recommendation", "")
+            if rec == "approve":
+                rec_label, rec_color, rec_icon = "AI 建议：同意验收 ✓", theme.success, ft.Icons.CHECK_CIRCLE_OUTLINE
+            elif rec == "reject":
+                rec_label, rec_color, rec_icon = "AI 建议：驳回 ✗", theme.error, ft.Icons.CANCEL_OUTLINED
+            else:
+                rec_label, rec_color, rec_icon = f"AI 建议：{rec}", theme.info, ft.Icons.GAVEL_OUTLINED
+
+            ctrls.append(ft.Container(height=s(4)))
+            ctrls.append(ft.Container(
+                ft.Row([
+                    ft.Icon(rec_icon, size=s(11), color=rec_color),
+                    ft.Text(rec_label, size=s(11), color=rec_color,
+                            weight=ft.FontWeight.W_600, font_family=ff),
+                ], spacing=s(4)),
+                padding=ft.padding.symmetric(horizontal=s(6), vertical=s(3)),
+                border_radius=s(4),
+                bgcolor=ft.Colors.with_opacity(0.10, rec_color),
+            ))
+            reason = td.get("reason", "")
+            if reason:
+                ctrls.append(ft.Container(height=s(2)))
+                ctrls.append(ft.Text(reason, size=s(10), color=theme.text_secondary,
+                                     font_family=ff, max_lines=3,
+                                     overflow=ft.TextOverflow.ELLIPSIS))
+
+        ctrls.append(ft.Container(height=s(8)))
+        ctrls.append(ft.Row([
+            ft.ElevatedButton("确认" if ptype == "acceptance" else "接受",
+                icon=ft.Icons.CHECK,
+                style=ft.ButtonStyle(
+                    bgcolor=theme.success, color=ft.Colors.WHITE,
+                    shape=ft.RoundedRectangleBorder(radius=s(6)),
+                    padding=ft.padding.symmetric(horizontal=s(10), vertical=s(3)),
+                    text_style=ft.TextStyle(size=s(10), font_family=ff)),
+                on_click=lambda e: self._do_accept()),
+            ft.OutlinedButton("取消" if ptype == "acceptance" else "拒绝",
+                icon=ft.Icons.CLOSE,
+                style=ft.ButtonStyle(
+                    color=theme.text_secondary if ptype == "acceptance" else theme.error,
+                    side=ft.BorderSide(1, theme.border if ptype == "acceptance" else theme.error),
+                    shape=ft.RoundedRectangleBorder(radius=s(6)),
+                    padding=ft.padding.symmetric(horizontal=s(10), vertical=s(3)),
+                    text_style=ft.TextStyle(size=s(10), font_family=ff)),
+                on_click=lambda e: self._do_reject()),
+        ], spacing=s(6)))
+
+        return ft.Column(ctrls, spacing=0, tight=True)
 
     def _do_accept(self):
         """接受建议 — 根据 proposal_type 执行对应的业务逻辑。"""
@@ -232,6 +263,18 @@ class AIGhostCard(ft.Container):
                         task_service.update_task(tid, **updates)
                     task_service.move_task(tid, "scheduled", changed_by="ai_agent")
 
+            elif ptype == "acceptance":
+                # 根据 AI 建议移动：approve → 已完成，reject → 待处理
+                if tid:
+                    rec = td.get("recommendation", "")
+                    target = "completed" if rec == "approve" else "backlog"
+                    print(f"[GHOST_CARD] _do_accept: tid={tid} rec={rec} target={target}")
+                    task_service.move_task(tid, target, changed_by="ai_agent")
+                    state.update_task(tid, ai_proposed=False,
+                                      ai_acceptance_recommendation=None,
+                                      ai_acceptance_reason=None)
+                    print(f"[GHOST_CARD] _do_accept: moved {tid} to {target}")
+
             # 通知
             from app.core.services.log_service import log_service
             from app.core.models.log_entry import LogType
@@ -255,7 +298,24 @@ class AIGhostCard(ft.Container):
         self._remove_self()
 
     def _do_reject(self):
-        """拒绝建议 — 仅记录事件，不执行任何操作。"""
+        """拒绝/取消 — 查真实任务对象上的验收字段，绝不删除验收任务。"""
+        td = self.proposal.task_data
+        ptype = self.proposal.proposal_type
+        tid = td.get("id", "")
+
+        # 兜底：从 state 查真实任务对象上的验收标记（不受 prop_type 影响）
+        from app.core.state import state
+        real_task = state.get_task(tid) if tid else None
+        real_rec = getattr(real_task, 'ai_acceptance_recommendation', None) if real_task else None
+        is_acceptance = (ptype == "acceptance" or bool(real_rec))
+        print(f"[GHOST_CARD] _do_reject: tid={tid} ptype={ptype} task_data.rec={td.get('recommendation','')} real_task.rec={real_rec} is_acceptance={is_acceptance}")
+
+        if is_acceptance and tid:
+            state.update_task(tid, ai_proposed=False,
+                              ai_acceptance_recommendation=None,
+                              ai_acceptance_reason=None)
+            print(f"[GHOST_CARD] _do_reject: cleared ai_proposed for {tid}, task stays in inspection")
+
         event_bus.emit(AppEvent(
             type=EventType.AI_PROPOSAL_REJECTED,
             data={"proposal_id": self.proposal.id},
