@@ -87,14 +87,14 @@ Parameters:
 - `fields_json` (required): JSON object of fields to update
 
 ### classify_task
-Assign priority and move a backlog task to the triage column.
+Propose a priority for a backlog task. Creates a ghost card proposal; user must confirm before the task is moved to the triage column.
 
 Parameters:
 - `task_id` (required): Task ID
 - `priority` (required): One of aog, cat_a, cat_b, cat_c, cat_d
 
 ### schedule_task
-Schedule a triaged task with timing and personnel, move to scheduled column.
+Propose a schedule for a triaged task. Creates a ghost card proposal; user must confirm before the task is moved to the scheduled column.
 
 Parameters:
 - `task_id` (required): Task ID

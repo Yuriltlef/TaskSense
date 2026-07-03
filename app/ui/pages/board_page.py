@@ -123,9 +123,8 @@ class BoardPage:
         for col in self.kanban_board._columns.values():
             if not hasattr(col, 'card_list') or not col.card_list:
                 continue
-            # 清除已有的幽灵卡片
             to_remove = [c for c in col.card_list.controls
-                         if isinstance(c, AIGhostCard)]
+                          if isinstance(c, AIGhostCard)]
             for c in to_remove:
                 col.card_list.controls.remove(c)
 
@@ -136,16 +135,43 @@ class BoardPage:
             col = self.kanban_board._columns[col_id]
             if not hasattr(col, 'card_list') or not col.card_list:
                 continue
+
+            # Detect proposal type
+            schedule_data = {}
+            for sug in (t.ai_suggestions or []):
+                if isinstance(sug, dict) and sug.get("proposal_type") == "schedule":
+                    schedule_data = sug
+                    break
+
+            if t.ai_priority:
+                prop_type = "classify"
+                display_priority = t.ai_priority.value
+                target_column = "triage"
+            elif schedule_data:
+                prop_type = "schedule"
+                display_priority = t.priority.value
+                target_column = "scheduled"
+            else:
+                prop_type = "new_task"
+                display_priority = t.priority.value
+                target_column = col_id
+
+            task_data = {
+                "id": tid, "title": t.title, "description": t.description,
+                "ata_chapter": t.ata_chapter, "aircraft_reg": t.aircraft_reg,
+                "priority": display_priority, "task_type": t.task_type.value,
+                "zone": t.zone, "estimated_hours": float(schedule_data.get("estimated_hours", t.estimated_hours)),
+            }
+            if schedule_data:
+                for k in ("planned_start", "planned_end", "employee_id", "employee_name"):
+                    if schedule_data.get(k):
+                        task_data[k] = schedule_data[k]
+
             proposal = AIProposal(
                 id=f"ai_{tid}",
-                proposal_type="new_task",
-                task_data={
-                    "id": tid, "title": t.title, "description": t.description,
-                    "ata_chapter": t.ata_chapter, "aircraft_reg": t.aircraft_reg,
-                    "priority": t.priority.value, "task_type": t.task_type.value,
-                    "zone": t.zone, "estimated_hours": t.estimated_hours,
-                },
-                target_column=col_id,
+                proposal_type=prop_type,
+                task_data=task_data,
+                target_column=target_column,
             )
             ghost = AIGhostCard(
                 proposal,
@@ -161,17 +187,38 @@ class BoardPage:
                 pass
 
     def _accept_ai_task(self, tid):
-        """接受 AI 建议任务——去除幽灵标记变为正式任务。"""
-        state.update_task(tid, ai_proposed=False)
+        """接受 AI 建议任务——业务变更由 AIGhostCard 执行，此处仅清理标记。"""
+        t = state.get_task(tid)
+        if not t:
+            return
+        ai_suggestions = [s for s in (t.ai_suggestions or [])
+                          if not (isinstance(s, dict) and
+                                  s.get("proposal_type") in ("schedule",))]
+        state.update_task(tid, ai_proposed=False, ai_priority=None,
+                          ai_suggestions=ai_suggestions)
         from app.ui.widgets.toast import Toast
-        Toast.show(self._page, "AI 建议任务已接受", "success")
+        Toast.show(self._page, "AI 建议已接受", "success")
         self._refresh_board()
 
     def _reject_ai_task(self, tid):
-        """拒绝 AI 建议任务——删除。"""
-        state.delete_task(tid)
+        """拒绝 AI 建议任务——分类/排程提案仅清除标记，新建提案则删除任务。"""
+        t = state.get_task(tid)
+        if not t:
+            return
+        is_modify = t.ai_priority or any(
+            isinstance(s, dict) and s.get("proposal_type") in ("schedule",)
+            for s in (t.ai_suggestions or [])
+        )
+        if is_modify:
+            ai_suggestions = [s for s in (t.ai_suggestions or [])
+                              if not (isinstance(s, dict) and
+                                      s.get("proposal_type") in ("schedule",))]
+            state.update_task(tid, ai_proposed=False, ai_priority=None,
+                              ai_suggestions=ai_suggestions)
+        else:
+            state.delete_task(tid)
         from app.ui.widgets.toast import Toast
-        Toast.show(self._page, "AI 建议任务已拒绝", "info")
+        Toast.show(self._page, "AI 建议已拒绝", "info")
         self._refresh_board()
 
     def load_demo_data(self):
@@ -858,74 +905,104 @@ class BoardPage:
             Toast.show(self._page, f"未知 AI 命令: {cmd}", "warning")
 
     # ═══════════════════════════════════════════
-    # 1. 生成大纲 → 弹窗显示、可保存
+    # 1. 生成大纲 → AI 面板交互 + 弹窗进度
     # ═══════════════════════════════════════════
 
     def _cmd_outline(self):
-        """打开大纲生成弹窗。"""
         ff = theme.font_family
-        desc_f = ft.TextField(
-            hint_text="描述维护需求，如：B-5823 左发起落架收放测试...",
-            border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color="#e0e0e0", size=s(13), font_family=ff),
-            bgcolor=theme.card, multiline=True, min_lines=3, max_lines=6,
-            border_radius=s(6), dense=True,
-        )
-        result_f = ft.TextField(
-            value="", read_only=True, multiline=True, min_lines=8, max_lines=16,
-            border_color=theme.border,
-            text_style=ft.TextStyle(color="#c0c0c0", size=s(11), font_family=ff),
-            bgcolor=theme.card, border_radius=s(6),
-        )
-        progress = ft.ProgressRing(width=s(16), height=s(16), visible=False)
 
-        def _generate(e):
-            q = (desc_f.value or "").strip()
-            if not q:
-                Toast.show(self._page, "请输入维护需求描述", "warning"); return
-            progress.visible = True; result_f.value = "正在生成大纲..."; progress.update(); result_f.update()
-            try:
-                from app.ui.services.agent_service import AgentService
-                outline = AgentService.generate_outline(q)
-                result_f.value = outline
-            except Exception as ex:
-                result_f.value = f"生成失败: {ex}"
-            progress.visible = False; progress.update(); result_f.update()
-
-        def _save_file(e):
-            import os
-            os.makedirs("data/outlines", exist_ok=True)
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            path = f"data/outlines/outline_{ts}.md"
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(result_f.value or "")
-            Toast.show(self._page, f"已保存: {path}", "success"); dlg.close()
+        progress = ft.ProgressRing(width=s(18), height=s(18))
+        status_text = ft.Text("正在初始化...", size=s(12),
+                               color=theme.text_secondary, font_family=ff)
+        close_btn = ft.TextButton("关闭", visible=False,
+            on_click=lambda e: dlg.close())
 
         content = ft.Column([
-            ft.Text("AI 生成任务大纲", size=s(14), weight=ft.FontWeight.W_600,
-                    color=theme.text_primary, font_family=ff),
-            ft.Text("描述维护需求，AI 将搜索知识库并生成结构化大纲", size=s(11),
-                    color=theme.text_secondary, font_family=ff),
-            ft.Container(height=s(8)),
-            desc_f,
-            ft.Row([ft.ElevatedButton("生成大纲", on_click=_generate,
-                    style=ft.ButtonStyle(bgcolor=theme.info, color=ft.Colors.WHITE,
-                        shape=ft.RoundedRectangleBorder(radius=s(6)))),
-                    progress], spacing=s(8)),
-            ft.Container(height=s(8)),
-            result_f,
-            ft.Container(height=s(8)),
             ft.Row([
+                ft.Icon(ft.Icons.ARTICLE_OUTLINED, size=s(16), color=theme.info),
+                ft.Text("生成大纲", size=s(14), weight=ft.FontWeight.W_600,
+                        color=theme.text_primary, font_family=ff),
                 ft.Container(expand=True),
-                ft.TextButton("关闭", on_click=lambda e: dlg.close()),
-                ft.ElevatedButton("保存到文件", on_click=_save_file,
-                    style=ft.ButtonStyle(bgcolor=theme.success, color=ft.Colors.WHITE,
-                        shape=ft.RoundedRectangleBorder(radius=s(6)))),
-            ]),
+                close_btn,
+            ], spacing=s(8)),
+            ft.Container(height=s(12)),
+            ft.Row([progress,
+                    ft.Container(width=s(10)),
+                    status_text],
+                   spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ], spacing=0, tight=True)
+
         from app.ui.components.modal_dialog import ModalDialog
-        dlg = ModalDialog(self._page, content, width=620)
+        dlg = ModalDialog(self._page, content, width=420,
+                          close_on_dimmer_click=False)
         dlg.open()
+
+        self._open_ai_panel()
+        if not self.ai_chat:
+            status_text.value = "AI 面板未就绪"
+            progress.visible = False
+            close_btn.visible = True
+            try: progress.update(); status_text.update(); close_btn.update()
+            except Exception: pass
+            return
+        session_id = getattr(self.ai_chat, '_session_id', 'outline')
+
+        import threading, time
+
+        def _do_outline():
+            try:
+                from app.ui.services.agent_service import AgentService
+
+                status_text.value = "AI 正在了解需求..."
+                try: status_text.update()
+                except: pass
+
+                self._show_ai_in_panel("生成大纲", "等待 AI 响应...")
+
+                result = AgentService.ask(
+                    "你需要帮助用户生成航空维修任务大纲。\n\n"
+                    "请先与用户交互，了解以下信息：\n"
+                    "- 涉及的飞机注册号和机型\n"
+                    "- ATA 章节范围\n"
+                    "- 具体的维护工作内容\n"
+                    "- 优先级要求\n\n"
+                    "用户回答后，生成结构化的 Markdown 大纲，"
+                    "包含：工作范围、所需工具/零件、步骤、安全注意事项、参考资料。"
+                    "现在请先向用户提问。",
+                    session_id=session_id)
+
+                self._show_ai_in_panel("生成大纲", result)
+
+                status_text.value = "请回答 AI 的问题，大纲生成将自动开始"
+                progress.visible = False
+                close_btn.visible = True
+                try: progress.update(); status_text.update(); close_btn.update()
+                except Exception: pass
+
+                # Phase 2: poll for generation completion
+                was_busy = False
+                for _ in range(180):
+                    time.sleep(1)
+                    if not hasattr(self, 'ai_chat') or not self.ai_chat:
+                        break
+                    if self.ai_chat._busy:
+                        was_busy = True
+                        status_text.value = "正在生成大纲..."
+                        try: status_text.update()
+                        except: pass
+                    elif was_busy:
+                        status_text.value = "大纲生成完成"
+                        try: status_text.update()
+                        except: pass
+                        break
+            except Exception as ex:
+                status_text.value = f"生成失败: {ex}"
+                progress.visible = False
+                close_btn.visible = True
+                try: progress.update(); status_text.update(); close_btn.update()
+                except: pass
+
+        threading.Thread(target=_do_outline, daemon=True).start()
 
     # ═══════════════════════════════════════════
     # 2. 生成任务 → Agent 调用 create_task 工具 → 幽灵卡
@@ -958,13 +1035,281 @@ class BoardPage:
     }
 
     def _cmd_gen_tasks(self):
-        self._run_agent_cmd("gen_tasks", self._CMD_PROMPTS["gen_tasks"])
+        ff = theme.font_family
+
+        # ── 弹窗 ──
+        progress = ft.ProgressRing(width=s(18), height=s(18))
+        status_text = ft.Text("正在初始化...", size=s(12),
+                               color=theme.text_secondary, font_family=ff)
+        close_btn = ft.TextButton("关闭", visible=False,
+            on_click=lambda e: dlg.close())
+
+        content = ft.Column([
+            ft.Row([
+                ft.Icon(ft.Icons.TASK_ALT_OUTLINED, size=s(16), color=theme.info),
+                ft.Text("生成任务", size=s(14), weight=ft.FontWeight.W_600,
+                        color=theme.text_primary, font_family=ff),
+                ft.Container(expand=True),
+                close_btn,
+            ], spacing=s(8)),
+            ft.Container(height=s(12)),
+            ft.Row([progress,
+                    ft.Container(width=s(10)),
+                    status_text],
+                   spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        ], spacing=0, tight=True)
+
+        from app.ui.components.modal_dialog import ModalDialog
+        dlg = ModalDialog(self._page, content, width=420,
+                          close_on_dimmer_click=False)
+        dlg.open()
+
+        # ── 打开 AI 面板并获取共享 session ──
+        self._open_ai_panel()
+        if not self.ai_chat:
+            status_text.value = "AI 面板未就绪"
+            progress.visible = False
+            close_btn.visible = True
+            try: progress.update(); status_text.update(); close_btn.update()
+            except Exception: pass
+            return
+        session_id = getattr(self.ai_chat, '_session_id', 'gen_tasks')
+
+        # ── 后台线程 ──
+        import threading, time
+
+        def _do_gen():
+            try:
+                from app.ui.services.agent_service import AgentService
+
+                status_text.value = "AI 正在了解需求..."
+                try: status_text.update()
+                except: pass
+
+                self._show_ai_in_panel("生成任务", "等待 AI 响应...")
+
+                result = AgentService.ask(
+                    self._CMD_PROMPTS["gen_tasks"] +
+                    "\n\n## 交互要求\n"
+                    "在创建任务之前，请先向用户询问任务的具体需求：\n"
+                    "- 需要生成什么类型的维修任务（排故/检查/勤务/拆装/测试/修理）？\n"
+                    "- 涉及哪些 ATA 章节？\n"
+                    "- 优先级要求是什么？\n"
+                    "- 涉及的飞机注册号？\n\n"
+                    "用户回答后，再使用 create_task 工具逐个创建任务。"
+                    "现在请直接向用户提问，不要创建任务。",
+                    session_id=session_id)
+
+                self._show_ai_in_panel("生成任务", result)
+
+                status_text.value = "请回答 AI 的问题，任务生成将自动开始"
+                progress.visible = False
+                close_btn.visible = True
+                try: progress.update(); status_text.update(); close_btn.update()
+                except Exception: pass
+
+                # Phase 2: poll for generation progress
+                known_ids = {t.id for t in state.get_all_tasks()}
+                for _ in range(180):
+                    time.sleep(1)
+                    if not hasattr(self, 'ai_chat') or not self.ai_chat:
+                        break
+                    if self.ai_chat._busy:
+                        status_text.value = "正在生成任务..."
+                        try: status_text.update()
+                        except: pass
+                    new_tasks = [t for t in state.get_all_tasks()
+                                  if t.ai_proposed and t.id not in known_ids]
+                    if new_tasks:
+                        n = len(new_tasks)
+                        status_text.value = f"生成完成，共 {n} 个任务待确认"
+                        try: status_text.update()
+                        except: pass
+                        self._refresh_board()
+                        break
+                    if not getattr(self, 'ai_chat', None):
+                        break
+            except Exception as ex:
+                status_text.value = f"生成失败: {ex}"
+                progress.visible = False
+                close_btn.visible = True
+                try: progress.update(); status_text.update(); close_btn.update()
+                except: pass
+
+        threading.Thread(target=_do_gen, daemon=True).start()
 
     def _cmd_classify(self):
-        self._run_agent_cmd("classify", self._CMD_PROMPTS["classify"])
+        backlog = [t for t in state.get_all_tasks() if t.status.value == "backlog"]
+        if not backlog:
+            self._show_ai_in_panel("自动分类", "待处理列中没有任务需要分类。")
+            return
+        tasks_str = "\n".join(
+            f"- [{t.id}] {t.title} (ATA {t.ata_chapter or '未指定'}, "
+            f"飞机 {t.aircraft_reg or '未指定'})"
+            for t in backlog
+        )
+        prompt = (
+            f"{self._CMD_PROMPTS['classify']}\n\n"
+            f"当前待处理任务列表 (共 {len(backlog)} 个):\n{tasks_str}\n\n"
+            f"请使用 classify_task 工具逐个分类，设定合适的优先级后解释理由。"
+        )
+
+        ff = theme.font_family
+        n = len(backlog)
+
+        # ── AI 面板显示分类中 ──
+        self._show_ai_in_panel("自动分类", "正在自动分类，请稍候...")
+
+        # ── 弹窗 ──
+        progress = ft.ProgressRing(width=s(18), height=s(18))
+        status_text = ft.Text("正在自动分类...", size=s(12),
+                               color=theme.text_secondary, font_family=ff)
+        count_text = ft.Text(f"待处理 {n} 个任务", size=s(10),
+                             color=theme.text_disabled, font_family=ff)
+        close_btn = ft.TextButton("关闭", visible=False,
+            on_click=lambda e: dlg.close())
+
+        content = ft.Column([
+            ft.Row([
+                ft.Icon(ft.Icons.PSYCHOLOGY_OUTLINED, size=s(16), color=theme.info),
+                ft.Text("自动分类", size=s(14), weight=ft.FontWeight.W_600,
+                        color=theme.text_primary, font_family=ff),
+                ft.Container(expand=True),
+                close_btn,
+            ], spacing=s(8)),
+            ft.Container(height=s(12)),
+            ft.Row([progress,
+                    ft.Container(width=s(10)),
+                    ft.Column([status_text, count_text], spacing=s(2), tight=True)],
+                   spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        ], spacing=0, tight=True)
+
+        from app.ui.components.modal_dialog import ModalDialog
+        dlg = ModalDialog(self._page, content, width=380,
+                          close_on_dimmer_click=False)
+        dlg.open()
+
+        # ── 后台线程 ──
+        import threading
+
+        def _do_classify():
+            try:
+                from app.ui.services.agent_service import AgentService
+                result = AgentService.ask(prompt, session_id="classify")
+
+                status_text.value = "分类完成，刷新看板..."
+                count_text.value = ""
+                progress.visible = False
+                try:
+                    progress.update(); status_text.update(); count_text.update()
+                except Exception: pass
+
+                self._show_ai_in_panel("自动分类", result)
+                self._refresh_board()
+
+                status_text.value = "分类完成"
+                close_btn.visible = True
+                try:
+                    status_text.update(); close_btn.update()
+                except Exception: pass
+            except Exception as ex:
+                status_text.value = f"分类失败: {ex}"
+                count_text.value = ""
+                progress.visible = False
+                close_btn.visible = True
+                try:
+                    progress.update(); status_text.update()
+                    count_text.update(); close_btn.update()
+                except Exception: pass
+                self._show_ai_in_panel("自动分类", f"分类失败: {ex}")
+
+        threading.Thread(target=_do_classify, daemon=True).start()
 
     def _cmd_schedule(self):
-        self._run_agent_cmd("schedule", self._CMD_PROMPTS["schedule"])
+        triage = [t for t in state.get_all_tasks() if t.status.value == "triage"]
+        if not triage:
+            self._show_ai_in_panel("自动排程", "已分类列中没有任务需要排程。")
+            return
+        tasks_str = "\n".join(
+            f"- [{t.id}] {t.title} (优先级: {t.priority.value}, "
+            f"ATA {t.ata_chapter or '未指定'})"
+            for t in triage
+        )
+        prompt = (
+            f"{self._CMD_PROMPTS['schedule']}\n\n"
+            f"当前已分类任务列表 (共 {len(triage)} 个):\n{tasks_str}\n\n"
+            f"请使用 search_employees 查找合适员工，使用 schedule_task 工具逐个排程，"
+            f"设置合理的计划时间和负责人员后解释理由。"
+        )
+
+        ff = theme.font_family
+        n = len(triage)
+
+        self._show_ai_in_panel("自动排程", "正在自动排程，请稍候...")
+
+        progress = ft.ProgressRing(width=s(18), height=s(18))
+        status_text = ft.Text("正在自动排程...", size=s(12),
+                               color=theme.text_secondary, font_family=ff)
+        count_text = ft.Text(f"已分类 {n} 个任务", size=s(10),
+                             color=theme.text_disabled, font_family=ff)
+        close_btn = ft.TextButton("关闭", visible=False,
+            on_click=lambda e: dlg.close())
+
+        content = ft.Column([
+            ft.Row([
+                ft.Icon(ft.Icons.SCHEDULE_OUTLINED, size=s(16), color=theme.info),
+                ft.Text("自动排程", size=s(14), weight=ft.FontWeight.W_600,
+                        color=theme.text_primary, font_family=ff),
+                ft.Container(expand=True),
+                close_btn,
+            ], spacing=s(8)),
+            ft.Container(height=s(12)),
+            ft.Row([progress,
+                    ft.Container(width=s(10)),
+                    ft.Column([status_text, count_text], spacing=s(2), tight=True)],
+                   spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        ], spacing=0, tight=True)
+
+        from app.ui.components.modal_dialog import ModalDialog
+        dlg = ModalDialog(self._page, content, width=380,
+                          close_on_dimmer_click=False)
+        dlg.open()
+
+        import threading
+        session_id = getattr(self.ai_chat, '_session_id', 'schedule')
+
+        def _do_schedule():
+            try:
+                from app.ui.services.agent_service import AgentService
+                result = AgentService.ask(prompt, session_id=session_id)
+
+                status_text.value = "排程完成，刷新看板..."
+                count_text.value = ""
+                progress.visible = False
+                try:
+                    progress.update(); status_text.update(); count_text.update()
+                except Exception: pass
+
+                self._show_ai_in_panel("自动排程", result)
+                self._refresh_board()
+
+                status_text.value = "排程完成"
+                close_btn.visible = True
+                try:
+                    status_text.update(); close_btn.update()
+                except Exception: pass
+            except Exception as ex:
+                status_text.value = f"排程失败: {ex}"
+                count_text.value = ""
+                progress.visible = False
+                close_btn.visible = True
+                try:
+                    progress.update(); status_text.update()
+                    count_text.update(); close_btn.update()
+                except Exception: pass
+                self._show_ai_in_panel("自动排程", f"排程失败: {ex}")
+
+        threading.Thread(target=_do_schedule, daemon=True).start()
 
     def _cmd_acceptance(self):
         self._run_agent_cmd("acceptance", self._CMD_PROMPTS["acceptance"])

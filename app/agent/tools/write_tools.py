@@ -113,14 +113,14 @@ def update_task(task_id: str, fields_json: str) -> str:
 
 @tool
 def classify_task(task_id: str, priority: str) -> str:
-    """为任务设置优先级并移至已分类列。
+    """为任务设置优先级并标记为待确认分类建议。
 
     Args:
         task_id: 任务 ID
         priority: 优先级 (aog | cat_a | cat_b | cat_c | cat_d)
 
     Returns:
-        分类结果
+        分类结果（需用户确认后生效）
     """
     valid = {"aog", "cat_a", "cat_b", "cat_c", "cat_d"}
     if priority not in valid:
@@ -134,13 +134,21 @@ def classify_task(task_id: str, priority: str) -> str:
         return f"[Error] 任务 {task_id} 当前状态为 '{task.status.value}'，只能分类待处理任务"
 
     try:
-        task_service.move_task(task_id, "triage", changed_by="ai_agent")
-        task_service.set_priority(task_id, priority)
+        from app.core.models.task import Priority
+        state.update_task(task_id, ai_proposed=True,
+                          ai_priority=Priority(priority),
+                          created_by="ai_agent")
+        event_bus.emit(AppEvent(
+            type=EventType.AI_PROPOSAL_CREATED,
+            data={"task_id": task_id, "title": task.title,
+                  "proposal_type": "classify", "priority": priority},
+        ))
         return json.dumps({
             "task_id": task_id,
             "title": task.title,
-            "priority": priority,
-            "status": "triage",
+            "proposed_priority": priority,
+            "action": "proposed",
+            "confirm_needed": True,
         }, ensure_ascii=False)
     except Exception as e:
         return f"[Error] 分类失败: {e}"
@@ -150,7 +158,7 @@ def classify_task(task_id: str, priority: str) -> str:
 def schedule_task(task_id: str, planned_start: str = "",
                   planned_end: str = "", employee_id: str = "",
                   employee_name: str = "", estimated_hours: float = 0.0) -> str:
-    """为已分类任务排程，设置计划时间和负责人，移至已排程列。
+    """为已分类任务排程，标记为待确认排程建议。
 
     Args:
         task_id: 任务 ID
@@ -161,7 +169,7 @@ def schedule_task(task_id: str, planned_start: str = "",
         estimated_hours: 计划工时（小时）
 
     Returns:
-        排程结果
+        排程结果（需用户确认后生效）
     """
     task = state.get_task(task_id)
     if not task:
@@ -170,35 +178,42 @@ def schedule_task(task_id: str, planned_start: str = "",
     if task.status.value != "triage":
         return f"[Error] 任务 {task_id} 当前状态为 '{task.status.value}'，只能排程已分类任务"
 
-    updates = {}
+    proposal = {"proposal_type": "schedule"}
     if planned_start:
         try:
-            updates["planned_start"] = datetime.strptime(planned_start, "%Y-%m-%d %H:%M")
+            proposal["planned_start"] = datetime.strptime(planned_start, "%Y-%m-%d %H:%M").strftime("%Y-%m-%d %H:%M")
         except ValueError:
             return f"[Error] 计划开始时间格式无效: '{planned_start}'，需要 YYYY-MM-DD HH:MM"
     if planned_end:
         try:
-            updates["planned_end"] = datetime.strptime(planned_end, "%Y-%m-%d %H:%M")
+            proposal["planned_end"] = datetime.strptime(planned_end, "%Y-%m-%d %H:%M").strftime("%Y-%m-%d %H:%M")
         except ValueError:
             return f"[Error] 计划完成时间格式无效: '{planned_end}'，需要 YYYY-MM-DD HH:MM"
     if employee_id:
-        updates["employee_id"] = employee_id
+        proposal["employee_id"] = employee_id
     if employee_name:
-        updates["employee_name"] = employee_name
-        updates["assignee"] = employee_name
+        proposal["employee_name"] = employee_name
     if estimated_hours > 0:
-        updates["estimated_hours"] = estimated_hours
-
-    if updates:
-        task_service.update_task(task_id, **updates)
+        proposal["estimated_hours"] = estimated_hours
 
     try:
-        task_service.move_task(task_id, "scheduled", changed_by="ai_agent")
+        ai_suggestions = list(task.ai_suggestions or [])
+        ai_suggestions[:] = [s for s in ai_suggestions
+                             if not (isinstance(s, dict) and s.get("proposal_type") == "schedule")]
+        ai_suggestions.append(proposal)
+        state.update_task(task_id, ai_proposed=True, ai_suggestions=ai_suggestions,
+                          created_by="ai_agent")
+        event_bus.emit(AppEvent(
+            type=EventType.AI_PROPOSAL_CREATED,
+            data={"task_id": task_id, "title": task.title,
+                  "proposal_type": "schedule", "schedule_data": proposal},
+        ))
         return json.dumps({
             "task_id": task_id,
             "title": task.title,
-            "status": "scheduled",
-            "updates": updates,
-        }, ensure_ascii=False, default=str)
+            "proposed_schedule": proposal,
+            "action": "proposed",
+            "confirm_needed": True,
+        }, ensure_ascii=False)
     except Exception as e:
         return f"[Error] 排程失败: {e}"
