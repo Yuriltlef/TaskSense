@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 import flet as ft
 from app.config.theme import theme, s
-from app.ui.components.chat_bubble import user_bubble, ai_bubble, error_bubble, timestamp_label
+from app.ui.components.chat_bubble import user_bubble, ai_bubble, error_bubble, timestamp_label, prompt_bubble
 from app.ui.components.chat_input import ChatInput
 
 
@@ -25,6 +25,10 @@ class AIChatPanel(ft.Container):
         self._msg_pairs: list[tuple[str, str, str]] = []  # (user, ai, timestamp)
         self._session_id = self._new_session()
         self._strict_mode = False  # False=普通 True=严格
+        self._task_card: ft.Container | None = None     # 任务进度卡片
+        self._cancel_event = None                        # 取消事件
+        self._proposal_results: list[tuple] = []         # 已处理的提案 (tid, result, title)
+        self._status_bubbles: list[tuple] = []           # 状态气泡 (text, color) — 始终渲染在末尾
 
     @property
     def is_open(self): return self.visible
@@ -52,6 +56,8 @@ class AIChatPanel(ft.Container):
         AgentService.clear_session(self._session_id)
         self._session_id = self._new_session()
         self._msg_pairs.clear()
+        self._proposal_results.clear()
+        self._status_bubbles.clear()
         if self._chat:
             self._chat.controls.clear()
             self._chat.update()
@@ -60,7 +66,8 @@ class AIChatPanel(ft.Container):
         new_w = max(self.MIN_W, min(self.MAX_W, self.width - delta))
         if new_w != self.width:
             self.width = new_w
-            self._rebuild_bubbles()
+            if not self._busy and not self.is_task_running:
+                self._rebuild_bubbles()
             self.update()
 
     # ═══════════════════════════════════════════════
@@ -92,6 +99,9 @@ class AIChatPanel(ft.Container):
             [], spacing=10, expand=True,
             padding=ft.padding.only(left=12, top=10, right=12, bottom=10),
         )
+
+        # 任务进度卡片区域（固定在聊天区上方，不随滚动）
+        self._task_area = ft.Container(visible=False, padding=ft.padding.only(left=12, top=4, right=12, bottom=0))
 
         self._input = ChatInput(on_send=self._handle_send, on_stop=self._handle_stop)
 
@@ -128,7 +138,7 @@ class AIChatPanel(ft.Container):
             padding=ft.padding.only(left=14, top=10, right=14, bottom=12),
             border=ft.border.only(top=ft.BorderSide(1, theme.border)))
 
-        return ft.Column([hdr, ft.Container(self._chat, expand=True), inp],
+        return ft.Column([hdr, self._task_area, ft.Container(self._chat, expand=True), inp],
                          spacing=0, expand=True)
 
     def _chip(self, label, icon, cmd):
@@ -169,6 +179,7 @@ class AIChatPanel(ft.Container):
             or text == "回答已中断"
         )
 
+
     @property
     def _max_w(self) -> float:
         return max(200.0, (self.width or 520) - 32)
@@ -180,13 +191,48 @@ class AIChatPanel(ft.Container):
         controls = []
         for u, a, ts in self._msg_pairs:
             controls.append(timestamp_label(ts))
-            controls.append(user_bubble(u, mw, on_copy=self._copy, on_refresh=self._refresh))
-            controls.append(
-                error_bubble(a, mw, on_copy=self._copy, on_refresh=self._refresh)
-                if self._is_error(a)
-                else ai_bubble(a, mw, on_copy=self._copy, on_refresh=self._refresh)
-            )
+            if u == "__PROMPT__":
+                controls.append(prompt_bubble(a, mw, on_copy=self._copy, on_refresh=self._refresh))
+            elif u.startswith("__STATUS_"):
+                pass  # 状态气泡在末尾统一渲染
+            else:
+                controls.append(user_bubble(u, mw, on_copy=self._copy, on_refresh=self._refresh))
+                controls.append(
+                    error_bubble(a, mw, on_copy=self._copy, on_refresh=self._refresh)
+                    if self._is_error(a)
+                    else ai_bubble(a, mw, on_copy=self._copy, on_refresh=self._refresh)
+                )
+
+        # ── 提案 UI（活跃 + 已处理）──
+        from app.core.state import state as app_state
+        proposed = [t for t in app_state.get_all_tasks() if t.ai_proposed]
+        if proposed:
+            controls.append(self._build_proposal_actions(proposed, mw))
+        for tid, result, title in self._proposal_results:
+            controls.append(self._build_resolved_row(tid, result, title))
+
+        # ── 状态气泡始终在最末尾 ──
+        for text, color in self._status_bubbles:
+            controls.append(_status_bubble(text, color, mw))
+
         self._chat.controls = controls
+
+    def _build_resolved_row(self, tid, result, title):
+        """重建已处理的提案结果行。"""
+        color = theme.success if result == "accepted" else theme.error
+        label = "已接受" if result == "accepted" else "已拒绝"
+        return ft.Container(
+            ft.Row([
+                ft.Icon(ft.Icons.CHECK if result == "accepted" else ft.Icons.CLOSE,
+                        size=s(12), color=color),
+                ft.Text(f"{label}: {title[:25]}", size=s(11),
+                        color=theme.text_secondary, font_family=theme.font_family),
+            ], spacing=s(6)),
+            border=ft.border.all(1, ft.Colors.with_opacity(0.15, color)),
+            bgcolor=ft.Colors.with_opacity(0.04, color),
+            border_radius=s(4),
+            padding=ft.padding.symmetric(horizontal=s(8), vertical=s(4)),
+        )
 
     async def _scroll_to_bottom_async(self):
         import asyncio
@@ -355,8 +401,11 @@ class AIChatPanel(ft.Container):
             app_state.update_task(tid, ai_proposed=False)
         self._update_proposal_row(tid, "accepted", title)
         if self.page:
-            from app.ui.widgets.toast import Toast
-            Toast.show(self.page, "任务已接受", "success")
+            try:
+                from app.ui.widgets.toast import Toast
+                Toast.show(self.page, "任务已接受", "success")
+            except Exception:
+                pass
 
     def _reject_proposal(self, tid):
         from app.core.state import state as app_state
@@ -376,8 +425,11 @@ class AIChatPanel(ft.Container):
             app_state.delete_task(tid)
         self._update_proposal_row(tid, "rejected", title)
         if self.page:
-            from app.ui.widgets.toast import Toast
-            Toast.show(self.page, "任务已拒绝", "info")
+            try:
+                from app.ui.widgets.toast import Toast
+                Toast.show(self.page, "任务已拒绝", "info")
+            except Exception:
+                pass  # Flet overlay update 偶发 __uid 为 None
 
     def _update_proposal_row(self, tid, result, title):
         """就地更新提案行：隐藏按钮，显示结果。"""
@@ -397,6 +449,7 @@ class AIChatPanel(ft.Container):
             row.bgcolor = ft.Colors.with_opacity(0.04, color)
             row.update()
             del self._proposal_rows[tid]
+            self._proposal_results.append((tid, result, title))
             self._update_batch_buttons()
         except Exception:
             pass
@@ -554,6 +607,114 @@ class AIChatPanel(ft.Container):
         elif txt.startswith("/summary"): return AgentService.get_board_summary()
         else: return self._ask(txt, cancel_event)
 
+    # ═══════════════════════════════════════════════
+    # 任务进度卡片（替换 _show_ai_in_panel 的重复气泡）
+    # ═══════════════════════════════════════════════
+
+    def show_task_card(self, title: str, on_cancel=None):
+        """在聊天区顶部显示任务进度卡片。"""
+        import threading
+        self._cancel_event = threading.Event()
+        ff = theme.font_family
+
+        self._status_text = ft.Text("正在准备...", size=s(11), color=theme.text_secondary, font_family=ff)
+        self._task_spinner = ft.ProgressRing(width=s(14), height=s(14), color=theme.info)
+
+        cancel_btn = ft.TextButton("取消", icon=ft.Icons.CANCEL_OUTLINED,
+            style=ft.ButtonStyle(color=theme.text_secondary,
+                padding=ft.padding.symmetric(horizontal=s(8), vertical=s(2)),
+                text_style=ft.TextStyle(size=s(10), font_family=ff)),
+            on_click=lambda e: self._cancel_task(on_cancel))
+
+        self._task_card = ft.Container(
+            ft.Column([
+                ft.Row([
+                    ft.Icon(ft.Icons.PSYCHOLOGY_OUTLINED, size=s(15), color=theme.info),
+                    ft.Text(title, size=s(13), weight=ft.FontWeight.W_600,
+                            color=theme.text_primary, font_family=ff),
+                    ft.Container(expand=True),
+                    cancel_btn,
+                ], spacing=s(6)),
+                ft.Container(height=s(4)),
+                ft.Row([self._task_spinner, self._status_text], spacing=s(8)),
+            ], spacing=0, tight=True),
+            bgcolor="#111111", border_radius=s(8),
+            border=ft.border.all(1, theme.info),
+            padding=ft.padding.all(s(10)),
+        )
+
+        self._task_area.content = self._task_card
+        self._task_area.visible = True
+        try: self._task_area.update()
+        except Exception: pass
+
+    def update_task_card(self, status: str, border_color: str = None):
+        """更新任务卡片的进度文字和边框颜色。"""
+        if self._task_card and hasattr(self, '_status_text'):
+            self._status_text.value = status
+            try: self._status_text.update()
+            except Exception: pass
+        if border_color and self._task_card:
+            self._task_card.border = ft.border.all(1, border_color)
+            try: self._task_card.update()
+            except Exception: pass
+
+    def mark_task_done(self):
+        """将取消按钮改为「完成」按钮（审阅类工具用）。"""
+        if not self._task_card: return
+        col = self._task_card.content
+        header_row = col.controls[0]  # first Row: icon + title + expand + cancel_btn
+        header_row.controls[-1] = ft.TextButton("完成", icon=ft.Icons.CHECK_OUTLINED,
+            style=ft.ButtonStyle(color=theme.success,
+                padding=ft.padding.symmetric(horizontal=s(8), vertical=s(2)),
+                text_style=ft.TextStyle(size=s(10), font_family=theme.font_family)),
+            on_click=lambda e: self.hide_task_card())
+        try: self._task_card.update()
+        except Exception: pass
+
+    def hide_task_card(self, cancelled: bool = False):
+        """移除任务进度卡片。"""
+        self._task_card = None
+        self._cancel_event = None
+        self._task_area.visible = False
+        self._task_area.content = None
+        try: self._task_area.update()
+        except Exception: pass
+
+    def show_prompt_bubble(self, text: str):
+        """显示紫色「需要补充信息」提示气泡。追加不重建。"""
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+        self._msg_pairs.append(("__PROMPT__", text, ts))
+        if self._chat is not None:
+            self._chat.controls.append(timestamp_label(ts))
+            self._chat.controls.append(prompt_bubble(text, self._max_w,
+                                       on_copy=self._copy, on_refresh=self._refresh))
+            try: self._chat.update()
+            except Exception: pass
+        self._scroll_to_bottom()
+
+    def show_status_bubble(self, text: str, color: str = "#5294e2"):
+        """显示彩色状态气泡（完成/取消等）。始终追加到最末尾。"""
+        self._status_bubbles.append((text, color))
+        if self._chat is not None:
+            self._chat.controls.append(_status_bubble(text, color, self._max_w))
+            try: self._chat.update()
+            except Exception: pass
+        self._scroll_to_bottom()
+
+    def _cancel_task(self, on_cancel=None):
+        """取消当前任务 — 只设置取消信号，由轮询线程处理清理和气泡。"""
+        if self._cancel_event:
+            self._cancel_event.set()
+        self.update_task_card("正在取消...")
+        if on_cancel:
+            on_cancel()
+
+    @property
+    def is_task_running(self) -> bool:
+        return self._task_card is not None and self._cancel_event is not None
+
     def _ask(self, q: str, cancel_event) -> str:
         from app.config.settings_manager import SettingsManager
         if not SettingsManager().load()["llm"].get("api_key"):
@@ -565,3 +726,20 @@ class AIChatPanel(ft.Container):
         from app.ui.services.agent_service import AgentService
         return AgentService.ask(q, self._session_id, strict=self._strict_mode,
                                cancel_event=cancel_event)
+
+
+def _status_bubble(text: str, color: str, max_w: float) -> ft.Container:
+    """彩色状态提示条 — 完成(绿)/取消(灰)等。"""
+    return ft.Container(
+        ft.Row([
+            ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE if "完成" in text else ft.Icons.CANCEL_OUTLINED,
+                    size=13, color=color),
+            ft.Text(text, size=11, color=color, font_family=theme.font_family,
+                    weight=ft.FontWeight.W_600),
+        ], spacing=8, alignment=ft.MainAxisAlignment.CENTER),
+        bgcolor=ft.Colors.with_opacity(0.08, color),
+        border=ft.border.all(1, ft.Colors.with_opacity(0.2, color)),
+        border_radius=s(6),
+        padding=ft.padding.symmetric(horizontal=s(12), vertical=s(8)),
+        width=min(max_w, 400),
+    )

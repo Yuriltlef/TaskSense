@@ -394,7 +394,8 @@ class BoardPage:
                            self._drag_start_width + delta))
             if new_w != self.ai_chat.width:
                 self.ai_chat.width = new_w
-                self.ai_chat._rebuild_bubbles()
+                if not self.ai_chat._busy and not self.ai_chat.is_task_running:
+                    self.ai_chat._rebuild_bubbles()
                 self.ai_chat.update()
         elif self.side_panel and self.side_panel.is_open:
             new_w = self._drag_start_width + delta
@@ -412,8 +413,40 @@ class BoardPage:
     def _open_ai_panel(self):
         if self.ai_chat:
             if self.side_panel and self.side_panel.is_open: self.side_panel.close()
-            self.ai_chat.toggle()
+            if not self.ai_chat.is_open:
+                self.ai_chat.open()
             self._page.update()
+
+    def _finish_task_card(self, label: str, status: str, color: str):
+        """统一的任务卡片结束处理：停动画 + 显示结果气泡（保留在聊天历史）+ 延迟关闭卡片。"""
+        import time
+        self.ai_chat.update_task_card(status, border_color=color)
+        self.ai_chat.show_status_bubble(f"{label} {status}", color)
+        time.sleep(2)
+        self.ai_chat.hide_task_card()
+
+    def _poll_ghost_resolution(self, label: str, pending_ids: set,
+                                cancel_event, timeout: int = 300):
+        """轮询等待幽灵任务全部确认/拒绝。cancel_event 由调用方传入。"""
+        import time
+        cancel = cancel_event
+        if cancel is None:
+            self.ai_chat.hide_task_card() if self.ai_chat else None
+            return
+        for i in range(timeout):
+            if cancel.is_set():
+                self._finish_task_card(label, "已取消", theme.text_disabled)
+                return
+            time.sleep(1)
+            remaining = [tid for tid in pending_ids
+                         if state.get_task(tid) and state.get_task(tid).ai_proposed]
+            if len(remaining) == 0:
+                self._finish_task_card(label, "全部已确认", theme.success)
+                return
+            if i % 5 == 0:
+                self.ai_chat.update_task_card(f"{len(remaining)} 个待确认...", border_color=theme.warning)
+                self._refresh_board()
+        self._finish_task_card(label, "等待超时", theme.text_disabled)
 
     def _on_side_panel_close(self):
         if self._page: self._page.update()
@@ -922,53 +955,47 @@ class BoardPage:
     # ═══════════════════════════════════════════
 
     def _cmd_outline(self):
-        if self._agent_busy:
-            Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
-        self._agent_busy = True
-        self._open_ai_panel()
         if not self.ai_chat:
-            self._agent_busy = False
             Toast.show(self._page, "AI 面板未就绪", "warning"); return
-        session_id = getattr(self.ai_chat, '_session_id', 'outline')
+        if self.ai_chat.is_task_running:
+            Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
+        self._open_ai_panel()
+        self.ai_chat.show_task_card("生成大纲")
 
         import threading, time
 
         def _do_outline():
+            cancel = self.ai_chat._cancel_event
             try:
                 from app.ui.services.agent_service import AgentService
-
-                self._show_ai_in_panel("生成大纲", "正在了解需求，请稍候...")
-
+                from app.agent.orchestrator import _load_prompt
+                self.ai_chat.update_task_card("正在分析需求...")
+                prompt = _load_prompt("generate_outline_interactive.md")
                 result = AgentService.ask(
-                    "你需要帮助用户生成航空维修任务大纲。\n\n"
-                    "请先与用户交互，了解以下信息：\n"
-                    "- 涉及的飞机注册号和机型\n"
-                    "- ATA 章节范围\n"
-                    "- 具体的维护工作内容\n"
-                    "- 优先级要求\n\n"
-                    "用户回答后，生成结构化的 Markdown 大纲，"
-                    "包含：工作范围、所需工具/零件、步骤、安全注意事项、参考资料。"
-                    "现在请先向用户提问。",
-                    session_id=session_id)
-
-                self._show_ai_in_panel("生成大纲", result)
-
-                was_busy = False
-                for _ in range(180):
+                    prompt, session_id="outline", strict=True,
+                    cancel_event=cancel)
+                if cancel.is_set():
+                    self._finish_task_card("生成大纲", "已取消", theme.text_disabled)
+                    return
+                self.ai_chat.show_prompt_bubble(result)
+                self.ai_chat.update_task_card("请回复上方紫色气泡中的问题...")
+                busy_seen = False
+                for _ in range(300):
+                    if cancel.is_set():
+                        self._finish_task_card("生成大纲", "已取消", theme.text_disabled)
+                        return
                     time.sleep(1)
-                    if not hasattr(self, 'ai_chat') or not self.ai_chat:
-                        break
+                    if not self.ai_chat: break
                     if self.ai_chat._busy:
-                        if not was_busy:
-                            was_busy = True
-                            self._show_ai_in_panel("生成大纲", "正在生成大纲...")
-                    elif was_busy:
-                        self._show_ai_in_panel("生成大纲", "大纲生成完成")
+                        busy_seen = True
+                        self.ai_chat.update_task_card("正在生成大纲...", border_color=theme.warning)
+                    elif busy_seen:
+                        self.ai_chat.update_task_card("生成完成 — 点击「完成」关闭", border_color=theme.success)
+                        self.ai_chat.mark_task_done()
+                        self.ai_chat.show_status_bubble("生成大纲 完成", theme.success)
                         break
             except Exception as ex:
-                self._show_ai_in_panel("生成大纲", f"生成失败: {ex}")
-            finally:
-                self._agent_busy = False
+                self._finish_task_card("生成大纲", f"失败: {ex}", theme.error)
 
         threading.Thread(target=_do_outline, daemon=True).start()
 
@@ -1000,60 +1027,60 @@ class BoardPage:
     }
 
     def _cmd_gen_tasks(self):
-        if self._agent_busy:
-            Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
-        self._agent_busy = True
-        self._open_ai_panel()
         if not self.ai_chat:
-            self._agent_busy = False
             Toast.show(self._page, "AI 面板未就绪", "warning"); return
-        session_id = getattr(self.ai_chat, '_session_id', 'gen_tasks')
+        if self.ai_chat.is_task_running:
+            Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
+        self._open_ai_panel()
+        self.ai_chat.show_task_card("生成任务")
 
         import threading, time
 
         def _do_gen():
+            import traceback
+            cancel = self.ai_chat._cancel_event if self.ai_chat else None
+            if cancel is None:
+                self.ai_chat.hide_task_card() if self.ai_chat else None
+                return
             try:
                 from app.ui.services.agent_service import AgentService
-
-                self._show_ai_in_panel("生成任务", "正在了解需求，请稍候...")
-
+                from app.agent.orchestrator import _load_prompt
+                self.ai_chat.update_task_card("正在分析需求...")
+                prompt = _load_prompt("generate_tasks_interactive.md")
                 result = AgentService.ask(
-                    self._CMD_PROMPTS["gen_tasks"] +
-                    "\n\n## 交互要求\n"
-                    "在创建任务之前，请先向用户询问任务的具体需求：\n"
-                    "- 需要生成什么类型的维修任务（排故/检查/勤务/拆装/测试/修理）？\n"
-                    "- 涉及哪些 ATA 章节？\n"
-                    "- 优先级要求是什么？\n"
-                    "- 涉及的飞机注册号？\n\n"
-                    "用户回答后，再使用 create_task 工具逐个创建任务。"
-                    "现在请直接向用户提问，不要创建任务。",
-                    session_id=session_id)
+                    prompt, session_id="gen_tasks", strict=True,
+                    cancel_event=cancel)
+                if cancel.is_set():
+                    self._finish_task_card("生成任务", "已取消", theme.text_disabled)
+                    return
 
-                self._show_ai_in_panel("生成任务", result)
-
-                known_ids = {t.id for t in state.get_all_tasks()}
-                was_busy = False
-                for _ in range(180):
+                # 显示 Agent 提问为紫色需求气泡
+                self.ai_chat.show_prompt_bubble(result)
+                self.ai_chat.update_task_card("请回复上方紫色气泡中的问题...")
+                known_before = {t.id for t in state.get_all_tasks()}
+                busy_seen = False
+                for _ in range(300):
+                    if cancel.is_set():
+                        self._finish_task_card("生成任务", "已取消", theme.text_disabled)
+                        return
                     time.sleep(1)
-                    if not hasattr(self, 'ai_chat') or not self.ai_chat:
-                        break
+                    if not self.ai_chat: break
                     if self.ai_chat._busy:
-                        if not was_busy:
-                            was_busy = True
-                            self._show_ai_in_panel("生成任务", "正在生成任务...")
-                    new_tasks = [t for t in state.get_all_tasks()
-                                  if t.ai_proposed and t.id not in known_ids]
-                    if new_tasks:
-                        self._show_ai_in_panel("生成任务",
-                            f"生成完成，共 {len(new_tasks)} 个任务待确认")
-                        self._refresh_board()
-                        break
-                    if not getattr(self, 'ai_chat', None):
+                        busy_seen = True
+                        self.ai_chat.update_task_card("正在生成任务...", border_color=theme.warning)
+                    elif busy_seen:
+                        new_tasks = [t for t in state.get_all_tasks()
+                                      if t.ai_proposed and t.id not in known_before]
+                        if new_tasks:
+                            self._refresh_board()
+                            self._poll_ghost_resolution("生成任务", {t.id for t in new_tasks}, cancel)
                         break
             except Exception as ex:
-                self._show_ai_in_panel("生成任务", f"生成失败: {ex}")
-            finally:
-                self._agent_busy = False
+                traceback.print_exc()
+                try:
+                    self._finish_task_card("生成任务", f"失败: {ex}", theme.error)
+                except Exception:
+                    self.ai_chat.hide_task_card() if self.ai_chat else None
 
         threading.Thread(target=_do_gen, daemon=True).start()
 
@@ -1062,87 +1089,146 @@ class BoardPage:
     # ═══════════════════════════════════════════
 
     def _cmd_classify(self):
-        if self._agent_busy:
-            Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
-        self._agent_busy = True
+        print("[CLASSIFY] _cmd_classify called")
+        if not self.ai_chat:
+            print("[CLASSIFY] no ai_chat!"); return
+        if self.ai_chat.is_task_running:
+            print("[CLASSIFY] task already running"); return
         backlog = [t for t in state.get_all_tasks() if t.status.value == "backlog"]
+        print(f"[CLASSIFY] backlog count={len(backlog)}")
         if not backlog:
-            self._agent_busy = False
+            self._open_ai_panel()
             self._show_ai_in_panel("自动分类", "待处理列中没有任务需要分类。")
             return
         tasks_str = "\n".join(
-            f"- [{t.id}] {t.title} (ATA {t.ata_chapter or '未指定'}, "
-            f"飞机 {t.aircraft_reg or '未指定'})"
+            f"- [{t.id}] {t.title} (ATA {t.ata_chapter or '未指定'}, 飞机 {t.aircraft_reg or '未指定'})"
             for t in backlog
         )
-        prompt = (
-            f"{self._CMD_PROMPTS['classify']}\n\n"
-            f"当前待处理任务列表 (共 {len(backlog)} 个):\n{tasks_str}\n\n"
-            f"请使用 classify_task 工具逐个分类，设定合适的优先级后解释理由。"
-        )
+        self._open_ai_panel()
+        self.ai_chat.show_task_card("自动分类")
+        self.ai_chat.update_task_card(f"正在分析 {len(backlog)} 个任务...")
 
-        self._show_ai_in_panel("自动分类", f"正在自动分类 {len(backlog)} 个任务，请稍候...")
+        import threading, traceback
 
-        import threading
-
-        def _do_classify():
+        def _do():
+            print("[CLASSIFY] _do thread started")
+            cancel = self.ai_chat._cancel_event
+            print(f"[CLASSIFY] cancel_event={cancel}")
             try:
                 from app.ui.services.agent_service import AgentService
-                result = AgentService.ask(prompt, session_id="classify")
-                self._show_ai_in_panel("自动分类", result)
+                prompt = (f"{self._CMD_PROMPTS['classify']}\n\n"
+                          f"待处理任务:\n{tasks_str}\n\n使用 classify_task 逐个分类。")
+                self.ai_chat.update_task_card("正在执行分类...", border_color=theme.warning)
+                pending_before = {t.id for t in state.get_all_tasks() if t.ai_proposed}
+                print(f"[CLASSIFY] before ask, pending_before={len(pending_before)}")
+                result = AgentService.ask(prompt, session_id="classify", cancel_event=cancel)
+                print(f"[CLASSIFY] ask done, result_len={len(result) if result else 0}")
+                if cancel.is_set():
+                    self._finish_task_card("自动分类", "已取消", theme.text_disabled)
+                    return
                 self._refresh_board()
+                pending_after = {t.id for t in state.get_all_tasks() if t.ai_proposed}
+                pending = pending_after - pending_before
+                if pending:
+                    self._poll_ghost_resolution("自动分类", pending, cancel)
+                else:
+                    self._finish_task_card("自动分类", "完成（无幽灵卡）", theme.success)
             except Exception as ex:
-                self._show_ai_in_panel("自动分类", f"分类失败: {ex}")
-            finally:
-                self._agent_busy = False
+                self._finish_task_card("自动分类", f"失败: {ex}", theme.error)
 
-        threading.Thread(target=_do_classify, daemon=True).start()
+        print("[CLASSIFY] starting thread")
+        threading.Thread(target=_do, daemon=True).start()
+        print("[CLASSIFY] thread started")
 
     # ═══════════════════════════════════════════
     # 4. 自动排程 → AI 面板交互
     # ═══════════════════════════════════════════
 
     def _cmd_schedule(self):
-        if self._agent_busy:
+        if not self.ai_chat:
+            Toast.show(self._page, "AI 面板未就绪", "warning"); return
+        if self.ai_chat.is_task_running:
             Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
-        self._agent_busy = True
         triage = [t for t in state.get_all_tasks() if t.status.value == "triage"]
         if not triage:
-            self._agent_busy = False
+            self._open_ai_panel()
             self._show_ai_in_panel("自动排程", "已分类列中没有任务需要排程。")
             return
         tasks_str = "\n".join(
-            f"- [{t.id}] {t.title} (优先级: {t.priority.value}, "
-            f"ATA {t.ata_chapter or '未指定'})"
+            f"- [{t.id}] {t.title} (优先级: {t.priority.value}, ATA {t.ata_chapter or '未指定'})"
             for t in triage
         )
-        prompt = (
-            f"{self._CMD_PROMPTS['schedule']}\n\n"
-            f"当前已分类任务列表 (共 {len(triage)} 个):\n{tasks_str}\n\n"
-            f"请使用 search_employees 查找合适员工，使用 schedule_task 工具逐个排程，"
-            f"设置合理的计划时间和负责人员后解释理由。"
-        )
-
-        self._show_ai_in_panel("自动排程", f"正在自动排程 {len(triage)} 个任务，请稍候...")
+        self._open_ai_panel()
+        self.ai_chat.show_task_card("自动排程")
+        self.ai_chat.update_task_card(f"正在分析 {len(triage)} 个任务...")
 
         import threading
-        session_id = getattr(self.ai_chat, '_session_id', 'schedule') if self.ai_chat else 'schedule'
-
-        def _do_schedule():
+        def _do():
+            cancel = self.ai_chat._cancel_event
             try:
                 from app.ui.services.agent_service import AgentService
-                result = AgentService.ask(prompt, session_id=session_id)
-                self._show_ai_in_panel("自动排程", result)
+                prompt = (f"{self._CMD_PROMPTS['schedule']}\n\n"
+                          f"已分类任务:\n{tasks_str}\n\n"
+                          f"使用 search_employees + schedule_task 逐个排程。")
+                self.ai_chat.update_task_card("正在执行排程...", border_color=theme.warning)
+                pending_before = {t.id for t in state.get_all_tasks() if t.ai_proposed}
+                result = AgentService.ask(prompt, session_id="schedule", cancel_event=cancel)
+                if cancel.is_set():
+                    self._finish_task_card("自动排程", "已取消", theme.text_disabled)
+                    return
                 self._refresh_board()
+                pending_after = {t.id for t in state.get_all_tasks() if t.ai_proposed}
+                pending = pending_after - pending_before
+                if pending:
+                    self._poll_ghost_resolution("自动排程", pending, cancel)
+                else:
+                    self._finish_task_card("自动排程", "完成（无幽灵卡）", theme.success)
             except Exception as ex:
-                self._show_ai_in_panel("自动排程", f"排程失败: {ex}")
-            finally:
-                self._agent_busy = False
+                self._finish_task_card("自动排程", f"失败: {ex}", theme.error)
 
-        threading.Thread(target=_do_schedule, daemon=True).start()
+        threading.Thread(target=_do, daemon=True).start()
 
     def _cmd_acceptance(self):
-        self._run_agent_cmd("acceptance", self._CMD_PROMPTS["acceptance"])
+        if not self.ai_chat:
+            Toast.show(self._page, "AI 面板未就绪", "warning"); return
+        if self.ai_chat.is_task_running:
+            Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
+        insp = [t for t in state.get_all_tasks() if t.status.value == "inspection"]
+        if not insp:
+            self._open_ai_panel()
+            self._show_ai_in_panel("自动验收", "验收列中没有任务。")
+            return
+        tasks_str = "\n".join(
+            f"- [{t.id}] {t.title} (负责人: {t.employee_name or '未指定'})"
+            for t in insp
+        )
+        self._open_ai_panel()
+        self.ai_chat.show_task_card("自动验收")
+        self.ai_chat.update_task_card(f"正在审核 {len(insp)} 个任务...")
+
+        import threading
+        def _do():
+            cancel = self.ai_chat._cancel_event
+            try:
+                from app.ui.services.agent_service import AgentService
+                prompt = (f"{self._CMD_PROMPTS['acceptance']}\n\n"
+                          f"验收任务:\n{tasks_str}\n\n"
+                          f"使用 get_task_detail 查看详情后给出审核建议。")
+                self.ai_chat.update_task_card("正在审核提交日志...", border_color=theme.warning)
+                result = AgentService.ask(prompt, session_id="acceptance", cancel_event=cancel)
+                if cancel.is_set():
+                    self._finish_task_card("自动验收", "已取消", theme.text_disabled)
+                    return
+                self.ai_chat.update_task_card("验收完成", border_color=theme.success)
+                self.ai_chat.show_status_bubble("自动验收 完成", theme.success)
+                self._show_ai_in_panel("自动验收", result)
+            except Exception as ex:
+                self.ai_chat.update_task_card(f"失败: {ex}", border_color=theme.error)
+            finally:
+                import time; time.sleep(1.5)
+                self.ai_chat.hide_task_card()
+
+        threading.Thread(target=_do, daemon=True).start()
 
     def _run_agent_cmd(self, cmd: str, prompt: str):
         """通用 Agent 命令——打开 AI 面板并执行。"""
@@ -1263,7 +1349,7 @@ class BoardPage:
         threading.Thread(target=_review, daemon=True).start()
 
     def _show_ai_in_panel(self, title: str, content: str):
-        """在 AI 对话面板中显示结果。"""
+        """在 AI 对话面板中显示结果。有脆弱内容时不重建。"""
         if not self.ai_chat or not self.ai_chat.is_open:
             self._open_ai_panel()
         try:

@@ -255,3 +255,29 @@ def error_bubble(
         ],
         spacing=2, tight=True,
     )
+
+
+def prompt_bubble(prompt_text: str, max_w: float, on_copy=None, on_refresh=None) -> ft.Control:
+    """紫色需求提示气泡 — Agent 向用户索取信息时使用。"""
+    spans = parse_markdown_to_spans(prompt_text)
+    plain = _spans_to_plain(spans)
+    bw = min(max(_line_max_width(plain) + 20, 120) + PAD * 2 + 4, max_w)
+    PBG, PB, PBO, PHDR, PTXT = "#151020", "#7c4dff", "#2a1a4a", "#b388ff", "#cec0e8"
+    return ft.Column([
+        ft.Row([
+            ft.Container(ft.Column([
+                ft.Row([ft.Icon(ft.Icons.LIGHTBULB_OUTLINE, size=15, color=PHDR),
+                        ft.Text("需要补充信息", size=12, weight=ft.FontWeight.W_600,
+                                color=PHDR, font_family=_ff)], spacing=6),
+                ft.Container(height=6),
+                ft.Text(spans=spans, selectable=True,
+                        style=ft.TextStyle(color=PTXT, size=theme.font_md, font_family=_ff, height=1.6)),
+            ], spacing=0, tight=True),
+                width=bw, bgcolor=PBG, border_radius=RADIUS,
+                border=ft.border.only(left=ft.BorderSide(3, PB), top=ft.BorderSide(1, PBO),
+                                      right=ft.BorderSide(1, PBO), bottom=ft.BorderSide(1, PBO)),
+                padding=ft.padding.only(left=PAD, top=PAD, right=PAD, bottom=PAD)),
+            ft.Container(expand=True, width=40),
+        ]),
+        ft.Row([_btn_row(plain, on_copy or _noop_copy, on_refresh or _noop_refresh), ft.Container(expand=True)]),
+    ], spacing=2, tight=True)
