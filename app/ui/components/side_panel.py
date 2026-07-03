@@ -150,8 +150,12 @@ class SidePanel(ft.Container):
             _kv2("区域", t.zone or "未指定", "故障码", t.fault_code or "无"),
         ]))
 
-        time_items = [_kv("负责人", t.assignee or "未分配",
-                           icon=ft.Icons.PERSON_OUTLINED)]
+        emp_display = t.assignee or "未分配"
+        if t.employee_name:
+            emp_display = t.employee_name
+        if t.employee_id:
+            emp_display += f" ({t.employee_id})"
+        time_items = [_kv("负责人", emp_display, icon=ft.Icons.PERSON_OUTLINED)]
         time_items.append(_kv2("预估工时",
                                f"{t.estimated_hours}h" if t.estimated_hours else "未设置",
                                "实际工时",

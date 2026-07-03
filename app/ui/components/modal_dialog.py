@@ -18,16 +18,16 @@ class ModalDialog:
     """
 
     def __init__(self, page: ft.Page, content: ft.Control,
-                 width: int = 460, bgcolor: str | None = None,
-                 on_close=None):
+                 width: int = 460, height: int = 360,
+                 bgcolor: str | None = None, on_close=None):
         self._page = page
         self._on_close = on_close
         self._dimmer: OverlayDimmer | None = None
 
         panel_bg = bgcolor or theme.surface
 
-        cx = (page.width - width) // 2
-        cy = max(40, (page.height - 360) // 2)
+        cx = max(0, (page.width - width) // 2)
+        cy = max(10, (page.height - height) // 2)
 
         self._panel = ft.Container(
             content=content,
