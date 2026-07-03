@@ -237,9 +237,9 @@ class GhostTextField(ft.Column):
 
         self._suggestions = sorted_sugs
 
-        # 幽灵文本：取非当前字段的最优建议
-        _ghost_order = {"description": 0, "ata_chapter": 1, "title": 2, "zone": 3, "task_type": 4,
-                        "employee_name": 5}
+        # 幽灵文本：取非当前字段的最优建议（标题 > ATA > 描述 > 类型 > ...）
+        _ghost_order = {"title": 0, "ata_chapter": 1, "description": 2, "task_type": 3,
+                        "zone": 4, "employee_name": 5}
         best = None
         best_score = 999
         for s in sorted_sugs:

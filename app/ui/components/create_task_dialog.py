@@ -62,7 +62,7 @@ class CreateTaskDialog:
         def _get_ctx():
             return {fn: (cls._fields[fn].value if fn in cls._fields else "")
                      for fn in ["title", "description", "ata_chapter", "aircraft_reg",
-                                "employee_id", "employee_name", "zone"]}
+                                "employee_id", "employee_name", "zone", "task_type"]}
 
         # ── 幽灵建议填充回调 ──
         def _on_filled(target_field: str, value: str):
@@ -255,6 +255,7 @@ class CreateTaskDialog:
                 ("servicing","勤务"),("removal_install","拆装"),("test","测试"),("repair","修复")]],
             border_color=theme.border,focused_border_color=theme.info,bgcolor=theme.card,
             text_style=ft.TextStyle(color="#e0e0e0",size=s(12),font_family=ff),border_radius=s(6))
+        cls._fields["task_type"] = type_dd
 
         # ── validation ──
         def _create(_):

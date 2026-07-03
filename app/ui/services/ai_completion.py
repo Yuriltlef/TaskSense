@@ -30,19 +30,33 @@ class AICompletionService:
         self._on_ready = on_ready
         self._debounce_timer: threading.Timer | None = None
         self._debounce_ms: float = 600.0
+        self._cache_key: str = ""
+        self._cached_suggestions: list[dict] | None = None
 
     def on_input_changed(self, text: str, field: str, ctx: dict | None = None):
-        """字段值变化 / 获得焦点时调用。"""
+        """字段值变化 / 获得焦点时调用。上下文不变则走缓存。"""
         ctx = ctx or {}
         text = (text or "").strip()
+
+        # ── 缓存：同输入+同上下文 → 即时返回 ──
+        cache_key = f"{field}|{text}|" + "|".join(
+            f"{k}={v}" for k, v in sorted(ctx.items()))
+        if cache_key == self._cache_key and self._cached_suggestions is not None:
+            if self._cached_suggestions:
+                self._on_ready(self._cached_suggestions, "cache")
+            return
 
         # 即使当前字段为空，也可能从其他字段推断出建议
         if not text and not ctx:
             self._on_ready([], "empty")
+            self._cache_key = cache_key
+            self._cached_suggestions = []
             return
 
         # 第一层：即时匹配
         quick = self._infer_all(text, field, ctx)
+        self._cache_key = cache_key
+        self._cached_suggestions = quick
         if quick:
             self._on_ready(quick, "keyword")
 
@@ -279,6 +293,7 @@ class AICompletionService:
         try:
             suggestions = self._call_agent(text, field, ctx)
             if suggestions:
+                self._cached_suggestions = suggestions  # Agent 结果覆盖缓存
                 self._on_ready(suggestions, "agent")
                 log.result("ai.agent", f"{len(suggestions)} suggestions")
         except Exception as e:
@@ -292,7 +307,7 @@ class AICompletionService:
             return []
 
         ctx_str = "\n".join(f"  {k}: {v}" for k, v in ctx.items() if v) or "(无)"
-        prompt = f"""分析以下航空维修任务表单输入，补全缺失字段。
+        prompt = f"""你是航空维修专家。分析表单输入，补全缺失字段。标题是最重要的字段，优先从描述中提炼简洁标题。
 
 当前字段: {field}
 输入值: "{text}"
@@ -300,9 +315,17 @@ class AICompletionService:
 表单上下文:
 {ctx_str}
 
+任务类型 (task_type) 含义：
+  troubleshoot → 排故（故障、异常、异响、偏高、超限、振动、失效等）
+  inspection  → 检查（检查、检测、目视、探伤等）
+  servicing   → 勤务（保养、润滑、清洁、加注、更换消耗品等）
+  removal_install → 拆装（拆卸、更换、安装部件/组件等）
+  test        → 测试（功能测试、系统测试、操作测试、验证等）
+  repair      → 修复（结构修理、部件修复、裂纹修理等）
+
 返回 JSON，可为空的字段不输出：
-{{"ata_chapter": "XX-XX-XX", "task_type": "troubleshoot|inspection|...",
-  "description": "专业中文描述", "title": "建议标题", "zone": "区域编号"}}
+{{"title": "建议标题", "task_type": "类型代码",
+  "ata_chapter": "XX-XX-XX", "description": "专业中文描述", "zone": "区域编号"}}
 
 只输出 JSON："""
 
@@ -326,8 +349,8 @@ class AICompletionService:
         _TT_MAP = {"troubleshoot":"排故","inspection":"检查","servicing":"勤务",
                     "removal_install":"拆装","test":"测试","repair":"修复"}
         result = []
-        for key, label_prefix in [("ata_chapter","ATA"),("task_type",""),("description","描述"),
-                                  ("title","标题"),("zone","区域")]:
+        for key, label_prefix in [("title","标题"),("task_type",""),("ata_chapter","ATA"),
+                                  ("description","描述"),("zone","区域")]:
             v = data.get(key, "")
             if v:
                 display = _TT_MAP.get(v, v) if key == "task_type" else v
