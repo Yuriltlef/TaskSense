@@ -67,3 +67,81 @@ def footer(cancel_text: str, confirm_text: str, on_confirm,
         padding=ft.padding.only(left=s(14), top=s(8), right=s(14), bottom=s(10)),
         border=ft.border.only(top=ft.BorderSide(1, theme.border)),
     )
+
+
+# ═══════════════════════════════════════════
+# 共享表单字段工厂（_dlg_schedule / _dlg_edit 复用）──
+# ═══════════════════════════════════════════
+
+def make_field(hint="", width=None, readonly=False, value="", **kw) -> ft.TextField | ft.Text:
+    """统一 TextField 工厂。readonly=True 时返回纯 Text。"""
+    ff = theme.font_family
+    if readonly:
+        return ft.Text(str(value or "—"), size=s(13),
+                       color=theme.text_disabled, font_family=ff)
+    tf = ft.TextField(
+        hint_text=hint, value=str(value or ""),
+        border_color=theme.border, focused_border_color=theme.info,
+        cursor_color=theme.info,
+        text_style=ft.TextStyle(color="#e0e0e0", size=s(13), font_family=ff),
+        hint_style=ft.TextStyle(color=theme.text_secondary, size=s(12), font_family=ff),
+        bgcolor=theme.card, dense=True, border_radius=s(6),
+        content_padding=ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8)),
+        width=width,
+        **kw,
+    )
+    return tf
+
+
+def make_label(text: str, required: bool = False) -> ft.Text:
+    """统一标签工厂。required=True 时末尾加红色 *。"""
+    ff = theme.font_family
+    if required:
+        return ft.Text(spans=[
+            ft.TextSpan(text, ft.TextStyle(color=theme.text_primary, size=s(12),
+                        font_family=ff, weight=ft.FontWeight.W_500)),
+            ft.TextSpan(" *", ft.TextStyle(color=theme.error, size=s(12),
+                        font_family=ff, weight=ft.FontWeight.W_500))])
+    return ft.Text(text, size=s(12), color=theme.text_primary,
+                   font_family=ff, weight=ft.FontWeight.W_500)
+
+
+def make_col(label: ft.Text, ctrl) -> ft.Column:
+    """标签 + 控件的 Column 包装。"""
+    return ft.Column([label, ctrl], spacing=s(4), tight=True, expand=True)
+
+
+def clamp_time_field(tf: ft.TextField, max_val: int):
+    """校验时/分输入范围（blur 事件回调）。"""
+    val = (tf.value or "").strip()
+    if val:
+        if not val.isdigit():
+            tf.value = ""
+        else:
+            n = int(val)
+            if n > max_val:
+                tf.value = str(max_val)
+
+
+def build_datetime(date_state: dict, h_f: ft.TextField,
+                   m_f: ft.TextField):
+    """从日期状态 + 时/分字段构建 datetime。"""
+    from datetime import datetime as dt
+    d = date_state.get("date")
+    if not d:
+        return None
+    h = (h_f.value or "").strip()
+    m = (m_f.value or "").strip()
+    if h and m:
+        try:
+            return dt(d.year, d.month, d.day, int(h), int(m))
+        except (ValueError, TypeError):
+            pass
+    return d
+
+# ── dialog_builder 公开 API ──
+__all__ = [
+    "button_style", "header", "footer",
+    "make_field", "make_label", "make_col",
+    "clamp_time_field", "build_datetime",
+]

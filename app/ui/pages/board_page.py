@@ -869,24 +869,16 @@ class BoardPage:
         ff = theme.font_family
 
         def _field(hint="", width=None):
-            return ft.TextField(
-                hint_text=hint, border_color=theme.border,
-                focused_border_color=theme.info, cursor_color=theme.info,
-                text_style=ft.TextStyle(color="#e0e0e0", size=s(12), font_family=ff),
-                hint_style=ft.TextStyle(color=theme.text_secondary, size=s(11), font_family=ff),
-                bgcolor=theme.card, dense=True, border_radius=s(6),
-                content_padding=ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8)),
-                width=width)
+            from app.ui.services.dialog_builder import make_field
+            return make_field(hint=hint, width=width)
 
         def _label(text, required=False):
-            if required:
-                return ft.Text(spans=[
-                    ft.TextSpan(text, ft.TextStyle(color=theme.text_primary, size=s(11), font_family=ff, weight=ft.FontWeight.W_500)),
-                    ft.TextSpan(" *", ft.TextStyle(color=theme.error, size=s(11), font_family=ff, weight=ft.FontWeight.W_500))])
-            return ft.Text(text, size=s(11), color=theme.text_primary, font_family=ff, weight=ft.FontWeight.W_500)
+            from app.ui.services.dialog_builder import make_label
+            return make_label(text, required)
 
         def _col(lbl, ctrl):
-            return ft.Column([lbl, ctrl], spacing=s(4), tight=True, expand=True)
+            from app.ui.services.dialog_builder import make_col
+            return make_col(lbl, ctrl)
 
         hours_f = _field("计划工时 (h)，如 4.5", width=220)
         assignee_id_f = _field("员工 ID，如 ZH001")
@@ -898,11 +890,8 @@ class BoardPage:
 
         # ── 输入校验 ──
         def _clamp_tf(tf, hi):
-            val = (tf.value or "").strip()
-            if val:
-                if not val.isdigit(): tf.value = ""; tf.update(); return
-                n = int(val)
-                if n > hi: tf.value = str(hi); tf.update()
+            from app.ui.services.dialog_builder import clamp_time_field
+            clamp_time_field(tf, hi); tf.update()
         for _tf, _hi in [(start_hour_f, 23), (start_min_f, 59),
                           (due_hour_f, 23), (due_min_f, 59)]:
             _tf.on_blur = lambda e, t=_tf, h=_hi: _clamp_tf(t, h)
@@ -955,15 +944,8 @@ class BoardPage:
                 assignee_name_f.value = t.employee_name
 
         def _get_dt(date_state, h_f, m_f):
-            d = date_state["date"]
-            if not d: return None
-            from datetime import datetime as dt
-            h = (h_f.value or "").strip()
-            m = (m_f.value or "").strip()
-            if h and m:
-                try: return dt(d.year, d.month, d.day, int(h), int(m))
-                except: pass
-            return d
+            from app.ui.services.dialog_builder import build_datetime
+            return build_datetime(date_state, h_f, m_f)
 
         def _recalc():
             sd = _get_dt(start_date_state, start_hour_f, start_min_f)
@@ -2488,28 +2470,16 @@ class BoardPage:
 
         # ── helpers（照搬 create_task_dialog 风格）──
         def _norm_tf(hint="", value="", readonly=False, **kw):
-            if readonly:
-                return ft.Text(str(value or "—"), size=s(13),
-                               color=theme.text_disabled, font_family=ff)
-            return ft.TextField(
-                hint_text=hint, value=str(value or ""),
-                border_color=theme.border, focused_border_color=theme.info,
-                cursor_color=theme.info,
-                text_style=ft.TextStyle(color="#e0e0e0", size=s(13), font_family=ff),
-                hint_style=ft.TextStyle(color=theme.text_secondary, size=s(12), font_family=ff),
-                bgcolor=theme.card, dense=True,
-                content_padding=ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8)),
-                border_radius=s(6), **kw)
+            from app.ui.services.dialog_builder import make_field
+            return make_field(hint=hint, value=value, readonly=readonly, **kw)
 
         def _label(text, required=False):
-            if required:
-                return ft.Text(spans=[
-                    ft.TextSpan(text, ft.TextStyle(color=theme.text_primary, size=s(12), font_family=ff, weight=ft.FontWeight.W_500)),
-                    ft.TextSpan(" *", ft.TextStyle(color=theme.error, size=s(12), font_family=ff, weight=ft.FontWeight.W_500))])
-            return ft.Text(text, size=s(12), color=theme.text_primary, font_family=ff, weight=ft.FontWeight.W_500)
+            from app.ui.services.dialog_builder import make_label
+            return make_label(text, required)
 
         def _col(lbl, ctrl):
-            return ft.Column([lbl, ctrl], spacing=s(4), tight=True, expand=True)
+            from app.ui.services.dialog_builder import make_col
+            return make_col(lbl, ctrl)
 
         # ── 上下文收集（供 AI 补全）──
         _fields = {}
@@ -2681,11 +2651,8 @@ class BoardPage:
         # 仅 backlog/triage 有时分校验
         if not _TIME_LOCKED:
             def _clamp_tf(tf, hi):
-                val = (tf.value or "").strip()
-                if val:
-                    if not val.isdigit(): tf.value = ""; tf.update(); return
-                    n = int(val)
-                    if n > hi: tf.value = str(hi); tf.update()
+                from app.ui.services.dialog_builder import clamp_time_field
+                clamp_time_field(tf, hi); tf.update()
             for _tf, _hi in [(sh, 23), (sm, 59), (eh, 23), (em, 59)]:
                 _tf.on_blur = lambda e, t=_tf, h=_hi: _clamp_tf(t, h)
 
@@ -2745,14 +2712,8 @@ class BoardPage:
                 initial_date=task.planned_end)
 
         def _get_dt(date_state, h_f, m_f):
-            d = date_state["date"]
-            if not d: return None
-            h = (h_f.value or "").strip()
-            m = (m_f.value or "").strip()
-            if h and m:
-                try: return dt(d.year, d.month, d.day, int(h), int(m))
-                except: pass
-            return d
+            from app.ui.services.dialog_builder import build_datetime
+            return build_datetime(date_state, h_f, m_f)
 
         def _recalc_hours():
             if _TIME_LOCKED: return
