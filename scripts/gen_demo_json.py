@@ -1,5 +1,6 @@
 """Generate board_state.json from demo data."""
-import json, os, sys
+import os
+import sys
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

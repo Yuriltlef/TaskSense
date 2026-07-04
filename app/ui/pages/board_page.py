@@ -1180,6 +1180,9 @@ class BoardPage:
                 self._refresh_board()
                 # 刷新对话面板提案 UI（幽灵卡在 refresh_board 中已渲染到看板）
                 self._rebuild_chat_ui_sync()
+                # 再次检查取消标志——取消处理器可能已在主线程清除了幽灵卡
+                if cancel and cancel.is_set():
+                    return
                 pending_after = {t.id for t in state.get_all_tasks() if t.ai_proposed}
                 pending = pending_after - pending_before
                 if pending:
@@ -1233,6 +1236,8 @@ class BoardPage:
                     return
                 self._refresh_board()
                 self._rebuild_chat_ui_sync()
+                if cancel and cancel.is_set():
+                    return
                 pending_after = {t.id for t in state.get_all_tasks() if t.ai_proposed}
                 pending = pending_after - pending_before
                 if pending:
@@ -1301,6 +1306,8 @@ class BoardPage:
                 log.debug("acceptance", "_refresh_board() done")
                 # 在聊天面板显示 Agent 审核报告
                 self._show_ai_in_panel("自动验收", result)
+                if cancel and cancel.is_set():
+                    return
                 pending_after = {t.id for t in state.get_all_tasks() if t.ai_proposed}
                 log.debug("acceptance", f"pending_after={len(pending_after)}: {pending_after}")
                 pending = pending_after - pending_before
@@ -2086,6 +2093,10 @@ class BoardPage:
                     log.debug("ai_action_bg", f"error/cancelled: {result}")
                     self._finish_task_card(label, "已取消", theme.text_disabled)
                     return
+                # 成功——但先检查是否已被取消（取消处理器可能已清理）
+                if self._runner.get_cancel() and self._runner.get_cancel().is_set():
+                    log.debug("ai_action_bg", "cancelled after LLM returned")
+                    return
                 # 成功——通过 _msg_pairs + _rebuild_bubbles 保持响应式布局
                 # __AI_ONLY__ 前缀：只显示 AI 气泡，不显示用户气泡
                 log.debug("ai_action_bg", f"success, adding to _msg_pairs...")
@@ -2100,6 +2111,9 @@ class BoardPage:
                     pass
                 # 收尾
                 if keep_open:
+                    # 再次检查取消——取消处理器可能已清除了幽灵标记
+                    if self._runner.get_cancel() and self._runner.get_cancel().is_set():
+                        return
                     active_task_registry.clear()
                     # 检查 LLM 是否实际调用了工具（创建了幽灵卡片）
                     proposed = [t for t in state.get_all_tasks() if t.ai_proposed]
