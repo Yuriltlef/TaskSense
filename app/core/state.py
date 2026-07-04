@@ -7,10 +7,10 @@ from typing import Callable, Optional
 
 from app.config.constants import DEFAULT_COLUMNS
 from app.core.events import AppEvent, EventType, event_bus
+from app.core.logging import log
 from app.core.models.aircraft import Aircraft, AircraftStatus
 from app.core.models.kanban import BoardState, ColumnConfig, FilterState
-from app.core.models.task import Priority, Task, TaskStatus, TaskType
-from app.core.logging import log
+from app.core.models.task import Priority, Task, TaskStatus
 
 
 class AppState:

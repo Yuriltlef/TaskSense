@@ -6,7 +6,6 @@
 import json
 import os
 import threading
-import time
 from typing import Optional
 
 from app.core.events import event_bus, EventType

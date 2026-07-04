@@ -4,11 +4,8 @@
 """
 
 import threading
-import time
 from datetime import datetime
 from typing import Optional
-
-from app.core.events import event_bus, EventType
 
 
 class BoardScheduler:
@@ -56,7 +53,8 @@ class BoardScheduler:
             self._thread.join(timeout=5.0)
             self._thread = None
 
-    def tick(self) -> dict:
+    @staticmethod
+    def tick() -> dict:
         """执行一次检查（供测试或手动触发）。返回变更摘要。"""
         from app.core.state import state
         from app.core.services.task_service import task_service

@@ -1,27 +1,28 @@
 """看板主页面."""
 
-from datetime import datetime, timedelta
+import threading
+import time
+import traceback
+from datetime import datetime
 
 import flet as ft
 
+from app.agent.active_task import active_task_registry
 from app.config.theme import theme, s
 from app.core.logging import log
-from app.core.models.aircraft import Aircraft, AircraftStatus
 from app.core.models.kanban import FilterState
-from app.core.models.task import Priority
 from app.core.services.board_service import board_service
 from app.core.services.task_service import task_service
 from app.core.state import state
-from app.agent.active_task import active_task_registry
+from app.ui.components.ai_chat import AIChatPanel
 from app.ui.components.ai_suggestion import FleetStatusBar
+from app.ui.components.bottom_status_bar import BottomStatusBar
 from app.ui.components.command_bar import CommandBar
 from app.ui.components.kanban_board import KanbanBoard
 from app.ui.components.side_panel import SidePanel
-from app.ui.components.ai_chat import AIChatPanel
-from app.ui.components.bottom_status_bar import BottomStatusBar
-from app.ui.widgets.toast import Toast
+from app.ui.services.dialog_builder import header as dlg_header, footer as dlg_footer
 from app.ui.services.task_registry import TaskRegistry
-from app.ui.services.dialog_builder import header as dlg_header, footer as dlg_footer, button_style as dlg_btn_style
+from app.ui.widgets.toast import Toast
 
 
 class BoardPage:
@@ -36,6 +37,7 @@ class BoardPage:
         self._page: ft.Page | None = None
         self._search_field: ft.TextField | None = None
         self._search_box: ft.Container | None = None
+        self._search_clear_btn = None               # 由 app.py 外部赋值
         self._drag_start_width: float | None = None
         self._drag_start_x: float | None = None
         self._agent_busy = False
@@ -589,13 +591,13 @@ class BoardPage:
     def _get_cursor_pos(page) -> tuple[float, float]:
         """Win32 API 获取鼠标在页面客户区内的坐标（不依赖 Flet 事件）。"""
         import ctypes
-        from ctypes import wintypes
+        from ctypes import wintypes  # type: ignore[attr-defined]
         try:
             pt = wintypes.POINT()
-            ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
-            hwnd = ctypes.windll.user32.FindWindowW(None, "TaskSense")
+            ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))       # type: ignore[attr-defined]
+            hwnd = ctypes.windll.user32.FindWindowW(None, "TaskSense") # type: ignore[attr-defined]
             if hwnd:
-                ctypes.windll.user32.ScreenToClient(hwnd, ctypes.byref(pt))
+                ctypes.windll.user32.ScreenToClient(hwnd, ctypes.byref(pt))  # type: ignore[attr-defined]
             return (float(pt.x), float(pt.y))
         except Exception:
             return (100.0, 100.0)
@@ -973,7 +975,6 @@ class BoardPage:
 
     def _run_agent_command(self, cmd: str):
         """AI 工具菜单命令分发。"""
-        from app.ui.services.agent_service import AgentService
 
         if cmd == "outline":
             self._cmd_outline()
@@ -2107,7 +2108,7 @@ class BoardPage:
                 log.debug("ai_action_bg", f"done")
             except Exception as ex:
                 log.debug("ai_action_bg", f"EXCEPTION: {ex}")
-                _tb.print_exc()
+                traceback.print_exc()
                 self._finish_task_card(label, f"失败: {ex}", theme.error)
 
         threading.Thread(target=_do, daemon=True).start()
@@ -2453,7 +2454,6 @@ class BoardPage:
             emp_id_f.on_change = _on_emp_id
 
         # ── 时间（照搬 create_task_dialog 的日期选择器）──
-        from datetime import datetime as dt
         sh = _norm_tf("08", value=(task.planned_start.strftime("%H") if task.planned_start else "08"),
                        width=s(56), readonly=_TIME_LOCKED)
         sm = _norm_tf("00", value=(task.planned_start.strftime("%M") if task.planned_start else "00"),
