@@ -398,7 +398,7 @@ class BoardPage:
                     self._cancel_review()
                 else:
                     if self.ai_chat:
-                        ce = getattr(self.ai_chat, '_cancel_event', None)
+                        ce = self._runner.get_cancel()
                         log.debug("cancel", f"ce={'SET' if ce else 'NONE'}")
                         if ce:
                             ce.set()
@@ -1147,6 +1147,18 @@ class BoardPage:
         else:
             Toast.show(self._page, f"未知命令: {cmd}", "warning")
 
+    # ═══════════════════════════════════════════
+    # AI 命令辅助 — 已迁移到 app/ui/services/ai_command_runner.py ──
+    # ═══════════════════════════════════════════
+
+    @property
+    def _runner(self):
+        """AI 命令执行器（懒初始化）。"""
+        if not hasattr(self, '_runner_inst'):
+            from app.ui.services.ai_command_runner import AICommandRunner
+            self._runner_inst = AICommandRunner(self)
+        return self._runner_inst
+
     def _run_agent_command(self, cmd: str):
         """AI 工具菜单命令分发。"""
         from app.ui.services.agent_service import AgentService
@@ -1173,21 +1185,13 @@ class BoardPage:
     # ═══════════════════════════════════════════
 
     def _cmd_outline(self):
-        if not self.ai_chat:
-            Toast.show(self._page, "AI 面板未就绪", "warning"); return
-        if self.ai_chat.is_task_running:
-            Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
-        self._open_ai_panel()
-        self.ai_chat.show_task_card("生成大纲",
-            on_cancel=lambda: self._on_status_task_cancel("outline"))
-        self._task_registry.register("outline", "生成大纲", "准备中...", "ai_panel", None)
-        active_task_registry.set_active("outline", "生成大纲", "gathering_requirements",
-                                        "Generating task outline from user requirements")
+        if not self._runner.ensure_ready(): return
+        self._runner.setup("生成大纲", "outline")
 
         import threading, time
 
         def _do_outline():
-            cancel = getattr(self.ai_chat, '_cancel_event', None)
+            cancel = self._runner.get_cancel()
             try:
                 from app.ui.services.agent_service import AgentService
                 from app.agent.orchestrator import _load_prompt
@@ -1253,22 +1257,14 @@ class BoardPage:
     }
 
     def _cmd_gen_tasks(self):
-        if not self.ai_chat:
-            Toast.show(self._page, "AI 面板未就绪", "warning"); return
-        if self.ai_chat.is_task_running:
-            Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
-        self._open_ai_panel()
-        self.ai_chat.show_task_card("生成任务",
-            on_cancel=lambda: self._on_status_task_cancel("gen_tasks"))
-        self._task_registry.register("gen_tasks", "生成任务", "准备中...", "ai_panel", None)
-        active_task_registry.set_active("gen_tasks", "生成任务", "gathering_requirements",
-                                        "Generating task cards from user requirements")
+        if not self._runner.ensure_ready(): return
+        self._runner.setup("生成任务", "gen_tasks")
 
         import threading, time
 
         def _do_gen():
             import traceback
-            cancel = getattr(self.ai_chat, '_cancel_event', None) if self.ai_chat else None
+            cancel = self._runner.get_cancel() if self.ai_chat else None
             if cancel is None:
                 self.ai_chat.hide_task_card() if self.ai_chat else None
                 return
@@ -1336,19 +1332,14 @@ class BoardPage:
             f"- [{t.id}] {t.title} (ATA {t.ata_chapter or '未指定'}, 飞机 {t.aircraft_reg or '未指定'})"
             for t in backlog
         )
-        self._open_ai_panel()
-        self.ai_chat.show_task_card("自动分类",
-            on_cancel=lambda: self._on_status_task_cancel("classify"))
+        self._runner.setup("自动分类", "classify", initial_status=f"正在分析 {len(backlog)} 个任务...")
         self.ai_chat.update_task_card(f"正在分析 {len(backlog)} 个任务...")
-        self._task_registry.register("classify", "自动分类", "分析中...", "ai_panel", None)
-        active_task_registry.set_active("classify", "自动分类", "executing",
-                                        f"Classifying {len(backlog)} backlog tasks")
 
         import threading, traceback
 
         def _do():
             log.debug("classify", "_do thread started")
-            cancel = getattr(self.ai_chat, '_cancel_event', None)
+            cancel = self._runner.get_cancel()
             log.debug("classify", f"cancel_event={cancel}")
             try:
                 from app.ui.services.agent_service import AgentService
@@ -1398,17 +1389,12 @@ class BoardPage:
             f"- [{t.id}] {t.title} (优先级: {t.priority.value}, ATA {t.ata_chapter or '未指定'})"
             for t in triage
         )
-        self._open_ai_panel()
-        self.ai_chat.show_task_card("自动排程",
-            on_cancel=lambda: self._on_status_task_cancel("schedule"))
+        self._runner.setup("自动排程", "schedule", initial_status=f"正在分析 {len(triage)} 个任务...")
         self.ai_chat.update_task_card(f"正在分析 {len(triage)} 个任务...")
-        self._task_registry.register("schedule", "自动排程", "分析中...", "ai_panel", None)
-        active_task_registry.set_active("schedule", "自动排程", "executing",
-                                        f"Scheduling {len(triage)} triaged tasks")
 
         import threading
         def _do():
-            cancel = getattr(self.ai_chat, '_cancel_event', None)
+            cancel = self._runner.get_cancel()
             try:
                 from app.ui.services.agent_service import AgentService
                 prompt = (f"{self._CMD_PROMPTS['schedule']}\n\n"
@@ -1456,18 +1442,13 @@ class BoardPage:
             f"- [{t.id}] {t.title} (负责人: {t.employee_name or '未指定'})"
             for t in insp
         )
-        self._open_ai_panel()
-        self.ai_chat.show_task_card("自动验收",
-            on_cancel=lambda: self._on_status_task_cancel("acceptance"))
+        self._runner.setup("自动验收", "acceptance", initial_status=f"正在审核 {len(insp)} 个任务...")
         self.ai_chat.update_task_card(f"正在审核 {len(insp)} 个任务...")
-        self._task_registry.register("acceptance", "自动验收", "分析中...", "ai_panel", None)
-        active_task_registry.set_active("acceptance", "自动验收", "executing",
-                                        f"Reviewing {len(insp)} inspection tasks")
 
         import threading, traceback
 
         def _do():
-            cancel = getattr(self.ai_chat, '_cancel_event', None)
+            cancel = self._runner.get_cancel()
             log.debug("acceptance", f"_do thread started, cancel_event={cancel}")
             try:
                 from app.ui.services.agent_service import AgentService
@@ -2266,22 +2247,14 @@ class BoardPage:
         if self.ai_chat.is_task_running:
             Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
 
-        self._open_ai_panel()
-        log.debug("ai_action", f"panel opened, showing task card...")
-        # 任务卡片内取消按钮 → 同步更新状态栏
-        self.ai_chat.show_task_card(
-            label,
-            on_cancel=lambda sid=session_id: self._on_status_task_cancel(sid))
-        self._task_registry.register(session_id, label, "准备中...", "ai_panel", None)
-        active_task_registry.set_active(session_id, label, "executing",
-                                        f"Running: {label}")
+        self._runner.setup(label, session_id)
         log.debug("ai_action", f"task registered, starting background thread...")
 
         import threading, traceback as _tb
 
         def _do():
             log.debug("ai_action_bg", f"thread started for {label}")
-            cancel = getattr(self.ai_chat, '_cancel_event', None)
+            cancel = self._runner.get_cancel()
             log.debug("ai_action_bg", f"cancel_event={'OK' if cancel else 'None'}")
             # 调用前检查取消（状态栏已处理清理，此处仅收尾 UI）
             if cancel and cancel.is_set():
