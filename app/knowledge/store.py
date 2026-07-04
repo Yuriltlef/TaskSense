@@ -2,7 +2,10 @@
 
 import os
 import uuid
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    import chromadb
 
 
 class VectorStore:
@@ -12,7 +15,7 @@ class VectorStore:
                  collection_name: str = "kb_static"):
         self.persist_dir = persist_dir
         self.collection_name = collection_name
-        self._client: Optional["chromadb.PersistentClient"] = None
+        self._client: Optional["chromadb.PersistentClient"] = None  # type: ignore[valid-type]
 
     @property
     def client(self):
@@ -72,16 +75,17 @@ class VectorStore:
             include=["documents", "metadatas", "distances"],
         )
 
-        if not results["ids"] or not results["ids"][0]:
+        ids = results["ids"]  # type: ignore[index]
+        if not ids or not ids[0]:
             return []
 
         items = []
-        for i in range(len(results["ids"][0])):
+        for i in range(len(ids[0])):
             items.append({
-                "id": results["ids"][0][i],
-                "text": results["documents"][0][i],
-                "metadata": results["metadatas"][0][i] or {},
-                "score": 1.0 - results["distances"][0][i],
+                "id": ids[0][i],
+                "text": results["documents"][0][i],  # type: ignore[index]
+                "metadata": (results["metadatas"][0][i] or {}),  # type: ignore[index]
+                "score": 1.0 - results["distances"][0][i],  # type: ignore[index]
             })
         return items
 
@@ -104,13 +108,14 @@ class VectorStore:
                 offset=offset,
                 include=["documents", "metadatas"],
             )
-            if not result["ids"]:
+            r_ids = result["ids"]  # type: ignore[index]
+            if not r_ids:
                 break
-            for i in range(len(result["ids"])):
+            for i in range(len(r_ids)):
                 all_chunks.append({
-                    "id": result["ids"][i],
-                    "text": result["documents"][i] or "",
-                    "metadata": result["metadatas"][i] or {},
+                    "id": r_ids[i],
+                    "text": (result["documents"][i] or ""),  # type: ignore[index]
+                    "metadata": (result["metadatas"][i] or {}),  # type: ignore[index]
                 })
             offset += batch
         return all_chunks
