@@ -1,10 +1,18 @@
-"""Settings manager — persistent JSON with defaults."""
+"""设置管理器 — 持久化 JSON + 环境变量覆盖。
+
+用法:
+    from app.config.settings_manager import SettingsManager
+    mgr = SettingsManager()
+    mgr.load()
+    api_key = mgr.get("llm", "api_key")
+
+环境变量覆盖（优先级高于 JSON）:
+    TASKSENSE_LLM__API_KEY=sk-xxx
+"""
 
 import json
 import os
-from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Optional
 
 
 SETTINGS_FILE = "settings.json"
@@ -94,6 +102,31 @@ class SettingsManager:
     @classmethod
     def get_all(cls) -> dict:
         return cls._data if cls._data else dict(DEFAULT_SETTINGS)
+
+    @classmethod
+    def from_env(cls):
+        """用环境变量覆盖当前加载的设置（TASKSENSE_ 前缀）。
+
+        环境变量格式: TASKSENSE_SECTION__KEY=value
+        例: TASKSENSE_LLM__API_KEY=sk-xxx
+        """
+        cls.load()  # ensure loaded
+        for env_key, env_val in os.environ.items():
+            if not env_key.startswith("TASKSENSE_"):
+                continue
+            # TASKSENSE_LLM__API_KEY → section="llm", key="api_key"
+            parts = env_key[len("TASKSENSE_"):].lower().split("__", 1)
+            if len(parts) == 2:
+                section, key = parts
+                # 类型转换
+                default_val = cls.get(section, key)
+                if isinstance(default_val, bool):
+                    env_val = env_val.lower() in ("1", "true", "yes")
+                elif isinstance(default_val, int):
+                    env_val = int(env_val)
+                elif isinstance(default_val, float):
+                    env_val = float(env_val)
+                cls.set(section, key, env_val)
 
     @classmethod
     def _merge(cls, defaults: dict, saved: dict) -> dict:

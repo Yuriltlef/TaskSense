@@ -23,8 +23,10 @@ class AppSettings:
     llm_max_tokens: int = 4096
 
     # ── 嵌入模型 ──
-    embedding_model: str = "text-embedding-3-small"
-    embedding_dim: int = 1536
+    # 注意：生产环境使用本地 BGE-M3（见 settings_manager.py）
+    # 此 dataclass 仅用于测试和文档参考
+    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_dim: int = 384
 
     # ── 向量存储 ──
     vector_store_type: str = "chroma"
