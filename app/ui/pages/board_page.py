@@ -415,11 +415,12 @@ class BoardPage:
                         log.info("task.cancel", f"ce={'SET' if ce else 'NONE'}")
                         if ce:
                             ce.set()
-                            log.info("task.cancel", f"event set, is_set={ce.is_set()}")
+                        print(f"[CANCEL_DBG] task_card={'OK' if self.ai_chat._task_card else 'NONE'} status_text={'OK' if hasattr(self.ai_chat, '_status_text') else 'NONE'}")
                         self.ai_chat.update_task_card("已取消", border_color=theme.text_disabled)
                     self._reject_all_proposals(task_id)
                     self._force_clear_all_ghosts(task_id)
                     self._task_registry.update_status(task_id, "已取消", 0)
+                    Toast.show(self._page, "任务已取消", "info")
                     import time, threading
                     def _finish():
                         time.sleep(2)
