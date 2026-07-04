@@ -106,19 +106,6 @@ class TaskSenseApp:
         self.main_container = ft.Container(
             content=ft.Column([
                 self.main_content,
-                ft.Container(
-                    height=s(20),
-                    bgcolor=theme.surface,
-                    border=ft.border.only(
-                        top=ft.BorderSide(width=1, color=theme.border)),
-                    content=ft.Row([
-                        ft.Text(
-                            "  Ctrl+K 命令面板 | 点击卡片查看详情 | 拖拽移动任务 | Esc 关闭面板",
-                            size=s(10), color=theme.text_disabled,
-                            font_family=theme.font_family),
-                    ]),
-                    padding=ft.padding.only(left=theme.pad_md, top=s(2)),
-                ),
             ], expand=True, spacing=0),
             bgcolor=ft.Colors.TRANSPARENT,
             expand=True,
@@ -283,6 +270,7 @@ class TaskSenseApp:
 
         # 插入到 main_container 顶部
         self.main_container.content.controls.insert(0, self.title_bar)
+
 
     # ═══════════════════════════════
     # 窗口操作

@@ -322,8 +322,7 @@ class AgentService:
             f"请生成 {report_type} 报告", "report", fallback)
 
     @staticmethod
-    @staticmethod
-    def task_review(task_ids: str = "") -> dict:
+    def task_review(task_ids: str = "", on_batch=None) -> dict:
         """审核活跃任务 — 由 Agent 深度分析 + 本地基础检查兜底。
 
         优先通过 LLM Agent 调用工具链（get_task_detail / search_knowledge_base
@@ -343,11 +342,15 @@ class AgentService:
 
         print(f"[REVIEW_SVC] reviewing {len(tasks)} tasks")
 
-        # ── Agent 深度审核（失败则抛出异常，不做本地兜底）──
+        # ── Agent 深度审核 → 失败回退本地检查 ──
         print("[REVIEW_SVC] attempting LLM deep review...")
-        llm_issues = AgentService._llm_task_review(tasks)
-        print(f"[REVIEW_SVC] LLM returned {len(llm_issues)} issues")
-        issues = llm_issues
+        try:
+            llm_issues = AgentService._llm_task_review(tasks, on_batch=on_batch)
+            print(f"[REVIEW_SVC] LLM returned {len(llm_issues)} issues")
+            issues = llm_issues
+        except Exception as e:
+            print(f"[REVIEW_SVC] LLM review FAILED, falling back to local: {e}")
+            issues = AgentService._local_task_review(tasks)
         print(f"[REVIEW_SVC] final: {len(issues)} issues")
 
         severity_order = {"critical": 0, "warning": 1, "info": 2}
@@ -426,81 +429,129 @@ class AgentService:
         return issues
 
     @staticmethod
-    def _llm_task_review(tasks: list) -> list[dict]:
-        """Agent 深度审核：两阶段——先收集数据，再强制输出 JSON。"""
+    def _llm_task_review(tasks: list, on_batch=None) -> list[dict]:
+        """分批评审 — 每批 6 个任务，边审边回调渲染。"""
         from app.agent.llm_client import llm
         if not llm.is_available:
-            print("[REVIEW_SVC] LLM not available, skipping deep review")
+            print("[REVIEW_SVC] LLM not available")
             return []
 
-        print(f"[REVIEW_SVC] LLM available, reviewing {len(tasks)} tasks...")
+        CHUNK_SIZE = 6
+        total_batches = (len(tasks) + CHUNK_SIZE - 1) // CHUNK_SIZE
+        all_issues = []
         import re, json
-        try:
-            tasks_str = "\n".join(
-                f"- [{t.id}] {t.title} | ATA:{t.ata_chapter or '无'} | "
-                f"飞机:{t.aircraft_reg or '无'} | 优先级:{t.priority.value} | "
-                f"状态:{t.status.value} | 人员:{t.employee_name or '无'} | "
-                f"工时:{t.estimated_hours or '无'}h"
-                for t in tasks[:20]
-            )
-            from app.agent.orchestrator import agent, _load_prompt
 
-            # ── 阶段 1：Agent 收集数据（调工具但不要求 JSON）──
-            stage1 = (
-                f"{_load_prompt('task_review.md')}\n\n"
-                f"## 当前审核任务列表 ({len(tasks)} 个)\n\n{tasks_str}\n\n"
-                f"请使用 get_board_summary、get_task_detail（抽查至少 5 个不同状态的任务）、"
-                f"search_knowledge_base、search_employees 收集审核所需数据。"
-                f"收集完毕后回复 'DATA_COLLECTED' 即可，不要在此阶段输出审核结论。"
-            )
-            print(f"[REVIEW_SVC] === STAGE 1 === ({len(stage1)} chars)")
-            # 清空历史避免干扰
-            agent.clear_conversation("review")
-            result1 = agent.ask(stage1, session_id="review")
-            print(f"[REVIEW_SVC] Stage 1 returned: {len(result1)} chars")
-            print(f"[REVIEW_SVC] Stage 1 response: {result1[:500]}")
+        for bi in range(0, len(tasks), CHUNK_SIZE):
+            chunk = tasks[bi:bi + CHUNK_SIZE]
+            batch_num = bi // CHUNK_SIZE + 1
+            print(f"[REVIEW_SVC] === Batch {batch_num}/{total_batches} ({len(chunk)} tasks) ===")
 
-            # ── 阶段 2：强制输出 JSON ──
-            stage2 = (
-                f"数据收集完成。现在基于以上全部信息，对这 {len(tasks)} 个任务逐条审核。\n\n"
-                f"## 输出要求（必须严格遵守）\n\n"
-                f"1. 先给出 2-4 句总览摘要\n"
-                f"2. 然后输出一个 JSON 数组，每个元素对应一个发现的问题\n"
-                f"3. JSON 格式：\n"
-                f'```json\n[\n'
-                f'  {{"task_id":"...","title":"...","severity":"critical|warning|info",'
-                f'"dimension":"ATA准确性|信息完整性|法规合规|排程可行性|人员匹配|安全",'
-                f'"description":"具体问题描述","recommendation":"修复建议"}}\n'
-                f']\n```\n\n'
-                f"## 审核维度（逐条检查）\n"
-                f"- ATA 章节是否匹配任务描述\n"
-                f"- 必填字段是否完整（飞机注册号、人员、计划时间）\n"
-                f"- scheduled/in_progress 任务是否有人员时间冲突\n"
-                f"- RII 任务是否有检查员\n"
-                f"- 工时是否合理\n\n"
-                f"## 任务列表\n\n{tasks_str}\n\n"
-                f"现在立即输出审核总览 + JSON 块。不要调用任何工具。"
-            )
-            print(f"[REVIEW_SVC] === STAGE 2 === ({len(stage2)} chars)")
-            result2 = agent.ask(stage2, session_id="review")
-            print(f"[REVIEW_SVC] === FINAL RESPONSE ({len(result2)} chars) ===")
-            print(result2)
-            print(f"[REVIEW_SVC] === END ===")
+            try:
+                batch_issues = AgentService._review_one_batch(
+                    chunk, batch_num, total_batches)
+                all_issues.extend(batch_issues)
+                print(f"[REVIEW_SVC] Batch {batch_num}: {len(batch_issues)} issues, total={len(all_issues)}")
+            except Exception as e:
+                print(f"[REVIEW_SVC] Batch {batch_num} FAILED: {e}")
+                # 为失败批次的每个任务生成错误卡片
+                for t in chunk:
+                    all_issues.append({
+                        "task_id": t.id, "title": t.title, "severity": "critical",
+                        "dimension": "系统错误",
+                        "description": f"Agent 审核失败（第{batch_num}批）。",
+                        "recommendation": f"错误: {str(e)[:150]}",
+                    })
 
-            # 解析 JSON
-            if len(result2.strip()) < 80:
-                raise RuntimeError(f"Agent 返回过短 ({len(result2)} 字符)")
-            json_match = re.search(r'```json\s*\n(.*?)\n```', result2, re.DOTALL)
-            if json_match:
-                parsed = json.loads(json_match.group(1))
-                print(f"[REVIEW_SVC] parsed {len(parsed)} issues from JSON block")
-                return parsed
-            bare_json = re.search(r'\[\s*\{.*?\}\s*\]', result2, re.DOTALL)
-            if bare_json:
-                parsed = json.loads(bare_json.group(0))
-                print(f"[REVIEW_SVC] parsed {len(parsed)} issues from bare JSON")
-                return parsed
-            raise RuntimeError(f"Agent 未返回有效 JSON。响应: {result2[:300]}")
-        except Exception as e:
-            print(f"[REVIEW_SVC] LLM review FAILED: {e}")
-            raise
+            if on_batch:
+                on_batch(list(all_issues), batch_num, total_batches)
+
+        return all_issues
+
+    @staticmethod
+    def _review_one_batch(tasks: list, batch_num: int, total_batches: int) -> list[dict]:
+        """审核单批任务 — 单阶段：调工具收集数据 + 输出 JSON 一步完成。"""
+        from app.agent.orchestrator import agent, _load_prompt
+        import re, json
+
+        tasks_str = "\n".join(
+            f"- [{t.id}] {t.title} | ATA:{t.ata_chapter or '无'} | "
+            f"飞机:{t.aircraft_reg or '无'} | 优先级:{t.priority.value} | "
+            f"状态:{t.status.value} | 人员:{t.employee_name or '无'} | "
+            f"工时:{t.estimated_hours or '无'}h"
+            for t in tasks
+        )
+
+        prompt = (
+            f"{_load_prompt('task_review.md')}\n\n"
+            f"## 审核第 {batch_num}/{total_batches} 批（{len(tasks)} 个任务）\n\n"
+            f"{tasks_str}\n\n"
+            f"## 工作流程\n"
+            f"1. 先用 get_task_detail 抽查本批中状态特殊的任务（inspection/scheduled 优先）\n"
+            f"2. 收集足够信息后，立即输出 JSON 审核结果\n\n"
+            f"## 输出格式\n"
+            f"输出一个 JSON 数组（```json 代码块包裹）：\n"
+            f'```json\n[\n'
+            f'  {{"task_id":"...","title":"...","severity":"critical|warning|info",'
+            f'"dimension":"ATA准确性|信息完整性|法规合规|排程可行性|人员匹配|安全",'
+            f'"description":"具体问题描述","recommendation":"修复建议"}}\n'
+            f']\n```\n\n'
+            f"## 审核维度\n"
+            f"- ATA 章节 / 必填字段 / RII 检查员 / 工时合理性 / 人员时间冲突\n"
+            f"- 每个任务至少检查以上维度，发现问题才输出条目\n"
+            f"- 本批 {len(tasks)} 个任务，输出不要超过 {len(tasks) * 3} 个问题\n\n"
+            f"现在开始审核并输出 JSON。"
+        )
+
+        session_id = f"review_b{batch_num}"
+        agent.clear_conversation(session_id)
+        result = agent.ask(prompt, session_id=session_id)
+        print(f"[REVIEW_SVC] Batch {batch_num} response: {len(result)} chars, "
+              f"preview: {result[:200]}")
+
+        # 解析 JSON（多种策略按顺序尝试）
+        if len(result.strip()) < 30:
+            raise RuntimeError(f"返回过短 ({len(result)} 字符): {result.strip()[:100]}")
+
+        if result.startswith("[Error]"):
+            raise RuntimeError(f"LLM 调用失败: {result}")
+
+        # 策略 1: ```json ... ``` 代码块
+        json_match = re.search(r'```json\s*\n(.*?)\n\s*```', result, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass  # 继续尝试其他策略
+
+        # 策略 2: 裸 JSON 数组（贪婪匹配到最后一个 ]）
+        bare_match = re.search(r'\[\s*\{[\s\S]*\}\s*\]', result)
+        if bare_match:
+            try:
+                return json.loads(bare_match.group(0))
+            except json.JSONDecodeError:
+                pass
+
+        # 策略 3: 如果整个响应就是 JSON
+        stripped = result.strip()
+        if stripped.startswith('['):
+            try:
+                return json.loads(stripped)
+            except json.JSONDecodeError:
+                pass
+
+        # 策略 4: 逐行提取 JSON 对象（最宽松）
+        obj_matches = re.findall(r'\{\s*"task_id"[\s\S]*?\}', result)
+        if obj_matches:
+            issues = []
+            for om in obj_matches:
+                try:
+                    issues.append(json.loads(om))
+                except json.JSONDecodeError:
+                    continue
+            if issues:
+                return issues
+
+        raise RuntimeError(
+            f"未找到有效 JSON（{len(result)} 字符）。\n"
+            f"响应预览: {result[:300]}\n"
+            f"响应尾: ...{result[-200:] if len(result) > 200 else ''}")

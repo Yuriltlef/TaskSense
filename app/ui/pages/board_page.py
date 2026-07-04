@@ -17,6 +17,7 @@ from app.ui.components.command_bar import CommandBar
 from app.ui.components.kanban_board import KanbanBoard
 from app.ui.components.side_panel import SidePanel
 from app.ui.components.ai_chat import AIChatPanel
+from app.ui.components.bottom_status_bar import BottomStatusBar
 from app.ui.widgets.toast import Toast
 
 
@@ -28,12 +29,21 @@ class BoardPage:
         self.ai_chat: AIChatPanel | None = None
         self.command_bar: CommandBar | None = None
         self.fleet_status: FleetStatusBar | None = None
+        self.status_bar: BottomStatusBar | None = None
         self._page: ft.Page | None = None
         self._search_field: ft.TextField | None = None
         self._search_box: ft.Container | None = None
         self._drag_start_width: float | None = None
         self._drag_start_x: float | None = None
         self._agent_busy = False
+        # ── 任务注册表 ──
+        self._task_registry: list[dict] = []   # [{id, label, status, progress, type, reopen_fn}]
+        self._report_result: str | None = None
+        self._review_result: dict | None = None
+        self._report_dlg = None               # OverlayDimmer ref
+        self._review_dlg = None               # OverlayDimmer ref
+        self._report_thread = None            # threading.Thread ref
+        self._review_thread = None            # threading.Thread ref
         state.subscribe(self._on_state_changed)
 
     def build(self, page: ft.Page) -> ft.Container:
@@ -51,6 +61,12 @@ class BoardPage:
         self.ai_chat = AIChatPanel(on_close=self._on_side_panel_close)
         self.command_bar = CommandBar(on_execute=self._on_command_execute)
         self.fleet_status = FleetStatusBar()
+        self.status_bar = BottomStatusBar(
+            on_task_click=self._on_status_task_click,
+            on_task_cancel=self._on_status_task_cancel,
+            on_report_click=self._on_status_report_click,
+            on_review_click=self._on_status_review_click,
+        )
 
         # ── 搜索字段（由 app.py 统一标题栏引用）──
         self._search_field = ft.TextField(
@@ -89,10 +105,12 @@ class BoardPage:
                     self.side_panel,
                     self.ai_chat,
                 ], spacing=0, expand=True),
+                self.status_bar,
             ], spacing=0, expand=True),
             expand=True, bgcolor=theme.bg,
         )
         self._fill_board_from_state()
+        self._refresh_status_bar()
         return main
 
     # ═══════════════════════ 数据 ═══════════════════════
@@ -365,12 +383,30 @@ class BoardPage:
 
     def _finish_task_card(self, label: str, status: str, color: str):
         """统一的任务卡片结束处理：停动画 + 显示结果气泡（保留在聊天历史）+ 延迟关闭卡片。"""
-        import time
+        import time, threading
         active_task_registry.clear()
         self.ai_chat.update_task_card(status, border_color=color)
         self.ai_chat.show_status_bubble(f"{label} {status}", color)
+        # 更新状态栏
+        task_id = self._find_task_id_by_label(label)
+        if task_id:
+            is_ok = "完成" in status or "确认" in status
+            self._update_task_status(task_id, status, 1.0 if is_ok else 0)
         time.sleep(2)
         self.ai_chat.hide_task_card()
+        # 5 秒后从状态栏移除
+        if task_id:
+            def _delayed_unregister():
+                time.sleep(5)
+                self._unregister_task(task_id)
+            threading.Thread(target=_delayed_unregister, daemon=True).start()
+
+    def _find_task_id_by_label(self, label: str) -> str | None:
+        """根据标签名查找任务 ID。"""
+        for t in self._task_registry:
+            if t["label"] == label:
+                return t["id"]
+        return None
 
     def _poll_ghost_resolution(self, label: str, pending_ids: set,
                                 cancel_event, timeout: int = 300):
@@ -395,6 +431,180 @@ class BoardPage:
                 # 不需要每5秒刷新看板——幽灵卡片已在初始渲染中创建，仅在用户操作后状态变更时刷新
                 pass
         self._finish_task_card(label, "等待超时", theme.text_disabled)
+
+    # ═══════════════════════════════════════════
+    # 任务注册表 + 状态栏回调
+    # ═══════════════════════════════════════════
+
+    def _register_task(self, task_id: str, label: str, status: str,
+                       task_type: str, progress: float = None):
+        """注册一个任务到状态栏。"""
+        task = {"id": task_id, "label": label, "status": status,
+                "progress": progress, "type": task_type}
+        # 去重
+        self._task_registry = [t for t in self._task_registry if t["id"] != task_id]
+        self._task_registry.append(task)
+        self._refresh_status_bar()
+
+    def _unregister_task(self, task_id: str):
+        """从状态栏移除任务。"""
+        self._task_registry = [t for t in self._task_registry if t["id"] != task_id]
+        self._refresh_status_bar()
+
+    def _update_task_status(self, task_id: str, status: str, progress: float = None):
+        """更新任务状态文字和进度。"""
+        for t in self._task_registry:
+            if t["id"] == task_id:
+                t["status"] = status
+                if progress is not None:
+                    t["progress"] = progress
+                break
+        self._refresh_status_bar()
+
+    def _refresh_status_bar(self):
+        """刷新状态栏显示。"""
+        if self.status_bar:
+            try:
+                self.status_bar.set_tasks(self._task_registry)
+                self.status_bar.set_has_report(self._report_result is not None)
+                self.status_bar.set_has_review(self._review_result is not None)
+                self.status_bar.update()
+            except Exception:
+                pass
+
+    def _on_status_task_click(self, task_id: str):
+        """状态栏任务标签被点击 → 重新打开对应面板/弹窗。"""
+        for t in self._task_registry:
+            if t["id"] == task_id:
+                ttype = t.get("type", "")
+                if ttype == "report":
+                    self._reopen_report_dlg()
+                elif ttype == "review":
+                    self._reopen_review_dlg()
+                else:  # ai_panel
+                    self._open_ai_panel()
+                return
+
+    def _on_status_task_cancel(self, task_id: str):
+        """状态栏任务取消按钮被点击。"""
+        for t in self._task_registry:
+            if t["id"] == task_id:
+                ttype = t.get("type", "")
+                if ttype == "report":
+                    self._cancel_report()
+                elif ttype == "review":
+                    self._cancel_review()
+                else:
+                    # AI 面板任务：设取消事件
+                    if self.ai_chat and self.ai_chat._cancel_event:
+                        self.ai_chat._cancel_event.set()
+                    self._unregister_task(task_id)
+                return
+
+    def _on_status_report_click(self, _=None):
+        """状态栏报告入口被点击。"""
+        if self._report_result is not None:
+            self._reopen_report_dlg()
+        else:
+            self._show_empty_result_dlg("report")
+
+    def _on_status_review_click(self, _=None):
+        """状态栏审核入口被点击。"""
+        if self._review_result is not None:
+            self._reopen_review_dlg()
+        else:
+            self._show_empty_result_dlg("review")
+
+    def _show_empty_result_dlg(self, kind: str):
+        """显示无结果弹窗。"""
+        ff = theme.font_family
+        label = "报告" if kind == "report" else "审核"
+        icon = "📊" if kind == "report" else "🔍"
+        btn_label = "生成新报告" if kind == "report" else "开始新审核"
+
+        def _gen_new(e):
+            dlg.close()
+            if kind == "report":
+                self._cmd_report()
+            else:
+                self._cmd_review()
+
+        PW, PH = 400, 220
+        page_w = self._page.width or 1280
+        page_h = self._page.height or 900
+        cx = max(0, (page_w - PW) // 2)
+        cy = max(20, (page_h - PH) // 2)
+
+        panel = ft.Container(
+            ft.Column([
+                ft.Container(height=s(30)),
+                ft.Text(f"{icon} 当前无{label}结果", size=s(16),
+                        color=theme.text_primary, font_family=ff,
+                        text_align=ft.TextAlign.CENTER),
+                ft.Container(height=s(8)),
+                ft.Text(f"尚未生成{label}，点击下方按钮开始", size=s(12),
+                        color=theme.text_secondary, font_family=ff,
+                        text_align=ft.TextAlign.CENTER),
+                ft.Container(height=s(20)),
+                ft.Row([
+                    ft.Container(expand=True),
+                    ft.ElevatedButton(btn_label, on_click=_gen_new,
+                        style=ft.ButtonStyle(
+                            shape=ft.RoundedRectangleBorder(radius=s(6)),
+                            padding=ft.padding.only(left=s(18), top=s(7), right=s(18), bottom=s(7)),
+                            text_style=ft.TextStyle(size=s(12), font_family=ff),
+                            bgcolor="#5294e2", color=ft.Colors.WHITE, elevation=0)),
+                    ft.Container(width=s(8)),
+                    ft.OutlinedButton("关闭", on_click=lambda e: dlg.close(),
+                        style=ft.ButtonStyle(
+                            shape=ft.RoundedRectangleBorder(radius=s(6)),
+                            padding=ft.padding.only(left=s(18), top=s(7), right=s(18), bottom=s(7)),
+                            text_style=ft.TextStyle(size=s(12), font_family=ff),
+                            side=ft.BorderSide(1, theme.border),
+                            color=theme.text_secondary)),
+                    ft.Container(expand=True),
+                ]),
+            ], spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            width=PW, height=PH, bgcolor=theme.surface, border_radius=s(10),
+            border=ft.border.all(1, theme.border),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=20, color="#000000aa"),
+            left=cx, top=cy,
+        )
+        from app.ui.widgets.overlay_dimmer import OverlayDimmer
+        dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.4,
+                                  on_dimmer_click=lambda: dlg.close())
+
+    # ── 报表弹窗最小化相关 ──
+
+    def _cancel_report(self):
+        """取消报表任务。"""
+        self._report_result = None
+        if self._report_dlg:
+            try: self._report_dlg.close()
+            except Exception: pass
+            self._report_dlg = None
+        self._unregister_task("report")
+        self._refresh_status_bar()
+
+    def _reopen_report_dlg(self):
+        """重新打开报表弹窗（加载中或已完成）。"""
+        self._cmd_report_show_result(None)
+
+    # ── 审核弹窗最小化相关 ──
+
+    def _cancel_review(self):
+        """取消审核任务。"""
+        self._review_result = None
+        if self._review_dlg:
+            try: self._review_dlg.close()
+            except Exception: pass
+            self._review_dlg = None
+        self._unregister_task("review")
+        self._refresh_status_bar()
+
+    def _reopen_review_dlg(self):
+        """重新打开审核弹窗（加载中或已完成）。"""
+        self._cmd_review_show_result(None)
 
     def _on_side_panel_close(self):
         if self._page: self._page.update()
@@ -909,6 +1119,7 @@ class BoardPage:
             Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
         self._open_ai_panel()
         self.ai_chat.show_task_card("生成大纲")
+        self._register_task("outline", "生成大纲", "准备中...", "ai_panel", None)
         active_task_registry.set_active("outline", "生成大纲", "gathering_requirements",
                                         "Generating task outline from user requirements")
 
@@ -987,6 +1198,7 @@ class BoardPage:
             Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
         self._open_ai_panel()
         self.ai_chat.show_task_card("生成任务")
+        self._register_task("gen_tasks", "生成任务", "准备中...", "ai_panel", None)
         active_task_registry.set_active("gen_tasks", "生成任务", "gathering_requirements",
                                         "Generating task cards from user requirements")
 
@@ -1063,6 +1275,7 @@ class BoardPage:
         self._open_ai_panel()
         self.ai_chat.show_task_card("自动分类")
         self.ai_chat.update_task_card(f"正在分析 {len(backlog)} 个任务...")
+        self._register_task("classify", "自动分类", "分析中...", "ai_panel", None)
         active_task_registry.set_active("classify", "自动分类", "executing",
                                         f"Classifying {len(backlog)} backlog tasks")
 
@@ -1123,6 +1336,7 @@ class BoardPage:
         self._open_ai_panel()
         self.ai_chat.show_task_card("自动排程")
         self.ai_chat.update_task_card(f"正在分析 {len(triage)} 个任务...")
+        self._register_task("schedule", "自动排程", "分析中...", "ai_panel", None)
         active_task_registry.set_active("schedule", "自动排程", "executing",
                                         f"Scheduling {len(triage)} triaged tasks")
 
@@ -1179,6 +1393,7 @@ class BoardPage:
         self._open_ai_panel()
         self.ai_chat.show_task_card("自动验收")
         self.ai_chat.update_task_card(f"正在审核 {len(insp)} 个任务...")
+        self._register_task("acceptance", "自动验收", "分析中...", "ai_panel", None)
         active_task_registry.set_active("acceptance", "自动验收", "executing",
                                         f"Reviewing {len(insp)} inspection tasks")
 
@@ -1256,18 +1471,44 @@ class BoardPage:
     # ═══════════════════════════════════════════
 
     def _cmd_report(self):
-        """生成报表 — 对齐 CreateTaskDialog 风格。"""
-        ff = theme.font_family
+        """生成报表 — 可最小化后台运行。"""
+        self._register_task("report", "生成报表", "准备中...", "report", None)
+        self._cmd_report_show_result(None)  # None = 加载中
+        self._refresh_status_bar()
 
-        # ── body：报表内容 ──
+    def _cmd_report_show_result(self, content: str | None):
+        """显示报表弹窗。content=None 表示加载中 / 已有缓存。"""
+        ff = theme.font_family
+        is_loading = content is None and self._report_result is None
+
+        # ── body ──
+        if is_loading:
+            display = "正在生成报表..."
+            progress = ft.ProgressRing(width=s(16), height=s(16), visible=True)
+        elif content is not None:
+            display = content
+            progress = ft.ProgressRing(width=s(16), height=s(16), visible=False)
+        else:
+            display = self._report_result or ""
+            progress = ft.ProgressRing(width=s(16), height=s(16), visible=False)
+
         report_f = ft.TextField(
-            value="正在生成报表...", read_only=True, multiline=True,
+            value=display, read_only=True, multiline=True,
             expand=True,
             border_color=theme.border,
             text_style=ft.TextStyle(color="#c0c0c0", size=s(11), font_family=ff),
             bgcolor=theme.card, border_radius=s(6),
         )
-        progress = ft.ProgressRing(width=s(16), height=s(16), visible=True)
+
+        # ── "_" 最小化按钮 ──
+        def _minimize(e):
+            dlg.close()
+            # 不清除结果，状态栏保留入口
+
+        # ── 取消任务 ──
+        def _cancel(e):
+            self._cancel_report()
+            dlg.close()
 
         # ── header ──
         header = ft.Container(
@@ -1277,13 +1518,14 @@ class BoardPage:
                         color=theme.text_primary, font_family=ff),
                 progress,
                 ft.Container(expand=True),
-                ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
+                ft.IconButton(ft.Icons.MINIMIZE_OUTLINED, icon_size=s(15),
                               icon_color=theme.text_secondary,
+                              tooltip="最小化后台运行",
                               style=ft.ButtonStyle(
                                   bgcolor=ft.Colors.TRANSPARENT,
-                                  overlay_color=ft.Colors.RED_900,
+                                  overlay_color="#1a1a1a",
                                   shape=ft.RoundedRectangleBorder(radius=s(4))),
-                              on_click=lambda e: dlg.close()),
+                              on_click=lambda e: _minimize(e)),
             ], spacing=s(8)),
             padding=ft.padding.only(left=s(14), top=s(8), right=s(6), bottom=s(8)),
             border=ft.border.only(bottom=ft.BorderSide(1, theme.border)),
@@ -1304,12 +1546,19 @@ class BoardPage:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(report_f.value or "")
             Toast.show(self._page, f"已保存: {path}", "success")
-            dlg.close()
+            self._report_result = report_f.value
+            _minimize(e)
 
-        footer = ft.Container(
-            ft.Row([
+        if is_loading:
+            footer_btns = [
+                ft.OutlinedButton("取消任务", on_click=_cancel,
+                    style=ft.ButtonStyle(
+                        shape=btn_st.shape, padding=btn_st.padding,
+                        text_style=btn_st.text_style,
+                        side=ft.BorderSide(1, theme.error),
+                        color=theme.error)),
                 ft.Container(expand=True),
-                ft.OutlinedButton("关闭", on_click=lambda e: dlg.close(),
+                ft.OutlinedButton("最小化运行", on_click=_minimize,
                     style=ft.ButtonStyle(
                         shape=btn_st.shape, padding=btn_st.padding,
                         text_style=btn_st.text_style,
@@ -1320,7 +1569,19 @@ class BoardPage:
                         shape=btn_st.shape, padding=btn_st.padding,
                         text_style=btn_st.text_style,
                         bgcolor="#5294e2", color=ft.Colors.WHITE, elevation=0)),
-            ], spacing=s(8)),
+            ]
+        else:
+            footer_btns = [
+                ft.Container(expand=True),
+                ft.ElevatedButton("保存报表", on_click=_save,
+                    style=ft.ButtonStyle(
+                        shape=btn_st.shape, padding=btn_st.padding,
+                        text_style=btn_st.text_style,
+                        bgcolor="#5294e2", color=ft.Colors.WHITE, elevation=0)),
+            ]
+
+        footer = ft.Container(
+            ft.Row(footer_btns, spacing=s(8)),
             padding=ft.padding.only(left=s(14), top=s(8), right=s(14), bottom=s(10)),
             border=ft.border.only(top=ft.BorderSide(1, theme.border)),
         )
@@ -1344,75 +1605,111 @@ class BoardPage:
         )
 
         from app.ui.widgets.overlay_dimmer import OverlayDimmer
-        dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.55,
-                                  on_dimmer_click=lambda: dlg.close())
+        dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.55)
+        self._report_dlg = dlg
 
-        # ── 异步生成 ──
-        import threading
-        def _gen():
-            try:
-                from app.ui.services.agent_service import AgentService
-                r = AgentService.generate_report("daily")
-                report_f.value = r
-            except Exception as ex:
-                report_f.value = f"生成失败: {ex}"
-            progress.visible = False
-            try: progress.update(); report_f.update()
-            except Exception: pass
-        threading.Thread(target=_gen, daemon=True).start()
+        # ── 异步生成（仅加载中且无运行中线程时）──
+        if is_loading and (self._report_thread is None or not self._report_thread.is_alive()):
+            import threading
+            def _gen():
+                try:
+                    from app.ui.services.agent_service import AgentService
+                    r = AgentService.generate_report("daily")
+                    report_f.value = r
+                    self._report_result = r
+                    self._update_task_status("report", "已完成", 1.0)
+                except Exception as ex:
+                    report_f.value = f"生成失败: {ex}"
+                    self._report_result = f"生成失败: {ex}"
+                    self._update_task_status("report", "失败", 0)
+                progress.visible = False
+                try: progress.update(); report_f.update()
+                except Exception: pass
+                # 5 秒后自动消失
+                import time; time.sleep(5)
+                self._unregister_task("report")
+            t = threading.Thread(target=_gen, daemon=True)
+            self._report_thread = t
+            t.start()
 
     # ═══════════════════════════════════════════
     # 7. 任务审核 → 弹窗显示合规问题
     # ═══════════════════════════════════════════
 
     def _cmd_review(self):
-        """任务审核 — 对齐 CreateTaskDialog 风格，每个问题可点击跳转到任务。"""
-        ff = theme.font_family
-        print("[REVIEW] ===== _cmd_review called =====")
+        """任务审核 — 可最小化后台运行。"""
+        self._register_task("review", "任务审核", "准备中...", "review", None)
+        self._cmd_review_show_result(None)
+        self._refresh_status_bar()
 
-        # ── body：审核结果列表（先显示加载状态）──
+    def _cmd_review_show_result(self, cached_result: dict | None):
+        """显示审核弹窗。cached_result=None 表示加载中。"""
+        ff = theme.font_family
+        result = cached_result or self._review_result
+        is_loading = result is None
+        print(f"[REVIEW] ===== _cmd_review_show_result loading={is_loading} =====")
+
+        # ── 关闭旧弹窗避免叠加 ──
+        if self._review_dlg:
+            try: self._review_dlg.close()
+            except Exception: pass
+            self._review_dlg = None
+
+        # ── body：审核结果列表 ──
         issue_list = ft.ListView(spacing=s(8), expand=True,
                                  padding=ft.padding.all(s(14)))
-        progress = ft.ProgressRing(width=s(16), height=s(16), visible=True)
+        self._review_issue_list = issue_list  # 存储引用供批量更新
 
-        issue_list.controls.append(
-            ft.Container(
-                ft.Column([
-                    progress,
-                    ft.Text("正在审核任务合规性...", size=s(13),
-                            color=theme.text_primary, font_family=ff),
-                    ft.Text("检查 ATA 章节、飞机注册号、RII 合规、排程可行性...",
-                            size=s(11), color=theme.text_secondary, font_family=ff),
-                ], spacing=s(12), alignment=ft.MainAxisAlignment.CENTER,
-                   horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                padding=ft.padding.symmetric(vertical=s(50)),
-                alignment=ft.alignment.center,
-            ))
+        if is_loading:
+            issue_list.controls.append(
+                ft.Container(
+                    ft.Column([
+                        ft.ProgressRing(width=s(24), height=s(24)),
+                        ft.Text("正在审核任务合规性...", size=s(13),
+                                color=theme.text_primary, font_family=ff),
+                        ft.Text("检查 ATA 章节、飞机注册号、RII 合规、排程可行性...",
+                                size=s(11), color=theme.text_secondary, font_family=ff),
+                    ], spacing=s(12), alignment=ft.MainAxisAlignment.CENTER,
+                       horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    padding=ft.padding.symmetric(vertical=s(50)),
+                    alignment=ft.alignment.center,
+                ))
+        else:
+            # 有缓存结果 → 直接渲染 issue 卡片
+            self._render_issue_cards(issue_list,
+                result.get("issues", []), ff)
 
-        # ── 汇总行（加载时显示占位）──
-        summary_row = ft.Row([
-            ft.Text("正在审核...", size=s(11), color=theme.text_secondary,
-                    font_family=ff),
-        ], spacing=s(12))
+        # ── 最小化 / 取消 ──
+        def _minimize_review(d):
+            d.close()
+        def _cancel_review_task(d):
+            self._cancel_review()
+            d.close()
 
-        # ── header ──
+        # ── header（单行 + 统计 badges，存储引用供批量更新）──
+        if is_loading:
+            review_summary_container = ft.Container(visible=False)
+        else:
+            review_summary_container = ft.Container(
+                content=ft.Row(self._build_review_summary(result, ff), spacing=s(12)))
+        self._review_summary_container = review_summary_container
+
         header = ft.Container(
-            ft.Column([
-                ft.Row([
-                    ft.Icon(ft.Icons.FACT_CHECK_OUTLINED, size=s(15), color="#5294e2"),
-                    ft.Text("任务合规审核", size=s(14), weight=ft.FontWeight.W_600,
-                            color=theme.text_primary, font_family=ff),
-                    ft.Container(expand=True),
-                    ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
-                                  icon_color=theme.text_secondary,
-                                  style=ft.ButtonStyle(
-                                      bgcolor=ft.Colors.TRANSPARENT,
-                                      overlay_color=ft.Colors.RED_900,
-                                      shape=ft.RoundedRectangleBorder(radius=s(4))),
-                                  on_click=lambda e: dlg.close()),
-                ], spacing=s(8)),
-                summary_row,
-            ], spacing=s(4), tight=True),
+            ft.Row([
+                ft.Icon(ft.Icons.FACT_CHECK_OUTLINED, size=s(15), color="#5294e2"),
+                ft.Text("任务合规审核", size=s(14), weight=ft.FontWeight.W_600,
+                        color=theme.text_primary, font_family=ff),
+                review_summary_container,
+                ft.Container(expand=True),
+                ft.IconButton(ft.Icons.MINIMIZE_OUTLINED, icon_size=s(15),
+                              icon_color=theme.text_secondary,
+                              tooltip="最小化后台运行",
+                              style=ft.ButtonStyle(
+                                  bgcolor=ft.Colors.TRANSPARENT,
+                                  overlay_color="#1a1a1a",
+                                  shape=ft.RoundedRectangleBorder(radius=s(4))),
+                              on_click=lambda e: _minimize_review(dlg)),
+            ], spacing=s(8)),
             padding=ft.padding.only(left=s(14), top=s(8), right=s(6), bottom=s(8)),
             border=ft.border.only(bottom=ft.BorderSide(1, theme.border)),
         )
@@ -1423,16 +1720,48 @@ class BoardPage:
             padding=ft.padding.only(left=s(18), top=s(7), right=s(18), bottom=s(7)),
             text_style=ft.TextStyle(size=s(12), font_family=ff),
         )
-        footer = ft.Container(
-            ft.Row([
+        if is_loading:
+            footer_btns = [
+                ft.OutlinedButton("取消任务", on_click=lambda e: _cancel_review_task(dlg),
+                    style=ft.ButtonStyle(
+                        shape=btn_st.shape, padding=btn_st.padding,
+                        text_style=btn_st.text_style,
+                        side=ft.BorderSide(1, theme.error),
+                        color=theme.error)),
                 ft.Container(expand=True),
-                ft.OutlinedButton("关闭", on_click=lambda e: dlg.close(),
+                ft.OutlinedButton("最小化运行", on_click=lambda e: _minimize_review(dlg),
                     style=ft.ButtonStyle(
                         shape=btn_st.shape, padding=btn_st.padding,
                         text_style=btn_st.text_style,
                         side=ft.BorderSide(1, theme.border),
                         color=theme.text_secondary)),
-            ], spacing=s(8)),
+            ]
+        else:
+            def _save_json(e):
+                import os, json
+                os.makedirs("data/reports", exist_ok=True)
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                path = f"data/reports/review_{ts}.json"
+                data = self._review_result or {}
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                Toast.show(self._page, f"已保存: {path}", "success")
+            footer_btns = [
+                ft.Container(expand=True),
+                ft.OutlinedButton("最小化运行", on_click=lambda e: _minimize_review(dlg),
+                    style=ft.ButtonStyle(
+                        shape=btn_st.shape, padding=btn_st.padding,
+                        text_style=btn_st.text_style,
+                        side=ft.BorderSide(1, theme.border),
+                        color=theme.text_secondary)),
+                ft.ElevatedButton("保存结果", on_click=_save_json,
+                    style=ft.ButtonStyle(
+                        shape=btn_st.shape, padding=btn_st.padding,
+                        text_style=btn_st.text_style,
+                        bgcolor="#5294e2", color=ft.Colors.WHITE, elevation=0)),
+            ]
+        footer = ft.Container(
+            ft.Row(footer_btns, spacing=s(8)),
             padding=ft.padding.only(left=s(14), top=s(8), right=s(14), bottom=s(10)),
             border=ft.border.only(top=ft.BorderSide(1, theme.border)),
         )
@@ -1456,8 +1785,8 @@ class BoardPage:
         )
 
         from app.ui.widgets.overlay_dimmer import OverlayDimmer
-        dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.55,
-                                  on_dimmer_click=lambda: dlg.close())
+        dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.55)
+        self._review_dlg = dlg
 
         # ── 异步审核 → Agent 深度分析 + 本地规则兜底 ──
         def _loading(msg):
@@ -1477,175 +1806,163 @@ class BoardPage:
             print("[REVIEW] _review thread started")
             try:
                 from app.ui.services.agent_service import AgentService
-                issue_list.controls[0] = _loading("Agent 深度审核中...")
-                try: issue_list.update()
-                except Exception: pass
-                print("[REVIEW] calling AgentService.task_review()...")
-                result = AgentService.task_review()
-                print(f"[REVIEW] task_review returned: tasks={result.get('tasks_reviewed',0)} issues={result.get('total_issues',0)} crit={result.get('critical_count',0)} warn={result.get('warning_count',0)} info={result.get('info_count',0)}")
+
+                # 渐进回调：每批完成后原地更新弹窗控件（不关闭重开）
+                def _on_batch(issues_so_far, batch_num=0, total_batches=0):
+                    reviewed = batch_num * 6 if batch_num else 0
+                    batch_result = {
+                        "issues": issues_so_far,
+                        "total_issues": len(issues_so_far),
+                        "critical_count": sum(1 for i in issues_so_far if i.get("severity") == "critical"),
+                        "warning_count": sum(1 for i in issues_so_far if i.get("severity") == "warning"),
+                        "info_count": sum(1 for i in issues_so_far if i.get("severity") == "info"),
+                        "tasks_reviewed": reviewed,
+                    }
+                    self._review_result = batch_result
+                    # 原地更新 header 统计
+                    if self._review_summary_container:
+                        self._review_summary_container.content = ft.Row(
+                            self._build_review_summary(batch_result, theme.font_family), spacing=s(12))
+                        self._review_summary_container.visible = True
+                        try: self._review_summary_container.update()
+                        except Exception: pass
+                    # 原地重建 issue 列表
+                    if self._review_issue_list:
+                        self._review_issue_list.controls.clear()
+                        self._render_issue_cards(self._review_issue_list, issues_so_far, theme.font_family)
+                        try: self._review_issue_list.update()
+                        except Exception: pass
+                    # 更新状态栏
+                    self._update_task_status("review", f"审核中 ({len(issues_so_far)}个问题)", 0.5)
+                    print(f"[REVIEW] batch rendered in-place: {len(issues_so_far)} issues so far")
+
+                print("[REVIEW] calling AgentService.task_review() with batching...")
+                result = AgentService.task_review(on_batch=_on_batch)
+                print(f"[REVIEW] task_review done: issues={result.get('total_issues',0)}")
             except Exception as ex:
-                import traceback
-                traceback.print_exc()
-                print(f"[REVIEW] EXCEPTION in task_review: {ex}")
+                import traceback; traceback.print_exc()
                 result = {"issues": [{
-                    "task_id": "", "title": "Agent 审核失败",
-                    "severity": "critical",
+                    "task_id": "", "title": "Agent 审核失败", "severity": "critical",
                     "dimension": "系统错误",
-                    "description": f"Agent 未正常返回审核结果。请检查 LLM 配置或查看终端日志。",
-                    "recommendation": f"错误详情: {str(ex)[:200]}",
+                    "description": "Agent 未正常返回审核结果。",
+                    "recommendation": f"错误: {str(ex)[:200]}",
                 }], "total_issues": 1, "critical_count": 1,
-                          "warning_count": 0, "info_count": 0, "tasks_reviewed": 0}
+                    "warning_count": 0, "info_count": 0, "tasks_reviewed": 0}
 
-            # ── 更新 header 汇总行 ──
-            def _sev_badge(text, color):
-                return ft.Container(
-                    ft.Text(text, size=s(10), color=color,
-                            weight=ft.FontWeight.W_600, font_family=ff),
-                    padding=ft.padding.only(left=s(6), top=s(1), right=s(6), bottom=s(1)),
-                    border_radius=s(3),
-                    bgcolor=ft.Colors.with_opacity(0.10, color),
-                )
+            # 存储最终结果，触发重渲染
+            self._review_result = result
+            self._update_task_status("review", "已完成", 1.0)
+            if self._review_dlg:
+                self._cmd_review_show_result(result)
+            import time; time.sleep(5)
+            self._unregister_task("review")
 
-            total = result.get("total_issues", 0)
-            tasks_r = result.get("tasks_reviewed", 0)
-            sc = [
-                ft.Text(f"审核 {tasks_r} 个任务", size=s(11),
-                        color=theme.text_secondary, font_family=ff),
-            ]
-            if total == 0:
-                sc.append(ft.Container(
-                    ft.Text("✅ 全部合规", size=s(11), color=theme.success,
-                            weight=ft.FontWeight.W_600, font_family=ff),
-                    padding=ft.padding.only(left=s(8), top=s(2), right=s(8), bottom=s(2)),
-                    border_radius=s(4),
-                    bgcolor=ft.Colors.with_opacity(0.12, theme.success)))
-            else:
-                crit = result.get("critical_count", 0)
-                warn = result.get("warning_count", 0)
-                info = result.get("info_count", 0)
-                if crit:
-                    sc.append(_sev_badge(f"🔴 {crit}", theme.error))
-                if warn:
-                    sc.append(_sev_badge(f"⚠ {warn}", theme.warning))
-                if info:
-                    sc.append(_sev_badge(f"ℹ {info}", theme.info))
-            header.content.controls[1] = ft.Row(sc, spacing=s(12))
+        # 仅加载中且无运行中线程时才启动
+        if is_loading and (self._review_thread is None or not self._review_thread.is_alive()):
+            print("[REVIEW] starting review thread")
+            t = threading.Thread(target=_review, daemon=True)
+            self._review_thread = t
+            t.start()
+            print("[REVIEW] review thread started")
+        else:
+            print("[REVIEW] review already running or result cached, skipping thread")
 
-            # ── 构建 issue 卡片列表 ──
-            issue_list.controls.clear()
-            issues = result.get("issues", [])
-            if not issues:
-                issue_list.controls.append(
-                    ft.Container(
-                        ft.Column([
-                            ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, size=s(40),
-                                    color=theme.success),
-                            ft.Text("未发现合规问题", size=s(13),
-                                    color=theme.text_primary, font_family=ff),
-                            ft.Text("所有待审核任务均通过基础合规检查",
-                                    size=s(11), color=theme.text_secondary,
-                                    font_family=ff),
-                        ], spacing=s(8), alignment=ft.MainAxisAlignment.CENTER,
-                           horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                        padding=ft.padding.symmetric(vertical=s(50)),
-                        alignment=ft.alignment.center,
-                    ))
-            else:
-                sev_colors = {"critical": theme.error, "warning": theme.warning,
-                              "info": theme.info}
-                sev_labels = {"critical": "严重", "warning": "警告", "info": "提示"}
-                sev_icons = {"critical": ft.Icons.ERROR_OUTLINE,
-                             "warning": ft.Icons.WARNING_AMBER_OUTLINED,
-                             "info": ft.Icons.INFO_OUTLINE}
+    # ── 审核结果渲染辅助 ──
 
-                for issue in issues:
-                    sev = issue.get("severity", "info")
-                    accent = sev_colors.get(sev, theme.info)
-                    task_id = issue.get("task_id", "")
-                    task_title = issue.get("title", "")
-                    dimension = issue.get("dimension", "")
-                    description = issue.get("description", "")
-                    recommendation = issue.get("recommendation", "")
+    @staticmethod
+    def _build_review_summary(result: dict, ff: str) -> list:
+        """构建审核汇总 badges。"""
+        total = result.get("total_issues", 0)
+        tasks_r = result.get("tasks_reviewed", 0)
+        sc = [ft.Text(f"审核 {tasks_r} 个任务", size=s(11),
+                      color=theme.text_secondary, font_family=ff)]
+        if total == 0:
+            sc.append(ft.Container(
+                ft.Text("✅ 全部合规", size=s(11), color=theme.success,
+                        weight=ft.FontWeight.W_600, font_family=ff),
+                padding=ft.padding.only(left=s(8), top=s(2), right=s(8), bottom=s(2)),
+                border_radius=s(4),
+                bgcolor=ft.Colors.with_opacity(0.12, theme.success)))
+        else:
+            for key, label, color in [("critical_count", "🔴", theme.error),
+                                       ("warning_count", "⚠", theme.warning),
+                                       ("info_count", "ℹ", theme.info)]:
+                n = result.get(key, 0)
+                if n:
+                    sc.append(ft.Container(
+                        ft.Text(f"{label} {n}", size=s(10), color=color,
+                                weight=ft.FontWeight.W_600, font_family=ff),
+                        padding=ft.padding.only(left=s(6), top=s(1), right=s(6), bottom=s(1)),
+                        border_radius=s(3),
+                        bgcolor=ft.Colors.with_opacity(0.10, color)))
+        return sc
 
-                    def _nav_to(tid, d):
-                        return lambda e: self._navigate_to_issue(tid, d)
+    def _render_issue_cards(self, issue_list: ft.ListView, issues: list, ff: str):
+        """渲染问题卡片到 ListView。"""
+        sev_colors = {"critical": theme.error, "warning": theme.warning, "info": theme.info}
+        sev_labels = {"critical": "严重", "warning": "警告", "info": "提示"}
+        sev_icons = {"critical": ft.Icons.ERROR_OUTLINE,
+                     "warning": ft.Icons.WARNING_AMBER_OUTLINED,
+                     "info": ft.Icons.INFO_OUTLINE}
 
-                    card = ft.Container(
+        for issue in issues:
+            sev = issue.get("severity", "info")
+            accent = sev_colors.get(sev, theme.info)
+            tid = issue.get("task_id", "")
+            title = issue.get("title", "")
+            dimension = issue.get("dimension", "")
+            description = issue.get("description", "")
+            recommendation = issue.get("recommendation", "")
+
+            def _nav_to(t, d):
+                return lambda e: self._navigate_to_issue(t, d)
+
+            card = ft.Container(
+                ft.Row([
+                    ft.Container(width=s(3), border_radius=s(2), bgcolor=accent),
+                    ft.Column([
                         ft.Row([
-                            # 左侧色条
-                            ft.Container(width=s(3), border_radius=s(2),
-                                         bgcolor=accent),
-                            ft.Column([
-                                # 严重度标签 + 维度
+                            ft.Container(
                                 ft.Row([
-                                    ft.Container(
-                                        ft.Row([
-                                            ft.Icon(sev_icons.get(sev, ft.Icons.INFO_OUTLINE),
-                                                    size=s(10), color=accent),
-                                            ft.Text(sev_labels.get(sev, sev), size=s(9),
-                                                    color=accent,
-                                                    weight=ft.FontWeight.W_600,
-                                                    font_family=ff),
-                                        ], spacing=s(3)),
-                                        padding=ft.padding.only(left=s(5), top=s(1),
-                                                               right=s(5), bottom=s(1)),
-                                        border_radius=s(3),
-                                        bgcolor=ft.Colors.with_opacity(0.10, accent)),
-                                    ft.Text(dimension, size=s(10),
-                                            color=theme.text_disabled, font_family=ff),
-                                ], spacing=s(6)),
-                                ft.Container(height=s(4)),
-                                # 任务标题
-                                ft.Text(task_title, size=s(12),
-                                        weight=ft.FontWeight.W_500,
-                                        color=theme.text_primary, font_family=ff),
-                                ft.Container(height=s(2)),
-                                # 问题描述
-                                ft.Text(description, size=s(11),
-                                        color=theme.text_primary, font_family=ff),
-                                # 建议
-                                ft.Text(recommendation, size=s(10),
-                                        color=theme.text_secondary, font_family=ff,
-                                        italic=True),
-                                ft.Container(height=s(4)),
-                                # 操作按钮
-                                ft.Row([
-                                    ft.Container(expand=True),
-                                    ft.TextButton(
-                                        content=ft.Text("查看任务 →", size=s(11),
-                                                        color=theme.info,
-                                                        font_family=ff),
-                                        style=ft.ButtonStyle(
-                                            bgcolor=ft.Colors.TRANSPARENT,
-                                            padding=ft.padding.symmetric(
-                                                horizontal=s(8), vertical=s(2)),
-                                        ),
-                                        on_click=_nav_to(task_id, dlg)),
-                                ]),
-                            ], spacing=0, tight=True, expand=True),
-                        ], spacing=s(10),
-                           vertical_alignment=ft.CrossAxisAlignment.START),
-                        padding=ft.padding.all(s(10)),
-                        border_radius=s(8),
-                        bgcolor=ft.Colors.with_opacity(0.04, accent),
-                        border=ft.border.only(
-                            left=ft.BorderSide(s(3), accent)),
-                    )
-                    issue_list.controls.append(card)
-
-            progress.visible = False
-            print(f"[REVIEW] rendering {len(issues)} issue cards...")
-            try:
-                header.update()
-                issue_list.update()
-                print("[REVIEW] UI updated successfully")
-            except Exception:
-                print("[REVIEW] UI update failed")
-                pass
-
-        print("[REVIEW] starting review thread")
-        threading.Thread(target=_review, daemon=True).start()
-        print("[REVIEW] review thread started")
+                                    ft.Icon(sev_icons.get(sev, ft.Icons.INFO_OUTLINE),
+                                            size=s(10), color=accent),
+                                    ft.Text(sev_labels.get(sev, sev), size=s(9),
+                                            color=accent, weight=ft.FontWeight.W_600,
+                                            font_family=ff),
+                                ], spacing=s(3)),
+                                padding=ft.padding.only(left=s(5), top=s(1),
+                                                       right=s(5), bottom=s(1)),
+                                border_radius=s(3),
+                                bgcolor=ft.Colors.with_opacity(0.10, accent)),
+                            ft.Text(dimension, size=s(10),
+                                    color=theme.text_disabled, font_family=ff),
+                        ], spacing=s(6)),
+                        ft.Container(height=s(4)),
+                        ft.Text(title, size=s(12), weight=ft.FontWeight.W_500,
+                                color=theme.text_primary, font_family=ff),
+                        ft.Container(height=s(2)),
+                        ft.Text(description, size=s(11),
+                                color=theme.text_primary, font_family=ff),
+                        ft.Text(recommendation, size=s(10),
+                                color=theme.text_secondary, font_family=ff, italic=True),
+                        ft.Container(height=s(4)),
+                        ft.Row([
+                            ft.Container(expand=True),
+                            ft.TextButton(
+                                content=ft.Text("查看任务 →", size=s(11),
+                                                color=theme.info, font_family=ff),
+                                style=ft.ButtonStyle(bgcolor=ft.Colors.TRANSPARENT,
+                                    padding=ft.padding.symmetric(horizontal=s(8), vertical=s(2))),
+                                on_click=_nav_to(tid, self._review_dlg)),
+                        ]),
+                    ], spacing=0, tight=True, expand=True),
+                ], spacing=s(10), vertical_alignment=ft.CrossAxisAlignment.START),
+                padding=ft.padding.all(s(10)),
+                border_radius=s(8),
+                bgcolor=ft.Colors.with_opacity(0.04, accent),
+                border=ft.border.only(left=ft.BorderSide(s(3), accent)),
+            )
+            issue_list.controls.append(card)
 
     def _navigate_to_issue(self, task_id: str, dlg=None):
         """从审核弹窗跳转到任务卡片：关闭弹窗，清筛选，打开侧边栏。"""
