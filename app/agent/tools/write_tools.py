@@ -77,18 +77,37 @@ def create_task(tasks_json: str) -> str:
     return json.dumps(created, ensure_ascii=False, indent=2)
 
 
+# update_task 允许更新的字段白名单（防止 LLM 直接改写 status/priority 等关键字段）
+_UPDATE_ALLOWED = {
+    "title", "description", "aircraft_reg", "aircraft_model",
+    "ata_chapter", "zone", "fault_code",
+    "employee_id", "employee_name", "assignee", "inspector",
+    "estimated_hours", "actual_hours", "due_date",
+    "planned_start", "planned_end",
+    "shift_handover_log", "is_rii",
+    "ad_numbers", "sb_numbers", "mel_item",
+    "parts_required", "parts_available", "tools_required",
+}
+
+
 @tool
 def update_task(task_id: str, fields_json: str) -> str:
-    """更新任务字段。
+    """更新任务字段（仅安全白名单内的字段可更新）。
 
     Args:
         task_id: 任务 ID
-        fields_json: JSON 字符串，要更新的字段键值对。
-            可更新: title, description, aircraft_reg, ata_chapter, zone,
-            employee_id, employee_name, estimated_hours
+        fields_json: JSON 对象字符串，可更新字段:
+            title, description, aircraft_reg, aircraft_model,
+            ata_chapter, zone, fault_code,
+            employee_id, employee_name, assignee, inspector,
+            estimated_hours, actual_hours, due_date,
+            planned_start, planned_end,
+            shift_handover_log, is_rii,
+            ad_numbers, sb_numbers, mel_item,
+            parts_required, parts_available, tools_required
 
     Returns:
-        更新结果
+        更新结果（被拒绝的字段会列出）
     """
     try:
         fields = json.loads(fields_json)
@@ -99,14 +118,28 @@ def update_task(task_id: str, fields_json: str) -> str:
     if not task:
         return f"[Error] 任务 {task_id} 不存在"
 
+    # 白名单过滤：阻止 LLM 修改 status/priority/ai_* 等关键状态字段
+    allowed_fields = {k: v for k, v in fields.items() if k in _UPDATE_ALLOWED}
+    rejected = [k for k in fields if k not in _UPDATE_ALLOWED]
+    if rejected:
+        log_msg = f"update_task blocked fields: {rejected}"
+        print(f"[SAFETY] {log_msg}")
+
+    if not allowed_fields:
+        return (f"[Error] 所有请求字段被安全策略拒绝: {rejected}。"
+                f"允许的字段: {sorted(_UPDATE_ALLOWED)}")
+
     try:
-        task_service.update_task(task_id, **fields)
-        return json.dumps({
+        task_service.update_task(task_id, **allowed_fields)
+        result = {
             "task_id": task_id,
             "work_order_id": task.work_order_id,
             "title": task.title,
-            "updated_fields": list(fields.keys()),
-        }, ensure_ascii=False)
+            "updated_fields": list(allowed_fields.keys()),
+        }
+        if rejected:
+            result["rejected_fields"] = rejected
+        return json.dumps(result, ensure_ascii=False)
     except Exception as e:
         return f"[Error] 更新失败: {e}"
 
@@ -233,33 +266,23 @@ def acceptance_review(task_id: str, recommendation: str,
     Returns:
         审核结果
     """
-    print(f"[ACCEPTANCE_TOOL] called: task_id={task_id} rec={recommendation} reason={reason[:50]}...")
     valid_recs = {"approve", "reject"}
     if recommendation not in valid_recs:
-        print(f"[ACCEPTANCE_TOOL] INVALID recommendation: {recommendation}")
         return f"[Error] 无效建议 '{recommendation}'，可选: approve, reject"
 
     task = state.get_task(task_id)
     if not task:
-        print(f"[ACCEPTANCE_TOOL] task not found: {task_id}")
         return f"[Error] 任务 {task_id} 不存在"
 
     if task.status.value != "inspection":
-        print(f"[ACCEPTANCE_TOOL] wrong status: {task.status.value}")
         return (f"[Error] 任务 {task_id} 当前状态为 '{task.status.value}'，"
                 f"只能审核验收中任务")
 
-    # 存储审核建议到任务元数据，标记为 AI 提议
-    print(f"[ACCEPTANCE_TOOL] calling state.update_task: ai_proposed=True, rec={recommendation}")
     state.update_task(task_id,
         ai_proposed=True, created_by="ai_agent",
         ai_acceptance_recommendation=recommendation,
         ai_acceptance_reason=reason,
     )
-
-    # Verify
-    task2 = state.get_task(task_id)
-    print(f"[ACCEPTANCE_TOOL] after update: ai_proposed={task2.ai_proposed} rec={task2.ai_acceptance_recommendation}")
 
     # 发射幽灵提案事件
     event_bus.emit(AppEvent(
