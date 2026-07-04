@@ -20,6 +20,7 @@ from app.ui.components.side_panel import SidePanel
 from app.ui.components.ai_chat import AIChatPanel
 from app.ui.components.bottom_status_bar import BottomStatusBar
 from app.ui.widgets.toast import Toast
+from app.ui.services.task_registry import TaskRegistry
 
 
 class BoardPage:
@@ -38,8 +39,8 @@ class BoardPage:
         self._drag_start_x: float | None = None
         self._agent_busy = False
         self._board_refresh_pending = False
-        # ── 任务注册表 ──
-        self._task_registry: list[dict] = []   # [{id, label, status, progress, type, reopen_fn}]
+        # ── 任务注册表（线程安全）──
+        self._task_registry: TaskRegistry = TaskRegistry()
         self._report_result: str | None = None
         self._review_result: dict | None = None
         self._report_dlg = None               # OverlayDimmer ref
@@ -69,6 +70,7 @@ class BoardPage:
             on_report_click=self._on_status_report_click,
             on_review_click=self._on_status_review_click,
         )
+        self._task_registry._on_change = self._refresh_status_bar
 
         # ── 搜索字段（由 app.py 统一标题栏引用）──
         self._search_field = ft.TextField(
@@ -347,9 +349,9 @@ class BoardPage:
         if proposed:
             return
         # 所有幽灵卡片已处理 → 完成所有"等待确认"的状态栏任务
-        for t in list(self._task_registry):
+        for t in self._task_registry.get_all():
             if t.get("status") == "等待确认":
-                self._update_task_status(t["id"], "已完成", 1.0)
+                self._task_registry.update_status(t["id"], "已完成", 1.0)
                 # 如果对话区任务卡片还开着，关闭它
                 if self.ai_chat:
                     try:
@@ -368,7 +370,7 @@ class BoardPage:
                 def _delayed_unregister(tid=t["id"]):
                     import time
                     time.sleep(5)
-                    self._unregister_task(tid)
+                    self._task_registry.unregister(tid)
                 import threading
                 threading.Thread(target=_delayed_unregister, daemon=True).start()
 
@@ -572,25 +574,24 @@ class BoardPage:
         self.ai_chat.update_task_card(status, border_color=color)
         self.ai_chat.show_status_bubble(f"{label} {status}", color)
         # 更新状态栏
-        task_id = self._find_task_id_by_label(label)
+        task_id = self._task_registry.find_by_label(label)
         if task_id:
             is_ok = "完成" in status or "确认" in status
-            self._update_task_status(task_id, status, 1.0 if is_ok else 0)
+            self._task_registry.update_status(task_id, status, 1.0 if is_ok else 0)
         time.sleep(2)
         self.ai_chat.hide_task_card()
         # 5 秒后从状态栏移除
         if task_id:
             def _delayed_unregister():
                 time.sleep(5)
-                self._unregister_task(task_id)
+                self._task_registry.unregister(task_id)
             threading.Thread(target=_delayed_unregister, daemon=True).start()
 
-    def _find_task_id_by_label(self, label: str) -> str | None:
-        """根据标签名查找任务 ID。"""
-        for t in self._task_registry:
-            if t["label"] == label:
-                return t["id"]
-        return None
+    # ── 以下方法已迁移到 TaskRegistry ──
+    # register → self._task_registry.register()
+    # unregister → self._task_registry.unregister()
+    # update_status → self._task_registry.update_status()
+    # find_by_label → self._task_registry.find_by_label()
 
     def _poll_ghost_resolution(self, label: str, pending_ids: set,
                                 cancel_event, timeout: int = 300):
@@ -617,39 +618,15 @@ class BoardPage:
         self._finish_task_card(label, "等待超时", theme.text_disabled)
 
     # ═══════════════════════════════════════════
-    # 任务注册表 + 状态栏回调
+    # ── 任务注册表已迁移到 app/ui/services/task_registry.py ──
+    # register / unregister / update_status / find_by_label → self._task_registry.xxx()
     # ═══════════════════════════════════════════
-
-    def _register_task(self, task_id: str, label: str, status: str,
-                       task_type: str, progress: float = None):
-        """注册一个任务到状态栏。"""
-        task = {"id": task_id, "label": label, "status": status,
-                "progress": progress, "type": task_type}
-        # 去重
-        self._task_registry = [t for t in self._task_registry if t["id"] != task_id]
-        self._task_registry.append(task)
-        self._refresh_status_bar()
-
-    def _unregister_task(self, task_id: str):
-        """从状态栏移除任务。"""
-        self._task_registry = [t for t in self._task_registry if t["id"] != task_id]
-        self._refresh_status_bar()
-
-    def _update_task_status(self, task_id: str, status: str, progress: float = None):
-        """更新任务状态文字和进度。"""
-        for t in self._task_registry:
-            if t["id"] == task_id:
-                t["status"] = status
-                if progress is not None:
-                    t["progress"] = progress
-                break
-        self._refresh_status_bar()
 
     def _refresh_status_bar(self):
         """刷新状态栏显示。"""
         if self.status_bar:
             try:
-                self.status_bar.set_tasks(self._task_registry)
+                self.status_bar.set_tasks(self._task_registry.get_all())
                 self.status_bar.set_has_report(self._report_result is not None)
                 self.status_bar.set_has_review(self._review_result is not None)
                 self.status_bar.update()
@@ -658,7 +635,7 @@ class BoardPage:
 
     def _on_status_task_click(self, task_id: str):
         """状态栏任务标签被点击 → 重新打开对应面板/弹窗。"""
-        for t in self._task_registry:
+        for t in self._task_registry.get_all():
             if t["id"] == task_id:
                 ttype = t.get("type", "")
                 if ttype == "report":
@@ -672,7 +649,7 @@ class BoardPage:
     def _on_status_task_cancel(self, task_id: str):
         """状态栏取消——立即清理幽灵卡片 + 更新 UI + 设取消事件。"""
         log.debug("cancel", f"ENTER task_id={task_id}")
-        for t in self._task_registry:
+        for t in self._task_registry.get_all():
             if t["id"] == task_id:
                 ttype = t.get("type", "")
                 log.debug("cancel", f"type={ttype}")
@@ -690,7 +667,7 @@ class BoardPage:
                         self.ai_chat.update_task_card("已取消", border_color=theme.text_disabled)
                     self._force_clear_all_ghosts(task_id)
                     self._reject_all_proposals(task_id)
-                    self._update_task_status(task_id, "已取消", 0)
+                    self._task_registry.update_status(task_id, "已取消", 0)
                     import time, threading
                     def _finish():
                         time.sleep(2)
@@ -700,7 +677,7 @@ class BoardPage:
                         except Exception:
                             pass
                         time.sleep(3)
-                        self._unregister_task(task_id)
+                        self._task_registry.unregister(task_id)
                     threading.Thread(target=_finish, daemon=True).start()
                 return
         log.debug("cancel", f"task_id not found in registry")
@@ -859,7 +836,7 @@ class BoardPage:
             try: self._report_dlg.close()
             except Exception: pass
             self._report_dlg = None
-        self._unregister_task("report")
+        self._task_registry.unregister("report")
         self._refresh_status_bar()
 
     def _reopen_report_dlg(self):
@@ -875,7 +852,7 @@ class BoardPage:
             try: self._review_dlg.close()
             except Exception: pass
             self._review_dlg = None
-        self._unregister_task("review")
+        self._task_registry.unregister("review")
         self._refresh_status_bar()
 
     def _reopen_review_dlg(self):
@@ -1561,7 +1538,7 @@ class BoardPage:
         self._open_ai_panel()
         self.ai_chat.show_task_card("生成大纲",
             on_cancel=lambda: self._on_status_task_cancel("outline"))
-        self._register_task("outline", "生成大纲", "准备中...", "ai_panel", None)
+        self._task_registry.register("outline", "生成大纲", "准备中...", "ai_panel", None)
         active_task_registry.set_active("outline", "生成大纲", "gathering_requirements",
                                         "Generating task outline from user requirements")
 
@@ -1641,7 +1618,7 @@ class BoardPage:
         self._open_ai_panel()
         self.ai_chat.show_task_card("生成任务",
             on_cancel=lambda: self._on_status_task_cancel("gen_tasks"))
-        self._register_task("gen_tasks", "生成任务", "准备中...", "ai_panel", None)
+        self._task_registry.register("gen_tasks", "生成任务", "准备中...", "ai_panel", None)
         active_task_registry.set_active("gen_tasks", "生成任务", "gathering_requirements",
                                         "Generating task cards from user requirements")
 
@@ -1721,7 +1698,7 @@ class BoardPage:
         self.ai_chat.show_task_card("自动分类",
             on_cancel=lambda: self._on_status_task_cancel("classify"))
         self.ai_chat.update_task_card(f"正在分析 {len(backlog)} 个任务...")
-        self._register_task("classify", "自动分类", "分析中...", "ai_panel", None)
+        self._task_registry.register("classify", "自动分类", "分析中...", "ai_panel", None)
         active_task_registry.set_active("classify", "自动分类", "executing",
                                         f"Classifying {len(backlog)} backlog tasks")
 
@@ -1783,7 +1760,7 @@ class BoardPage:
         self.ai_chat.show_task_card("自动排程",
             on_cancel=lambda: self._on_status_task_cancel("schedule"))
         self.ai_chat.update_task_card(f"正在分析 {len(triage)} 个任务...")
-        self._register_task("schedule", "自动排程", "分析中...", "ai_panel", None)
+        self._task_registry.register("schedule", "自动排程", "分析中...", "ai_panel", None)
         active_task_registry.set_active("schedule", "自动排程", "executing",
                                         f"Scheduling {len(triage)} triaged tasks")
 
@@ -1841,7 +1818,7 @@ class BoardPage:
         self.ai_chat.show_task_card("自动验收",
             on_cancel=lambda: self._on_status_task_cancel("acceptance"))
         self.ai_chat.update_task_card(f"正在审核 {len(insp)} 个任务...")
-        self._register_task("acceptance", "自动验收", "分析中...", "ai_panel", None)
+        self._task_registry.register("acceptance", "自动验收", "分析中...", "ai_panel", None)
         active_task_registry.set_active("acceptance", "自动验收", "executing",
                                         f"Reviewing {len(insp)} inspection tasks")
 
@@ -1920,7 +1897,7 @@ class BoardPage:
 
     def _cmd_report(self):
         """生成报表 — 可最小化后台运行。"""
-        self._register_task("report", "生成报表", "准备中...", "report", None)
+        self._task_registry.register("report", "生成报表", "准备中...", "report", None)
         self._cmd_report_show_result(None)  # None = 加载中
         self._refresh_status_bar()
 
@@ -2065,17 +2042,17 @@ class BoardPage:
                     r = AgentService.generate_report("daily")
                     report_f.value = r
                     self._report_result = r
-                    self._update_task_status("report", "已完成", 1.0)
+                    self._task_registry.update_status("report", "已完成", 1.0)
                 except Exception as ex:
                     report_f.value = f"生成失败: {ex}"
                     self._report_result = f"生成失败: {ex}"
-                    self._update_task_status("report", "失败", 0)
+                    self._task_registry.update_status("report", "失败", 0)
                 progress.visible = False
                 try: progress.update(); report_f.update()
                 except Exception: pass
                 # 5 秒后自动消失
                 import time; time.sleep(5)
-                self._unregister_task("report")
+                self._task_registry.unregister("report")
             t = threading.Thread(target=_gen, daemon=True)
             self._report_thread = t
             t.start()
@@ -2086,7 +2063,7 @@ class BoardPage:
 
     def _cmd_review(self):
         """任务审核 — 可最小化后台运行。"""
-        self._register_task("review", "任务审核", "准备中...", "review", None)
+        self._task_registry.register("review", "任务审核", "准备中...", "review", None)
         self._cmd_review_show_result(None)
         self._refresh_status_bar()
 
@@ -2281,7 +2258,7 @@ class BoardPage:
                         try: self._review_issue_list.update()
                         except Exception: pass
                     # 更新状态栏
-                    self._update_task_status("review", f"审核中 ({len(issues_so_far)}个问题)", 0.5)
+                    self._task_registry.update_status("review", f"审核中 ({len(issues_so_far)}个问题)", 0.5)
                     log.debug("review", f"batch rendered in-place: {len(issues_so_far)} issues so far")
 
                 log.debug("review", "calling AgentService.task_review() with batching...")
@@ -2299,11 +2276,11 @@ class BoardPage:
 
             # 存储最终结果，触发重渲染
             self._review_result = result
-            self._update_task_status("review", "已完成", 1.0)
+            self._task_registry.update_status("review", "已完成", 1.0)
             if self._review_dlg:
                 self._cmd_review_show_result(result)
             import time; time.sleep(5)
-            self._unregister_task("review")
+            self._task_registry.unregister("review")
 
         # 仅加载中且无运行中线程时才启动
         if is_loading and (self._review_thread is None or not self._review_thread.is_alive()):
@@ -2620,7 +2597,7 @@ class BoardPage:
                 time.sleep(2)
                 # 检查是否已取消或已完成
                 found = False
-                for t in self._task_registry:
+                for t in self._task_registry.get_all():
                     if t["id"] == session_id:
                         found = True
                         if t.get("status") not in ("等待确认",):
@@ -2653,7 +2630,7 @@ class BoardPage:
         self.ai_chat.show_task_card(
             label,
             on_cancel=lambda sid=session_id: self._on_status_task_cancel(sid))
-        self._register_task(session_id, label, "准备中...", "ai_panel", None)
+        self._task_registry.register(session_id, label, "准备中...", "ai_panel", None)
         active_task_registry.set_active(session_id, label, "executing",
                                         f"Running: {label}")
         log.debug("ai_action", f"task registered, starting background thread...")
@@ -2703,7 +2680,7 @@ class BoardPage:
                     has_ghost = any(t.id == tid and t.ai_proposed for t in proposed)
                     if has_ghost:
                         self.ai_chat.update_task_card("等待确认幽灵卡片…", border_color=theme.warning)
-                        self._update_task_status(session_id, "等待确认", 0.8)
+                        self._task_registry.update_status(session_id, "等待确认", 0.8)
                         self._check_ghost_pending_completion()
                         self._start_ghost_polling(session_id, label)
                     else:
