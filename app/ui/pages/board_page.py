@@ -325,6 +325,9 @@ class BoardPage:
 
     def _sync_chat_proposal(self, tid: str, result: str, title: str):
         """同步 AI 对话面板中的提案行状态。"""
+        # 幽灵卡片被处理后，始终检查是否有等待确认的任务需要完成
+        self._check_ghost_pending_completion()
+        # 更新对话面板（仅当打开时）
         if not self.ai_chat or not self.ai_chat.is_open:
             return
         try:
@@ -335,6 +338,38 @@ class BoardPage:
                 self.ai_chat.update()
         except Exception:
             pass
+
+    def _check_ghost_pending_completion(self):
+        """检查是否所有幽灵卡片都已处理，若是则完成等待中的任务卡片。"""
+        proposed = [t for t in state.get_all_tasks() if t.ai_proposed]
+        print(f"[GHOST_CHECK] proposed count={len(proposed)} ids={[t.id[:8] for t in proposed]}")
+        if proposed:
+            return
+        # 所有幽灵卡片已处理 → 完成所有"等待确认"的状态栏任务
+        for t in list(self._task_registry):
+            if t.get("status") == "等待确认":
+                self._update_task_status(t["id"], "已完成", 1.0)
+                # 如果对话区任务卡片还开着，关闭它
+                if self.ai_chat:
+                    try:
+                        self.ai_chat.update_task_card("已完成", border_color=theme.success)
+                    except Exception:
+                        pass
+                    import time, threading
+                    def _delayed_hide():
+                        time.sleep(2)
+                        try:
+                            self.ai_chat.hide_task_card()
+                        except Exception:
+                            pass
+                    threading.Thread(target=_delayed_hide, daemon=True).start()
+                # 延迟从状态栏移除
+                def _delayed_unregister(tid=t["id"]):
+                    import time
+                    time.sleep(5)
+                    self._unregister_task(tid)
+                import threading
+                threading.Thread(target=_delayed_unregister, daemon=True).start()
 
     # load_demo_data() 已废弃 — 数据统一由 data/board_state.json 管理
     # 用 scripts/gen_demo_json.py 生成/重置 JSON
@@ -509,6 +544,8 @@ class BoardPage:
                 self.side_panel.update()
 
     def _on_card_click(self, tid):
+        from app.ui.widgets.context_menu import close_current_menu
+        close_current_menu()
         t = state.get_task(tid)
         if t and self.side_panel:
             if self.ai_chat and self.ai_chat.is_open: self.ai_chat.close()
@@ -558,7 +595,7 @@ class BoardPage:
             self.ai_chat.hide_task_card() if self.ai_chat else None
             return
         for i in range(timeout):
-            if cancel.is_set():
+            if cancel and cancel.is_set():
                 self._finish_task_card(label, "已取消", theme.text_disabled)
                 return
             time.sleep(1)
@@ -627,20 +664,112 @@ class BoardPage:
                 return
 
     def _on_status_task_cancel(self, task_id: str):
-        """状态栏任务取消按钮被点击。"""
+        """状态栏取消——立即清理幽灵卡片 + 更新 UI + 设取消事件。"""
+        print(f"[CANCEL] ENTER task_id={task_id}")
         for t in self._task_registry:
             if t["id"] == task_id:
                 ttype = t.get("type", "")
+                print(f"[CANCEL] type={ttype}")
                 if ttype == "report":
                     self._cancel_report()
                 elif ttype == "review":
                     self._cancel_review()
                 else:
-                    # AI 面板任务：设取消事件
-                    if self.ai_chat and self.ai_chat._cancel_event:
-                        self.ai_chat._cancel_event.set()
-                    self._unregister_task(task_id)
+                    if self.ai_chat:
+                        ce = getattr(self.ai_chat, '_cancel_event', None)
+                        print(f"[CANCEL] ce={'SET' if ce else 'NONE'}")
+                        if ce:
+                            ce.set()
+                            print(f"[CANCEL] event set, is_set={ce.is_set()}")
+                        self.ai_chat.update_task_card("已取消", border_color=theme.text_disabled)
+                    self._force_clear_all_ghosts(task_id)
+                    self._reject_all_proposals(task_id)
+                    self._update_task_status(task_id, "已取消", 0)
+                    import time, threading
+                    def _finish():
+                        time.sleep(2)
+                        try:
+                            if self.ai_chat:
+                                self.ai_chat.hide_task_card()
+                        except Exception:
+                            pass
+                        time.sleep(3)
+                        self._unregister_task(task_id)
+                    threading.Thread(target=_finish, daemon=True).start()
                 return
+        print(f"[CANCEL] task_id not found in registry")
+
+    def _force_clear_all_ghosts(self, task_id: str):
+        """清除幽灵卡片：单任务模式清指定任务，批量模式清全部。"""
+        # 单任务 AI：提取真实 task_id，只清除该任务
+        for prefix in ("classify_", "schedule_", "review_"):
+            if task_id.startswith(prefix):
+                real_tid = task_id[len(prefix):]
+                if real_tid:
+                    t = state.get_task(real_tid)
+                    if t and t.ai_proposed:
+                        updates = {"ai_proposed": False}
+                        if t.ai_priority:
+                            updates["ai_priority"] = None
+                        if t.ai_acceptance_recommendation:
+                            updates["ai_acceptance_recommendation"] = None
+                            updates["ai_acceptance_reason"] = None
+                        if t.ai_suggestions:
+                            cleaned = [s for s in t.ai_suggestions
+                                       if not (isinstance(s, dict) and
+                                               s.get("proposal_type") in ("schedule",))]
+                            if len(cleaned) != len(t.ai_suggestions):
+                                updates["ai_suggestions"] = cleaned
+                        try:
+                            state.update_task(real_tid, **updates)
+                        except Exception:
+                            pass
+                        self._refresh_board()
+                return
+        # 批量 AI 工具：清除全部幽灵卡片
+        count = 0
+        for t in state.get_all_tasks():
+            if t.ai_proposed:
+                try:
+                    state.update_task(t.id, ai_proposed=False,
+                                      ai_priority=None,
+                                      ai_acceptance_recommendation=None,
+                                      ai_acceptance_reason=None)
+                    count += 1
+                except Exception:
+                    pass
+        if count:
+            self._refresh_board()
+
+    def _reject_all_proposals(self, task_id: str):
+        """将 AI 对话区中关联的提案行标记为已拒绝。"""
+        if not self.ai_chat or not hasattr(self.ai_chat, '_proposal_results'):
+            return
+        # 单任务 AI：拒绝指定任务提案
+        for prefix in ("classify_", "schedule_", "review_"):
+            if task_id.startswith(prefix):
+                real_tid = task_id[len(prefix):]
+                if real_tid:
+                    t = state.get_task(real_tid)
+                    title = t.title if t else ""
+                    self.ai_chat._proposal_results.append((real_tid, "rejected", title))
+                    try:
+                        if hasattr(self.ai_chat, '_rebuild_bubbles'):
+                            self.ai_chat._rebuild_bubbles()
+                            self.ai_chat.update()
+                    except Exception:
+                        pass
+                return
+        # 批量 AI 工具：拒绝全部活跃提案
+        for t in state.get_all_tasks():
+            if t.ai_proposed:
+                self.ai_chat._proposal_results.append((t.id, "rejected", t.title))
+        try:
+            if hasattr(self.ai_chat, '_rebuild_bubbles'):
+                self.ai_chat._rebuild_bubbles()
+                self.ai_chat.update()
+        except Exception:
+            pass
 
     def _on_status_report_click(self, _=None):
         """状态栏报告入口被点击。"""
@@ -754,31 +883,179 @@ class BoardPage:
         """从侧边栏编辑按钮触发的编辑弹窗。"""
         self._dlg_edit(task)
 
-    def _on_card_context_menu(self, tid, e):
+    # ═══════════════════════ 右键菜单（按列分发） ═══════════════════════
+
+    @staticmethod
+    def _get_cursor_pos(page) -> tuple[float, float]:
+        """Win32 API 获取鼠标在页面客户区内的坐标（不依赖 Flet 事件）。"""
+        import ctypes
+        from ctypes import wintypes
+        try:
+            pt = wintypes.POINT()
+            ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+            hwnd = ctypes.windll.user32.FindWindowW(None, "TaskSense")
+            if hwnd:
+                ctypes.windll.user32.ScreenToClient(hwnd, ctypes.byref(pt))
+            return (float(pt.x), float(pt.y))
+        except Exception:
+            return (100.0, 100.0)
+
+    def _on_card_context_menu(self, tid, x, y):
         from app.ui.widgets.context_menu import ContextMenu
+        # 用 Win32 API 实时获取鼠标位置（比事件坐标可靠）
+        cx, cy = self._get_cursor_pos(self._page)
         t = state.get_task(tid)
-        submit_label = "提交验收" if t and t.status.value == "in_progress" else (
-            "验收中" if t and t.status.value == "inspection" else (
-            "已完成" if t and t.status.value == "completed" else "提交任务"))
+        if not t: return
+        col = t.status.value
+        builder = {
+            "backlog": self._menu_backlog,
+            "triage": self._menu_triage,
+            "scheduled": self._menu_scheduled,
+            "ready": self._menu_ready,
+            "in_progress": self._menu_in_progress,
+            "inspection": self._menu_inspection,
+            "parts_hold": self._menu_parts_hold,
+            "completed": self._menu_completed,
+            "archived": self._menu_archived,
+        }.get(col)
+        if not builder: return
+        items = builder(t)
         ContextMenu(
-            items=[
-                {"label": "编辑", "icon": ft.Icons.EDIT_OUTLINED, "action": "edit"},
-                {"label": "分配...", "icon": ft.Icons.PERSON_ADD, "action": "assign"},
-                {"label": submit_label, "icon": ft.Icons.CHECK_CIRCLE_OUTLINE,
-                 "action": "submit",
-                 "color": theme.success if t and t.status.value != "completed"
-                 else theme.text_disabled},
-                {"divider": True},
-                {"label": "AI 解释任务", "icon": ft.Icons.PSYCHOLOGY_OUTLINED,
-                 "action": "ai_explain"},
-                {"label": "AI 查找相关文档", "icon": ft.Icons.SEARCH,
-                 "action": "search"},
-                {"divider": True},
-                {"label": "删除", "icon": ft.Icons.DELETE_OUTLINE,
-                 "color": theme.error, "action": "delete"},
-            ],
+            items=items,
             on_select=lambda a: self._card_action(tid, a),
-        ).show(self._page)
+        ).show(self._page, cx, cy)
+
+    # ── 各列菜单构建器 ──
+
+    def _menu_edit_or_view(self, t):
+        """已锁定列显示"查看详情"，可编辑列显示"编辑"。"""
+        if t.status.value in ("inspection", "completed", "archived"):
+            return {"label": "查看详情", "icon": ft.Icons.VISIBILITY_OUTLINED, "action": "edit"}
+        return {"label": "编辑", "icon": ft.Icons.EDIT_OUTLINED, "action": "edit"}
+
+    def _menu_ai_items(self):
+        return [
+            {"divider": True},
+            {"label": "AI 解释任务", "icon": ft.Icons.PSYCHOLOGY_OUTLINED, "action": "ai_explain"},
+            {"label": "AI 查找相关文档", "icon": ft.Icons.SEARCH, "action": "search"},
+        ]
+
+    def _menu_delete_item(self):
+        return [
+            {"divider": True},
+            {"label": "删除", "icon": ft.Icons.DELETE_OUTLINE,
+             "color": theme.error, "action": "delete",
+             "confirm": "确定删除此任务？此操作不可撤销。"},
+        ]
+
+    def _menu_backlog(self, t):
+        return [
+            self._menu_edit_or_view(t),
+            {"label": "设置优先级并分类", "icon": ft.Icons.FLAG_OUTLINED,
+             "action": "set_priority"},
+            {"label": "AI 分类此任务", "icon": ft.Icons.AUTO_AWESOME_OUTLINED,
+             "action": "ai_classify", "color": theme.info},
+            {"label": "直接归档", "icon": ft.Icons.ARCHIVE_OUTLINED,
+             "action": "archive_now", "confirm": "确定跳过所有流程直接归档？"},
+            *self._menu_ai_items(),
+            *self._menu_delete_item(),
+        ]
+
+    def _menu_triage(self, t):
+        return [
+            self._menu_edit_or_view(t),
+            {"label": "更改优先级", "icon": ft.Icons.FLAG_OUTLINED,
+             "action": "change_priority"},
+            {"label": "排程", "icon": ft.Icons.CALENDAR_MONTH_OUTLINED,
+             "action": "schedule"},
+            {"label": "AI 排程此任务", "icon": ft.Icons.AUTO_AWESOME_OUTLINED,
+             "action": "ai_schedule", "color": theme.info},
+            {"label": "退回待处理", "icon": ft.Icons.UNDO_OUTLINED,
+             "action": "move_to:backlog"},
+            *self._menu_ai_items(),
+            *self._menu_delete_item(),
+        ]
+
+    def _menu_scheduled(self, t):
+        return [
+            self._menu_edit_or_view(t),
+            {"label": "标记就绪", "icon": ft.Icons.CHECK_CIRCLE_OUTLINE,
+             "action": "move_to:ready", "color": theme.success},
+            {"label": "退回已分类", "icon": ft.Icons.ARROW_BACK_OUTLINED,
+             "action": "move_to:triage"},
+            {"label": "退回待处理", "icon": ft.Icons.UNDO_OUTLINED,
+             "action": "move_to:backlog"},
+            *self._menu_ai_items(),
+            *self._menu_delete_item(),
+        ]
+
+    def _menu_ready(self, t):
+        return [
+            self._menu_edit_or_view(t),
+            {"label": "开始执行", "icon": ft.Icons.PLAY_ARROW_OUTLINED,
+             "action": "move_to:in_progress", "color": theme.success},
+            {"label": "重新排程", "icon": ft.Icons.CALENDAR_MONTH_OUTLINED,
+             "action": "reschedule"},
+            {"label": "阻塞...", "icon": ft.Icons.BLOCK_OUTLINED,
+             "action": "block", "color": theme.warning},
+            *self._menu_ai_items(),
+        ]
+
+    def _menu_in_progress(self, t):
+        return [
+            self._menu_edit_or_view(t),
+            {"label": "提交验收...", "icon": ft.Icons.ASSIGNMENT_TURNED_IN_OUTLINED,
+             "action": "submit", "color": theme.info},
+            {"label": "直接完成", "icon": ft.Icons.CHECK_CIRCLE_OUTLINE,
+             "action": "complete_direct", "color": theme.success,
+             "confirm": "跳过验收直接完成？建议先提交验收审核。"},
+            {"label": "阻塞...", "icon": ft.Icons.BLOCK_OUTLINED,
+             "action": "block", "color": theme.warning},
+            *self._menu_ai_items(),
+        ]
+
+    def _menu_inspection(self, t):
+        return [
+            self._menu_edit_or_view(t),
+            {"label": "验收通过", "icon": ft.Icons.VERIFIED_OUTLINED,
+             "action": "approve", "color": theme.success,
+             "confirm": "确认验收通过？任务将移至已完成。"},
+            {"label": "退回返工", "icon": ft.Icons.REPLAY_OUTLINED,
+             "action": "move_to:in_progress", "color": theme.warning},
+            {"label": "退回待处理", "icon": ft.Icons.UNDO_OUTLINED,
+             "action": "move_to:backlog"},
+            {"divider": True},
+            {"label": "AI 验收此任务", "icon": ft.Icons.FACT_CHECK_OUTLINED,
+             "action": "ai_review_single", "color": theme.info},
+            {"label": "AI 解释任务", "icon": ft.Icons.PSYCHOLOGY_OUTLINED,
+             "action": "ai_explain"},
+            {"label": "AI 查找相关文档", "icon": ft.Icons.SEARCH,
+             "action": "search"},
+        ]
+
+    def _menu_parts_hold(self, t):
+        return [
+            self._menu_edit_or_view(t),
+            {"label": "取消阻塞", "icon": ft.Icons.LOCK_OPEN_OUTLINED,
+             "action": "unblock", "color": theme.success},
+            {"label": "退回已排程", "icon": ft.Icons.ARROW_BACK_OUTLINED,
+             "action": "move_to:scheduled"},
+            *self._menu_ai_items(),
+        ]
+
+    def _menu_completed(self, t):
+        return [
+            self._menu_edit_or_view(t),
+            {"label": "归档", "icon": ft.Icons.ARCHIVE_OUTLINED,
+             "action": "move_to:archived"},
+            *self._menu_ai_items(),
+        ]
+
+    def _menu_archived(self, t):
+        return [
+            self._menu_edit_or_view(t),
+            *self._menu_ai_items(),
+        ]
 
     # ── 拖放内容补充 ──
 
@@ -803,8 +1080,10 @@ class BoardPage:
         except Exception as e:
             Toast.show(self._page, str(e), "warning")
 
-    def _dlg_priority(self, tid, col, index):
-        """backlog → triage：补充优先级。"""
+    def _dlg_priority(self, tid, col=None, index=-1):
+        """确认优先级弹窗（复用自拖放流程）。
+        col=None → 仅更新优先级不移动列；col 有值 → 设优先级并 move 到目标列。
+        """
         ff = theme.font_family
         options = [
             ("aog", "AOG", "立即排故", theme.priority_aog),
@@ -813,7 +1092,11 @@ class BoardPage:
             ("cat_c", "Cat C", "10 天内", theme.priority_cat_c),
             ("cat_d", "Cat D", "120 天内", theme.priority_cat_d),
         ]
-        selected = {"val": "cat_c"}
+        # 初始选中当前任务的优先级
+        t = state.get_task(tid)
+        current_pri = t.priority.value if t else "cat_c"
+        init_val = current_pri if current_pri in [o[0] for o in options] else "cat_c"
+        selected = {"val": init_val}
 
         chips = []
         for val, label, desc, color in options:
@@ -843,23 +1126,30 @@ class BoardPage:
         def _select(v):
             selected["val"] = v
             for i, chip in enumerate(chips):
-                sel = options[i][0] == v
-                color = options[i][3]
+                s_sel = options[i][0] == v
+                clr = options[i][3]
                 chip.border = ft.border.all(
-                    1.5, color if sel else theme.border)
+                    1.5, clr if s_sel else theme.border)
                 chip.bgcolor = ft.Colors.with_opacity(
-                    0.06, color) if sel else theme.card
+                    0.06, clr) if s_sel else theme.card
                 row = chip.content.controls[0]
-                row.controls[1].color = color if sel else theme.text_primary
+                row.controls[1].color = clr if s_sel else theme.text_primary
                 chip.update()
 
         def _confirm(_):
             priority = selected["val"]
             try:
                 from app.core.models.task import Priority
-                task_service.move_task(tid, col, index=index)
                 task_service.update_task(tid, priority=Priority(priority))
-                Toast.show(self._page, f"已分类 — {options[[o[0] for o in options].index(priority)][1]}", "success")
+                if col is not None:
+                    task_service.move_task(tid, col, index=index)
+                    labels = {"aog": "AOG", "cat_a": "Cat A", "cat_b": "Cat B",
+                              "cat_c": "Cat C", "cat_d": "Cat D"}
+                    Toast.show(self._page,
+                               f"已分类 — {labels.get(priority, priority)}",
+                               "success")
+                else:
+                    Toast.show(self._page, "优先级已更新", "success")
             except Exception as e:
                 Toast.show(self._page, str(e), "warning")
             dlg.close()
@@ -929,8 +1219,8 @@ class BoardPage:
         dlg = ModalDialog(self._page, content, width=540)
         dlg.open()
 
-    def _dlg_schedule(self, tid, col, index):
-        """triage → scheduled：补充时间、工时和人员。"""
+    def _dlg_schedule(self, tid, col=None, index=-1, move_to=True):
+        """排程弹窗。col/move_to=True → 设排程并移动到目标列；move_to=False → 仅更新排程不移动。"""
         ff = theme.font_family
 
         def _field(hint="", width=None):
@@ -1071,13 +1361,17 @@ class BoardPage:
             if not aid: assignee_id_f.border_color = theme.error; assignee_id_f.hint_text = "请输入员工 ID"; assignee_id_f.update(); return
             if not aname: assignee_name_f.border_color = theme.error; assignee_name_f.hint_text = "请输入姓名"; assignee_name_f.update(); return
             try:
-                task_service.move_task(tid, col, index=index)
+                if move_to and col:
+                    task_service.move_task(tid, col, index=index)
                 updates = {"assignee": f"{aid} {aname}"}
                 try: updates["estimated_hours"] = float(hs)
                 except: pass
                 updates["due_date"] = due_dt
                 task_service.update_task(tid, **updates)
-                Toast.show(self._page, "已排程", "success")
+                if move_to and col:
+                    Toast.show(self._page, "已排程", "success")
+                else:
+                    Toast.show(self._page, "排程已更新", "success")
             except Exception as ex: Toast.show(self._page, str(ex), "warning")
             dlg.close()
 
@@ -1259,7 +1553,8 @@ class BoardPage:
         if self.ai_chat.is_task_running:
             Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
         self._open_ai_panel()
-        self.ai_chat.show_task_card("生成大纲")
+        self.ai_chat.show_task_card("生成大纲",
+            on_cancel=lambda: self._on_status_task_cancel("outline"))
         self._register_task("outline", "生成大纲", "准备中...", "ai_panel", None)
         active_task_registry.set_active("outline", "生成大纲", "gathering_requirements",
                                         "Generating task outline from user requirements")
@@ -1267,7 +1562,7 @@ class BoardPage:
         import threading, time
 
         def _do_outline():
-            cancel = self.ai_chat._cancel_event
+            cancel = getattr(self.ai_chat, '_cancel_event', None)
             try:
                 from app.ui.services.agent_service import AgentService
                 from app.agent.orchestrator import _load_prompt
@@ -1276,14 +1571,14 @@ class BoardPage:
                 result = AgentService.ask(
                     prompt, session_id="outline", strict=True,
                     cancel_event=cancel)
-                if cancel.is_set():
+                if cancel and cancel.is_set():
                     self._finish_task_card("生成大纲", "已取消", theme.text_disabled)
                     return
                 self.ai_chat.show_prompt_bubble(result)
                 self.ai_chat.update_task_card("请回复上方紫色气泡中的问题...")
                 busy_seen = False
                 for _ in range(300):
-                    if cancel.is_set():
+                    if cancel and cancel.is_set():
                         self._finish_task_card("生成大纲", "已取消", theme.text_disabled)
                         return
                     time.sleep(1)
@@ -1338,7 +1633,8 @@ class BoardPage:
         if self.ai_chat.is_task_running:
             Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
         self._open_ai_panel()
-        self.ai_chat.show_task_card("生成任务")
+        self.ai_chat.show_task_card("生成任务",
+            on_cancel=lambda: self._on_status_task_cancel("gen_tasks"))
         self._register_task("gen_tasks", "生成任务", "准备中...", "ai_panel", None)
         active_task_registry.set_active("gen_tasks", "生成任务", "gathering_requirements",
                                         "Generating task cards from user requirements")
@@ -1347,7 +1643,7 @@ class BoardPage:
 
         def _do_gen():
             import traceback
-            cancel = self.ai_chat._cancel_event if self.ai_chat else None
+            cancel = getattr(self.ai_chat, '_cancel_event', None) if self.ai_chat else None
             if cancel is None:
                 self.ai_chat.hide_task_card() if self.ai_chat else None
                 return
@@ -1359,7 +1655,7 @@ class BoardPage:
                 result = AgentService.ask(
                     prompt, session_id="gen_tasks", strict=True,
                     cancel_event=cancel)
-                if cancel.is_set():
+                if cancel and cancel.is_set():
                     self._finish_task_card("生成任务", "已取消", theme.text_disabled)
                     return
 
@@ -1369,7 +1665,7 @@ class BoardPage:
                 known_before = {t.id for t in state.get_all_tasks()}
                 busy_seen = False
                 for _ in range(300):
-                    if cancel.is_set():
+                    if cancel and cancel.is_set():
                         self._finish_task_card("生成任务", "已取消", theme.text_disabled)
                         return
                     time.sleep(1)
@@ -1414,7 +1710,8 @@ class BoardPage:
             for t in backlog
         )
         self._open_ai_panel()
-        self.ai_chat.show_task_card("自动分类")
+        self.ai_chat.show_task_card("自动分类",
+            on_cancel=lambda: self._on_status_task_cancel("classify"))
         self.ai_chat.update_task_card(f"正在分析 {len(backlog)} 个任务...")
         self._register_task("classify", "自动分类", "分析中...", "ai_panel", None)
         active_task_registry.set_active("classify", "自动分类", "executing",
@@ -1424,7 +1721,7 @@ class BoardPage:
 
         def _do():
             print("[CLASSIFY] _do thread started")
-            cancel = self.ai_chat._cancel_event
+            cancel = getattr(self.ai_chat, '_cancel_event', None)
             print(f"[CLASSIFY] cancel_event={cancel}")
             try:
                 from app.ui.services.agent_service import AgentService
@@ -1439,7 +1736,7 @@ class BoardPage:
                 print(f"[CLASSIFY] before ask, pending_before={len(pending_before)}")
                 result = AgentService.ask(prompt, session_id="classify", cancel_event=cancel)
                 print(f"[CLASSIFY] ask done, result_len={len(result) if result else 0}")
-                if cancel.is_set():
+                if cancel and cancel.is_set():
                     self._finish_task_card("自动分类", "已取消", theme.text_disabled)
                     return
                 self._refresh_board()
@@ -1475,7 +1772,8 @@ class BoardPage:
             for t in triage
         )
         self._open_ai_panel()
-        self.ai_chat.show_task_card("自动排程")
+        self.ai_chat.show_task_card("自动排程",
+            on_cancel=lambda: self._on_status_task_cancel("schedule"))
         self.ai_chat.update_task_card(f"正在分析 {len(triage)} 个任务...")
         self._register_task("schedule", "自动排程", "分析中...", "ai_panel", None)
         active_task_registry.set_active("schedule", "自动排程", "executing",
@@ -1483,7 +1781,7 @@ class BoardPage:
 
         import threading
         def _do():
-            cancel = self.ai_chat._cancel_event
+            cancel = getattr(self.ai_chat, '_cancel_event', None)
             try:
                 from app.ui.services.agent_service import AgentService
                 prompt = (f"{self._CMD_PROMPTS['schedule']}\n\n"
@@ -1496,7 +1794,7 @@ class BoardPage:
                         state.update_task(tt.id, ai_proposed=False)
                 pending_before = {t.id for t in state.get_all_tasks() if t.ai_proposed}
                 result = AgentService.ask(prompt, session_id="schedule", cancel_event=cancel)
-                if cancel.is_set():
+                if cancel and cancel.is_set():
                     self._finish_task_card("自动排程", "已取消", theme.text_disabled)
                     return
                 self._refresh_board()
@@ -1532,7 +1830,8 @@ class BoardPage:
             for t in insp
         )
         self._open_ai_panel()
-        self.ai_chat.show_task_card("自动验收")
+        self.ai_chat.show_task_card("自动验收",
+            on_cancel=lambda: self._on_status_task_cancel("acceptance"))
         self.ai_chat.update_task_card(f"正在审核 {len(insp)} 个任务...")
         self._register_task("acceptance", "自动验收", "分析中...", "ai_panel", None)
         active_task_registry.set_active("acceptance", "自动验收", "executing",
@@ -1541,7 +1840,7 @@ class BoardPage:
         import threading, traceback
 
         def _do():
-            cancel = self.ai_chat._cancel_event
+            cancel = getattr(self.ai_chat, '_cancel_event', None)
             print(f"[ACCEPTANCE] _do thread started, cancel_event={cancel}")
             try:
                 from app.ui.services.agent_service import AgentService
@@ -1565,7 +1864,7 @@ class BoardPage:
                 result = AgentService.ask(prompt, session_id="acceptance", cancel_event=cancel)
                 print(f"[ACCEPTANCE] AgentService.ask() returned, len={len(result) if result else 0}")
                 print(f"[ACCEPTANCE] result[:300]={result[:300] if result else 'None'}")
-                if cancel.is_set():
+                if cancel and cancel.is_set():
                     print("[ACCEPTANCE] cancelled after ask")
                     self._finish_task_card("自动验收", "已取消", theme.text_disabled)
                     return
@@ -2156,29 +2455,263 @@ class BoardPage:
             Toast.show(self._page, f"AI 未就绪: {e}", "warning")
 
     def _card_action(self, tid, action):
-        if action == "delete":
+        """右键菜单动作分发。"""
+        print(f"[CARD_ACTION] tid={tid[:8]} action={action}")
+        t = state.get_task(tid)
+        if not t:
+            print(f"[CARD_ACTION] TASK NOT FOUND tid={tid}")
+            return
+        print(f"[CARD_ACTION] task={t.title[:20]} col={t.status.value}")
+
+        # ── 编辑 → 直接打开编辑弹窗 ──
+        if action == "edit":
+            self._dlg_edit(t)
+
+        elif action == "delete":
             task_service.delete_task(tid)
             if self.side_panel: self.side_panel.close()
             Toast.show(self._page, "已删除", "info")
+
         elif action == "search":
-            t = state.get_task(tid)
-            if t:
-                query = f"{t.title} ATA {t.ata_chapter}"
-                self._do_agent_query(query)
+            from app.ui.services.agent_service import AgentService
+            task_info = {
+                "id": tid, "title": t.title, "ata_chapter": t.ata_chapter,
+                "aircraft_reg": t.aircraft_reg, "aircraft_model": t.aircraft_model or "",
+                "fault_code": getattr(t, 'fault_code', '') or "",
+            }
+            self._run_ai_action("AI 查找文档", task_info,
+                                lambda ci, ce: AgentService.search_docs(ci, ce),
+                                f"search_{tid}")
+
         elif action == "ai_explain":
-            t = state.get_task(tid)
-            if t:
-                query = f"解释以下维修任务：{t.title}，飞机{t.aircraft_reg}，ATA章节{t.ata_chapter}"
-                self._do_agent_query(query)
+            from app.ui.services.agent_service import AgentService
+            task_info = {
+                "id": tid, "title": t.title, "description": t.description or "",
+                "aircraft_reg": t.aircraft_reg, "aircraft_model": t.aircraft_model or "",
+                "ata_chapter": t.ata_chapter, "task_type": t.task_type.value,
+                "priority": t.priority.value, "zone": t.zone or "",
+                "work_order_id": t.work_order_id, "estimated_hours": t.estimated_hours,
+                "is_rii": t.is_rii,
+            }
+            self._run_ai_action("AI 解释任务", task_info,
+                                lambda ci, ce: AgentService.explain_task(ci, ce),
+                                f"explain_{tid}")
+
         elif action == "submit":
             self._dlg_submit(tid)
-        elif action == "edit":
-            t = state.get_task(tid)
-            if t and self.side_panel:
-                if self.ai_chat and self.ai_chat.is_open:
-                    self.ai_chat.close()
-                self.side_panel.open_task(t)
-                self._page.update()
+
+        elif action == "ai_review":
+            self._cmd_acceptance()
+
+        elif action == "ai_classify":
+            from app.ui.services.agent_service import AgentService
+            self._run_ai_action("AI 分类此任务", {
+                "id": tid, "title": t.title, "description": t.description or "",
+                "aircraft_reg": t.aircraft_reg, "ata_chapter": t.ata_chapter,
+                "task_type": t.task_type.value, "aircraft_model": t.aircraft_model or "",
+            }, lambda ci, ce: AgentService.classify_single(ci, ce),
+            f"classify_{tid}", keep_open=True)
+
+        elif action == "ai_schedule":
+            from app.ui.services.agent_service import AgentService
+            self._run_ai_action("AI 排程此任务", {
+                "id": tid, "title": t.title, "description": t.description or "",
+                "aircraft_reg": t.aircraft_reg, "ata_chapter": t.ata_chapter,
+                "task_type": t.task_type.value, "priority": t.priority.value,
+                "zone": t.zone or "", "estimated_hours": t.estimated_hours,
+            }, lambda ci, ce: AgentService.schedule_single(ci, ce),
+            f"schedule_{tid}", keep_open=True)
+
+        elif action == "ai_review_single":
+            from app.ui.services.agent_service import AgentService
+            self._run_ai_action("AI 验收此任务", {
+                "id": tid, "title": t.title, "description": t.description or "",
+                "aircraft_reg": t.aircraft_reg, "aircraft_model": t.aircraft_model or "",
+                "ata_chapter": t.ata_chapter, "task_type": t.task_type.value,
+                "priority": t.priority.value, "zone": t.zone or "",
+                "employee_name": t.employee_name or "", "employee_id": t.employee_id or "",
+                "estimated_hours": t.estimated_hours, "actual_hours": t.actual_hours,
+                "shift_handover_log": t.shift_handover_log or "(无)",
+                "is_rii": t.is_rii, "checklist_progress": t.checklist_progress(),
+            }, lambda ci, ce: AgentService.review_single(ci, ce),
+            f"review_{tid}", keep_open=True)
+
+        # ── 列移动（move_to:<target_col>） ──
+        elif action.startswith("move_to:"):
+            target_col = action.split(":", 1)[1]
+            try:
+                task_service.move_task(tid, target_col, changed_by="user")
+                col_titles = {
+                    "ready": "已标记就绪", "in_progress": "已开始执行",
+                    "scheduled": "已退回已排程", "triage": "已退回已分类",
+                    "backlog": "已退回待处理", "archived": "已归档",
+                    "completed": "已完成",
+                }
+                msg = col_titles.get(target_col, f"已移至{target_col}")
+                Toast.show(self._page, msg, "success")
+            except Exception as e:
+                Toast.show(self._page, str(e), "warning")
+
+        # ── 阻塞 ──
+        elif action == "block":
+            self._dlg_block(tid)
+
+        # ── 取消阻塞 ──
+        elif action == "unblock":
+            try:
+                task_service.unblock_task(tid, "user")
+                Toast.show(self._page, "已取消阻塞，任务返回就绪", "success")
+            except Exception as e:
+                Toast.show(self._page, str(e), "warning")
+
+        # ── 设置优先级并分类（backlog → triage）—— 复用拖放弹窗 ──
+        elif action == "set_priority":
+            self._dlg_priority(tid, "triage", -1)
+
+        # ── 更改优先级（triage，不移动）—— 复用同一弹窗 ──
+        elif action == "change_priority":
+            self._dlg_priority(tid)  # col=None → 仅更新优先级
+
+        # ── 排程（triage → scheduled）—— 复用拖放弹窗 ──
+        elif action == "schedule":
+            self._dlg_schedule(tid, "scheduled", -1)
+
+        # ── 重新排程（ready，不移动列）—— 复用排程弹窗 ──
+        elif action == "reschedule":
+            self._dlg_schedule(tid, move_to=False)
+
+        # ── 直接归档（backlog → archived） ──
+        elif action == "archive_now":
+            try:
+                task_service.move_task(tid, "archived", changed_by="user")
+                Toast.show(self._page, "已归档", "success")
+            except Exception as e:
+                Toast.show(self._page, str(e), "warning")
+
+        # ── 直接完成（in_progress → completed） ──
+        elif action == "complete_direct":
+            try:
+                task_service.move_task(tid, "completed", changed_by="user")
+                Toast.show(self._page, "已完成", "success")
+            except Exception as e:
+                Toast.show(self._page, str(e), "warning")
+
+        # ── 验收通过（inspection → completed） ──
+        elif action == "approve":
+            try:
+                task_service.move_task(tid, "completed", changed_by="user")
+                Toast.show(self._page, "验收通过，已移至已完成", "success")
+            except Exception as e:
+                Toast.show(self._page, str(e), "warning")
+
+    def _start_ghost_polling(self, session_id: str, label: str):
+        """定期检查幽灵卡片是否已全部处理，若是则完成任务卡片。"""
+        import threading, time
+        def _poll():
+            for _ in range(30):  # 最多轮询 60 秒
+                time.sleep(2)
+                # 检查是否已取消或已完成
+                found = False
+                for t in self._task_registry:
+                    if t["id"] == session_id:
+                        found = True
+                        if t.get("status") not in ("等待确认",):
+                            return  # 已被取消或完成
+                        break
+                if not found:
+                    return  # 任务已被移除
+                # 检查幽灵卡片
+                proposed = [t for t in state.get_all_tasks() if t.ai_proposed]
+                if not proposed:
+                    print(f"[GHOST_POLL] all ghosts resolved, completing {session_id}")
+                    self._check_ghost_pending_completion()
+                    return
+        threading.Thread(target=_poll, daemon=True).start()
+
+    def _run_ai_action(self, label: str, task_info: dict,
+                       action_fn, session_id: str, keep_open: bool = False):
+        """通用 AI 动作：打开面板 + 任务卡片 + 后台调用 service 方法 + 结果气泡。"""
+        print(f"[AI_ACTION] _run_ai_action label={label} session={session_id}")
+        print(f"[AI_ACTION] ai_chat={'OK' if self.ai_chat else 'NONE'} "
+              f"is_task_running={self.ai_chat.is_task_running if self.ai_chat else 'N/A'}")
+        if not self.ai_chat:
+            Toast.show(self._page, "AI 面板未就绪", "warning"); return
+        if self.ai_chat.is_task_running:
+            Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
+
+        self._open_ai_panel()
+        print(f"[AI_ACTION] panel opened, showing task card...")
+        # 任务卡片内取消按钮 → 同步更新状态栏
+        self.ai_chat.show_task_card(
+            label,
+            on_cancel=lambda sid=session_id: self._on_status_task_cancel(sid))
+        self._register_task(session_id, label, "准备中...", "ai_panel", None)
+        active_task_registry.set_active(session_id, label, "executing",
+                                        f"Running: {label}")
+        print(f"[AI_ACTION] task registered, starting background thread...")
+
+        import threading, traceback as _tb
+
+        def _do():
+            print(f"[AI_ACTION:BG] thread started for {label}")
+            cancel = getattr(self.ai_chat, '_cancel_event', None)
+            print(f"[AI_ACTION:BG] cancel_event={'OK' if cancel else 'None'}")
+            # 调用前检查取消（状态栏已处理清理，此处仅收尾 UI）
+            if cancel and cancel.is_set():
+                print(f"[AI_ACTION:BG] pre-cancelled")
+                self._finish_task_card(label, "已取消", theme.text_disabled)
+                return
+            try:
+                self.ai_chat.update_task_card("正在分析...", border_color=theme.warning)
+                print(f"[AI_ACTION:BG] calling action_fn...")
+                result = action_fn(task_info, cancel)
+                print(f"[AI_ACTION:BG] result len={len(result) if result else 0} "
+                      f"preview={(result or '')[:100]}")
+                if not result:
+                    print(f"[AI_ACTION:BG] empty result")
+                    self._finish_task_card(label, "无结果", theme.error)
+                    return
+                if result.startswith("[Error]") or result == "回答已中断":
+                    print(f"[AI_ACTION:BG] error/cancelled: {result}")
+                    self._finish_task_card(label, "已取消", theme.text_disabled)
+                    return
+                # 成功——通过 _msg_pairs + _rebuild_bubbles 保持响应式布局
+                # __AI_ONLY__ 前缀：只显示 AI 气泡，不显示用户气泡
+                print(f"[AI_ACTION:BG] success, adding to _msg_pairs...")
+                from datetime import datetime
+                self.ai_chat._msg_pairs.append(
+                    (f"__AI_ONLY__{label}", result, datetime.now()))
+                try:
+                    self.ai_chat._rebuild_bubbles()
+                    self.ai_chat.update()
+                except Exception:
+                    pass
+                # 收尾
+                if keep_open:
+                    active_task_registry.clear()
+                    # 检查 LLM 是否实际调用了工具（创建了幽灵卡片）
+                    proposed = [t for t in state.get_all_tasks() if t.ai_proposed]
+                    tid = task_info.get("id", "")
+                    has_ghost = any(t.id == tid and t.ai_proposed for t in proposed)
+                    if has_ghost:
+                        self.ai_chat.update_task_card("等待确认幽灵卡片…", border_color=theme.warning)
+                        self._update_task_status(session_id, "等待确认", 0.8)
+                        self._check_ghost_pending_completion()
+                        self._start_ghost_polling(session_id, label)
+                    else:
+                        # AI 未调工具——当作失败处理
+                        print(f"[AI_ACTION:BG] keep_open but no ghost card created for {tid}")
+                        self._finish_task_card(label, "AI 未创建提案", theme.error)
+                else:
+                    self._finish_task_card(label, "完成", theme.success)
+                print(f"[AI_ACTION:BG] done")
+            except Exception as ex:
+                print(f"[AI_ACTION:BG] EXCEPTION: {ex}")
+                _tb.print_exc()
+                self._finish_task_card(label, f"失败: {ex}", theme.error)
+
+        threading.Thread(target=_do, daemon=True).start()
+        print(f"[AI_ACTION] thread started")
 
     def handle_keyboard(self, e: ft.KeyboardEvent, page: ft.Page):
         # 幽灵文本键盘处理（Tab/Esc）—— 不影响 Ctrl+K 等组合键
@@ -2192,6 +2725,8 @@ class BoardPage:
             if self.command_bar: self.command_bar.show(page)
             e.handled = True
         elif k == "escape":
+            from app.ui.widgets.context_menu import close_current_menu
+            close_current_menu()
             if self.side_panel and self.side_panel.is_open:
                 self.side_panel.close(); self._refresh_board()
             e.handled = True
@@ -2244,22 +2779,146 @@ class BoardPage:
             except Exception as e:
                 Toast.show(self._page, str(e), "warning")
 
-        from app.ui.components.modal_dialog import ModalDialog
-        content = ft.Column([
-            ft.Text(f"提交验收: {t.title[:30]}...", size=theme.font_lg,
-                    weight=ft.FontWeight.W_600, color=theme.text_primary, font_family=ff),
-            ft.Text("交接班日志将作为 AI 审核的提交材料", size=s(11),
-                    color=theme.text_secondary, font_family=ff),
-            ft.Container(height=8),
-            result_f, hours_f,
-            ft.Container(height=8),
+        # ── 按钮 + 字段样式（与 CreateTaskDialog 一致）──
+        btn_st = ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=s(6)),
+            padding=ft.padding.only(left=s(18), top=s(7), right=s(18), bottom=s(7)),
+            text_style=ft.TextStyle(size=s(12), font_family=ff),
+        )
+        field_style = ft.TextStyle(color="#e0e0e0", size=s(12), font_family=ff)
+        hint_style = ft.TextStyle(color=theme.text_secondary, size=s(11), font_family=ff)
+        field_pad = ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8))
+        # 统一字段样式
+        for fld in [result_f, hours_f]:
+            fld.text_style = field_style
+            fld.hint_style = hint_style
+            fld.border_radius = s(6)
+            fld.content_padding = field_pad
+            fld.dense = True
+
+        header = ft.Container(
+            ft.Row([
+                ft.Icon(ft.Icons.ASSIGNMENT_TURNED_IN_OUTLINED, size=s(15), color="#5294e2"),
+                ft.Text("提交验收", size=s(14), weight=ft.FontWeight.W_600,
+                        color=theme.text_primary, font_family=ff),
+                ft.Container(expand=True),
+                ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
+                              icon_color=theme.text_secondary,
+                              style=ft.ButtonStyle(bgcolor=ft.Colors.TRANSPARENT,
+                                                   overlay_color=ft.Colors.RED_900,
+                                                   shape=ft.RoundedRectangleBorder(radius=s(4))),
+                              on_click=lambda e: dlg.close()),
+            ], spacing=s(8)),
+            padding=ft.padding.only(left=s(14), top=s(8), right=s(6), bottom=s(8)),
+            border=ft.border.only(bottom=ft.BorderSide(1, theme.border)),
+        )
+        body = ft.Container(
+            ft.Column([
+                ft.Text(t.title[:40], size=s(13), weight=ft.FontWeight.W_500,
+                        color=theme.text_primary, font_family=ff),
+                ft.Text("交接班日志将作为 AI 审核的提交材料", size=s(11),
+                        color=theme.text_secondary, font_family=ff),
+                ft.Container(height=s(10)),
+                result_f,
+                ft.Container(height=s(8)),
+                hours_f,
+            ], spacing=0, tight=True),
+            padding=ft.padding.all(s(14)),
+        )
+        footer = ft.Container(
             ft.Row([
                 ft.Container(expand=True),
-                ft.TextButton("取消", on_click=lambda e: dlg.close()),
+                ft.OutlinedButton("取消", on_click=lambda e: dlg.close(),
+                    style=ft.ButtonStyle(shape=btn_st.shape, padding=btn_st.padding,
+                        text_style=btn_st.text_style,
+                        side=ft.BorderSide(1, theme.border), color=theme.text_secondary)),
                 ft.ElevatedButton("提交验收", on_click=submit,
-                                  style=ft.ButtonStyle(bgcolor=theme.info)),
-            ]),
-        ], spacing=0, tight=True)
+                    style=ft.ButtonStyle(shape=btn_st.shape, padding=btn_st.padding,
+                        text_style=btn_st.text_style,
+                        bgcolor="#5294e2", color=ft.Colors.WHITE, elevation=0)),
+            ], spacing=s(8)),
+            padding=ft.padding.only(left=s(14), top=s(8), right=s(14), bottom=s(10)),
+            border=ft.border.only(top=ft.BorderSide(1, theme.border)),
+        )
+        content = ft.Column([header, body, footer], spacing=0, tight=True)
+        from app.ui.components.modal_dialog import ModalDialog
+        dlg = ModalDialog(self._page, content, width=480)
+        dlg.open()
+
+    def _dlg_block(self, tid):
+        """阻塞原因弹窗 → parts_hold（与 CreateTaskDialog 风格统一）。"""
+        t = state.get_task(tid)
+        if not t: return
+        ff = theme.font_family
+
+        reason_f = ft.TextField(
+            hint_text="如：等待航材、缺工具、等待排故方案...",
+            multiline=True, min_lines=3, max_lines=6,
+            border_color=theme.border, focused_border_color=theme.warning,
+            text_style=ft.TextStyle(color="#e0e0e0", size=s(12), font_family=ff),
+            hint_style=ft.TextStyle(color=theme.text_secondary, size=s(11), font_family=ff),
+            bgcolor=theme.card, dense=True, border_radius=s(6),
+            content_padding=ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8)),
+        )
+
+        def _do_block(_):
+            reason = (reason_f.value or "").strip()
+            if not reason:
+                Toast.show(self._page, "请填写阻塞原因", "warning"); return
+            try:
+                task_service.block_task(tid, reason=reason, user="user")
+                dlg.close()
+                Toast.show(self._page, "已阻塞，任务移至阻塞中", "success")
+            except Exception as e:
+                Toast.show(self._page, str(e), "warning")
+
+        from app.ui.components.modal_dialog import ModalDialog
+        btn_st = ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=s(6)),
+            padding=ft.padding.only(left=s(18), top=s(7), right=s(18), bottom=s(7)),
+            text_style=ft.TextStyle(size=s(12), font_family=ff),
+        )
+        header = ft.Container(
+            ft.Row([
+                ft.Icon(ft.Icons.BLOCK_OUTLINED, size=s(15), color=theme.warning),
+                ft.Text("阻塞任务", size=s(14), weight=ft.FontWeight.W_600,
+                        color=theme.text_primary, font_family=ff),
+                ft.Container(expand=True),
+                ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
+                              icon_color=theme.text_secondary,
+                              style=ft.ButtonStyle(bgcolor=ft.Colors.TRANSPARENT,
+                                                   overlay_color=ft.Colors.RED_900,
+                                                   shape=ft.RoundedRectangleBorder(radius=s(4))),
+                              on_click=lambda e: dlg.close()),
+            ], spacing=s(8)),
+            padding=ft.padding.only(left=s(14), top=s(8), right=s(6), bottom=s(8)),
+            border=ft.border.only(bottom=ft.BorderSide(1, theme.border)),
+        )
+        body = ft.Container(
+            ft.Column([
+                ft.Text(t.title[:40], size=s(13), weight=ft.FontWeight.W_500,
+                        color=theme.text_primary, font_family=ff),
+                ft.Container(height=s(10)),
+                reason_f,
+            ], spacing=0, tight=True),
+            padding=ft.padding.all(s(14)),
+        )
+        footer = ft.Container(
+            ft.Row([
+                ft.Container(expand=True),
+                ft.OutlinedButton("取消", on_click=lambda e: dlg.close(),
+                    style=ft.ButtonStyle(shape=btn_st.shape, padding=btn_st.padding,
+                        text_style=btn_st.text_style,
+                        side=ft.BorderSide(1, theme.border), color=theme.text_secondary)),
+                ft.ElevatedButton("确认阻塞", on_click=_do_block,
+                    style=ft.ButtonStyle(shape=btn_st.shape, padding=btn_st.padding,
+                        text_style=btn_st.text_style,
+                        bgcolor=theme.warning, color=ft.Colors.WHITE, elevation=0)),
+            ], spacing=s(8)),
+            padding=ft.padding.only(left=s(14), top=s(8), right=s(14), bottom=s(10)),
+            border=ft.border.only(top=ft.BorderSide(1, theme.border)),
+        )
+        content = ft.Column([header, body, footer], spacing=0, tight=True)
         dlg = ModalDialog(self._page, content, width=460)
         dlg.open()
 

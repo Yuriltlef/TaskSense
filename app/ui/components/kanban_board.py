@@ -12,7 +12,8 @@ from app.ui.components.kanban_column import KanbanColumn
 class KanbanBoard(ft.Container):
     def __init__(self, on_card_click, on_card_context_menu,
                  on_drop, on_column_menu=None):
-        super().__init__(expand=True, padding=8, bgcolor=theme.bg)
+        super().__init__(expand=True, padding=8, bgcolor=theme.bg,
+                         on_click=lambda e: self._dismiss_context_menu())
         self._on_card_click = on_card_click
         self._on_card_context_menu = on_card_context_menu
         self._on_drop = on_drop
@@ -27,6 +28,11 @@ class KanbanBoard(ft.Container):
             expand=True,
         )
         self.content = self.column_row
+
+    @staticmethod
+    def _dismiss_context_menu():
+        from app.ui.widgets.context_menu import close_current_menu
+        close_current_menu()
 
     def render_board(self, board_state: BoardState, tasks_map: dict[str, Task],
                      do_update: bool = True):

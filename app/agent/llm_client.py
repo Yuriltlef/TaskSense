@@ -69,12 +69,12 @@ class LLMClient:
             {"role": "user", "content": user_message},
         ])
 
-    def chat_messages(self, messages: list[dict]) -> str:
+    def chat_messages(self, messages: list[dict], timeout: float = 30.0) -> str:
         """发送多轮对话请求。
 
         Args:
             messages: [{"role": "...", "content": "..."}, ...]
-                      支持 system/user/assistant/tool 角色
+            timeout: HTTP 超时秒数（默认 30s）
 
         Returns:
             LLM 回复文本，或 [Error] 前缀的错误消息
@@ -89,7 +89,7 @@ class LLMClient:
                 messages=messages,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
-                timeout=30.0,  # 30s 超时
+                timeout=timeout,
             )
             return response.choices[0].message.content
         except Exception as e:

@@ -95,11 +95,22 @@ class KanbanColumn(ft.Container):
         self._highlighted_target = None
         cards = []
 
+        ccm = self._on_ccm
+
         for i, t in enumerate(tasks):
+
+            def _on_secondary(e, tid=t.id):
+                if ccm:
+                    # 坐标由 board_page._get_cursor_pos 通过 Win32 API 获取
+                    ccm(tid, 0, 0)
+
+
             dt = ft.DragTarget(
                 content=ft.Draggable(
-                    content=TaskCard(t, on_click=self._on_cc,
-                                    on_context_menu=self._on_ccm),
+                    content=ft.GestureDetector(
+                        content=TaskCard(t, on_click=self._on_cc),
+                        on_secondary_tap=_on_secondary,
+                    ),
                     data=json.dumps(
                         {"tid": t.id, "col": self.column.id, "idx": i}),
                     content_feedback=TaskCard(t, ghost=True),

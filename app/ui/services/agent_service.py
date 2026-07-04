@@ -11,8 +11,9 @@ class AgentService:
 
     @staticmethod
     def ask(question: str, session_id: str = "default", strict: bool = False,
-            cancel_event=None) -> str:
-        return agent.ask(question, session_id, strict=strict, cancel_event=cancel_event)
+            cancel_event=None, timeout: float = 30.0) -> str:
+        return agent.ask(question, session_id, strict=strict,
+                         cancel_event=cancel_event, timeout=timeout)
 
     @staticmethod
     def clear_session(session_id: str = "default"):
@@ -555,3 +556,98 @@ class AgentService:
             f"未找到有效 JSON（{len(result)} 字符）。\n"
             f"响应预览: {result[:300]}\n"
             f"响应尾: ...{result[-200:] if len(result) > 200 else ''}")
+
+    # ═══════════════════════════════════════════
+    # 右键菜单 AI 功能
+    # ═══════════════════════════════════════════
+
+    @staticmethod
+    def explain_task(task_info: dict, cancel_event=None) -> str:
+        """AI 解释任务——使用 explain_task.md 提示词。"""
+        from app.agent.llm_client import llm
+        print(f"[EXPLAIN] explain_task called, LLM available={llm.is_available}")
+        if not llm.is_available:
+            return "[Error] LLM 不可用"
+        try:
+            prompt = _load_prompt("explain_task.md")
+            user_msg = "\n".join(f"- {k}: {v}" for k, v in task_info.items())
+            full = f"{prompt}\n\n## Task Details\n{user_msg}"
+            print(f"[EXPLAIN] prompt len={len(full)}, calling agent.ask...")
+            result = agent.ask(full, session_id=f"explain_{task_info.get('id','')}",
+                              strict=False, cancel_event=cancel_event, timeout=15.0)
+            print(f"[EXPLAIN] agent.ask returned len={len(result) if result else 0}")
+            print(f"[EXPLAIN] result preview: {(result or '(None)')[:200]}")
+            return result
+        except Exception as e:
+            print(f"[EXPLAIN] exception: {e}")
+            import traceback
+            traceback.print_exc()
+            return f"[Error] {e}"
+
+    @staticmethod
+    def search_docs(task_info: dict, cancel_event=None) -> str:
+        """AI 搜索文档——使用 search_docs.md 提示词。"""
+        from app.agent.llm_client import llm
+        print(f"[SEARCH_DOCS] search_docs called, LLM available={llm.is_available}")
+        if not llm.is_available:
+            return "[Error] LLM 不可用"
+        try:
+            prompt = _load_prompt("search_docs.md")
+            user_msg = "\n".join(f"- {k}: {v}" for k, v in task_info.items())
+            full = f"{prompt}\n\n## Task Details\n{user_msg}"
+            print(f"[SEARCH_DOCS] prompt len={len(full)}, calling agent.ask...")
+            result = agent.ask(full, session_id=f"search_{task_info.get('id','')}",
+                              strict=False, cancel_event=cancel_event, timeout=15.0)
+            print(f"[SEARCH_DOCS] agent.ask returned len={len(result) if result else 0}")
+            print(f"[SEARCH_DOCS] result preview: {(result or '(None)')[:200]}")
+            return result
+        except Exception as e:
+            print(f"[SEARCH_DOCS] exception: {e}")
+            import traceback
+            traceback.print_exc()
+            return f"[Error] {e}"
+
+    @staticmethod
+    def classify_single(task_info: dict, cancel_event=None) -> str:
+        """AI 分类单个任务——使用 classify_single.md 提示词。"""
+        from app.agent.llm_client import llm
+        if not llm.is_available:
+            return "[Error] LLM 不可用"
+        try:
+            prompt = _load_prompt("classify_single.md")
+            user_msg = "\n".join(f"- {k}: {v}" for k, v in task_info.items())
+            full = f"{prompt}\n\n## Task Details\n{user_msg}"
+            return agent.ask(full, session_id=f"classify_{task_info.get('id','')}",
+                           strict=False, cancel_event=cancel_event, timeout=15.0)
+        except Exception as e:
+            return f"[Error] {e}"
+
+    @staticmethod
+    def schedule_single(task_info: dict, cancel_event=None) -> str:
+        """AI 排程单个任务——使用 schedule_single.md 提示词。"""
+        from app.agent.llm_client import llm
+        if not llm.is_available:
+            return "[Error] LLM 不可用"
+        try:
+            prompt = _load_prompt("schedule_single.md")
+            user_msg = "\n".join(f"- {k}: {v}" for k, v in task_info.items())
+            full = f"{prompt}\n\n## Task Details\n{user_msg}"
+            return agent.ask(full, session_id=f"schedule_{task_info.get('id','')}",
+                           strict=False, cancel_event=cancel_event, timeout=15.0)
+        except Exception as e:
+            return f"[Error] {e}"
+
+    @staticmethod
+    def review_single(task_info: dict, cancel_event=None) -> str:
+        """AI 验收单个任务——使用 review_single.md 提示词。"""
+        from app.agent.llm_client import llm
+        if not llm.is_available:
+            return "[Error] LLM 不可用"
+        try:
+            prompt = _load_prompt("review_single.md")
+            user_msg = "\n".join(f"- {k}: {v}" for k, v in task_info.items())
+            full = f"{prompt}\n\n## Task Details\n{user_msg}"
+            return agent.ask(full, session_id=f"review_{task_info.get('id','')}",
+                           strict=False, cancel_event=cancel_event, timeout=15.0)
+        except Exception as e:
+            return f"[Error] {e}"

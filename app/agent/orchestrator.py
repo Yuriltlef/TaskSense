@@ -238,9 +238,8 @@ class AgentOrchestrator:
     # ── 主入口 ──
 
     def ask(self, question: str, session_id: str = "default",
-            strict: bool = False, cancel_event=None) -> str:
+            strict: bool = False, cancel_event=None, timeout: float = 30.0) -> str:
         """用户提问 → Agent 推理（可能含工具调用）→ 回答。"""
-        # 注入活跃任务上下文（防止 Agent 在工具执行期间偏离）
         from app.agent.active_task import active_task_registry
         question = active_task_registry.inject_context(question, session_id)
 
@@ -254,17 +253,16 @@ class AgentOrchestrator:
         conv.add_user(question)
 
         try:
-            response = self._agent_loop(conv, llm_client, cancel_event)
+            response = self._agent_loop(conv, llm_client, cancel_event, timeout)
         except Exception as e:
             response = f"[Error] Agent 推理失败: {e}"
 
-        # 中断消息不记入历史
         if response != "回答已中断":
             conv.add_assistant(response)
         return response
 
     def _agent_loop(self, conv: Conversation, llm_client,
-                    cancel_event=None) -> str:
+                    cancel_event=None, timeout: float = 30.0) -> str:
         """Agent 推理循环：LLM ↔ 工具调用。"""
         # 快速检查取消标志
         if cancel_event and cancel_event.is_set():
@@ -276,15 +274,18 @@ class AgentOrchestrator:
             if cancel_event and cancel_event.is_set():
                 return "回答已中断"
 
-            resp_text = llm_client.chat_messages(messages)
+            resp_text = llm_client.chat_messages(messages, timeout=timeout)
 
             if resp_text.startswith("[Error]"):
+                if cancel_event and cancel_event.is_set():
+                    return "回答已中断"
                 return resp_text
 
             # 检查是否有工具调用
             tool_calls = _parse_tool_calls(resp_text)
             if not tool_calls:
-                # LLM 直接回答 — 返回结果
+                if cancel_event and cancel_event.is_set():
+                    return "回答已中断"
                 return resp_text
 
             if round_num >= self.MAX_TOOL_ROUNDS:
@@ -296,7 +297,9 @@ class AgentOrchestrator:
                     "content": "Please provide your final answer now based on the tool results above. "
                                "Do NOT request more tool calls."
                 })
-                final = llm_client.chat_messages(messages)
+                final = llm_client.chat_messages(messages, timeout=timeout)
+                if cancel_event and cancel_event.is_set():
+                    return "回答已中断"
                 return final if not final.startswith("[Error]") else resp_text
 
             # 执行工具调用（执行前检查取消）
@@ -322,6 +325,8 @@ class AgentOrchestrator:
                 })
 
         # 不应到达这里，但作为兜底
+        if cancel_event and cancel_event.is_set():
+            return "回答已中断"
         return llm_client.chat_messages(messages)
 
     # ── 离线模式 ──

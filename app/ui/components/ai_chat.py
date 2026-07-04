@@ -195,6 +195,12 @@ class AIChatPanel(ft.Container):
                 controls.append(prompt_bubble(a, mw, on_copy=self._copy, on_refresh=self._refresh))
             elif u.startswith("__STATUS_"):
                 pass  # 状态气泡在末尾统一渲染
+            elif u.startswith("__AI_ONLY__"):
+                controls.append(
+                    error_bubble(a, mw, on_copy=self._copy, on_refresh=self._refresh)
+                    if self._is_error(a)
+                    else ai_bubble(a, mw, on_copy=self._copy, on_refresh=self._refresh)
+                )
             else:
                 controls.append(user_bubble(u, mw, on_copy=self._copy, on_refresh=self._refresh))
                 controls.append(
@@ -743,10 +749,10 @@ class AIChatPanel(ft.Container):
         self._scroll_to_bottom()
 
     def _cancel_task(self, on_cancel=None):
-        """取消当前任务 — 只设置取消信号，由轮询线程处理清理和气泡。"""
+        """取消当前任务——设置取消信号 + 通知回调（回调负责清理幽灵卡片和状态栏）。"""
         if self._cancel_event:
             self._cancel_event.set()
-        self.update_task_card("正在取消...")
+        self.update_task_card("已取消", border_color="#666666")
         if on_cancel:
             on_cancel()
 

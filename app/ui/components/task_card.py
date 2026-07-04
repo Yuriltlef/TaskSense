@@ -8,11 +8,9 @@ from app.ui.widgets.badge import ATABadge, PriorityBadge, TaskTypeBadge
 
 
 class TaskCard(ft.Container):
-    def __init__(self, task: Task, on_click=None,
-                 on_context_menu=None, ghost: bool = False, **_kw):
+    def __init__(self, task: Task, on_click=None, ghost: bool = False, **_kw):
         self.task = task
         self._on_click = on_click
-        self._on_context_menu = on_context_menu
         self._ghost = ghost
         pc = theme.priority_color(task.priority.value)
         pd = theme.pad_md
@@ -28,8 +26,6 @@ class TaskCard(ft.Container):
                      color="#00000030", offset=ft.Offset(0, 1))
                     if not ghost else None),
             on_click=lambda e: self._on_click and self._on_click(task.id),
-            on_long_press=lambda e: self._on_context_menu
-            and self._on_context_menu(task.id, e),
             on_hover=self._handle_hover,
         )
         if ghost:
