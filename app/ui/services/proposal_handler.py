@@ -92,8 +92,7 @@ class ProposalHandler:
         """
         t = state.get_task(task_id)
         if not t:
-            return ProposalResult(task_id, "", "rejected", "none",
-                                  "任务不存在")
+            return ProposalResult(task_id, "", "rejected", "none", "任务不存在")
         title = t.title
 
         acc_rec = getattr(t, 'ai_acceptance_recommendation', None)
@@ -103,7 +102,6 @@ class ProposalHandler:
         )
 
         if acc_rec:
-            # 验收驳回：只清标记，不删不移动
             state.update_task(task_id, ai_proposed=False,
                               ai_acceptance_recommendation=None,
                               ai_acceptance_reason=None)
@@ -111,7 +109,6 @@ class ProposalHandler:
                                   "验收标记已清除，任务保留")
 
         if is_modify:
-            # 分类/排程驳回：清建议标记，保留任务
             cleaned = [s for s in (t.ai_suggestions or [])
                        if not (isinstance(s, dict) and
                                s.get("proposal_type") == "schedule")]
@@ -120,7 +117,6 @@ class ProposalHandler:
             return ProposalResult(task_id, title, "rejected", "cleared",
                                   "建议标记已清除，任务保留")
 
-        # 新任务提案驳回：删除
         state.delete_task(task_id)
         return ProposalResult(task_id, title, "rejected", "deleted",
                               "任务已删除")

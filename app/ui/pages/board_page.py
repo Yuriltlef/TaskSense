@@ -432,13 +432,14 @@ class BoardPage:
         if not self.ai_chat or not hasattr(self.ai_chat, '_proposal_results'):
             return
         from app.ui.services.proposal_handler import ProposalHandler
-        # 单任务 AI：拒绝指定任务
+        # 单任务 AI：拒绝指定任务（仅当 AI 已修改过任务时才调用 Handler）
         for prefix in ("classify_", "schedule_", "review_"):
             if task_id.startswith(prefix):
                 real_tid = task_id[len(prefix):]
                 if real_tid:
-                    ProposalHandler.reject(real_tid)
                     t = state.get_task(real_tid)
+                    if t and t.ai_proposed:
+                        ProposalHandler.reject(real_tid)
                     self.ai_chat._proposal_results.append(
                         (real_tid, "rejected", t.title if t else ""))
                     self._sync_proposal_ui()
