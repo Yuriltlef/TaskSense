@@ -391,6 +391,11 @@ class BoardPage:
         self._refresh_board()
 
     def _refresh_board(self):
+        try:
+            from app.ui.widgets.context_menu import close_current_menu
+            close_current_menu()
+        except Exception:
+            pass
         if not self.kanban_board: return
         bs = board_service.get_board()
         tasks_map = {}

@@ -71,8 +71,9 @@ class ContextMenu:
                 lambda e, ctrl=item_ctrl, clr=c: _hover_item(e, ctrl, clr))
             menu_ctrls.append(item_ctrl)
 
+        self._menu_col = ft.Column(menu_ctrls, spacing=1, width=self.MENU_W)
         self._container = ft.Container(
-            content=ft.Column(menu_ctrls, spacing=1, width=self.MENU_W),
+            content=self._menu_col,
             bgcolor=theme.surface,
             border_radius=8,
             border=ft.border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.WHITE)),
@@ -154,15 +155,27 @@ class ContextMenu:
         dlg.open()
 
     def show(self, page, x: float, y: float):
-        """在 (x, y) 位置弹出菜单（带缩放+淡入动画）。"""
+        """在 (x, y) 位置弹出菜单，下方空间不足时自动向上弹出。"""
         global _current_menu
         close_current_menu()
 
         self._page = page
         pw, ph = page.width, page.height
 
+        # 估算菜单高度：每项 ~36px + 分割线 ~12px + 内边距 8px
+        item_count = sum(1 for _ in self._menu_col.controls if not isinstance(_, ft.Divider))
+        divider_count = sum(1 for _ in self._menu_col.controls if isinstance(_, ft.Divider))
+        est_h = item_count * 36 + divider_count * 12 + 8
+
+        # 水平边缘钳制
         menu_x = min(max(x, 4), pw - self.MENU_W - 8)
-        menu_y = min(max(y, 4), ph - 200)
+        # 垂直方向：下方空间不足则向上弹出
+        if y + est_h > ph - 8:
+            menu_y = y - est_h - 4  # 光标上方
+        else:
+            menu_y = y - 10  # 光标略上方
+        menu_y = max(4, menu_y)  # 不超出顶部
+
         self._container.left = menu_x
         self._container.top = menu_y
 
