@@ -101,7 +101,7 @@ class BoardPage:
         )
 
         # ── 遮罩槽位（Flet 原生布局自动填充窗口，缩放时实时响应）──
-        self._dimmer_slot = ft.Container(visible=False)
+        self._dimmer_slot = ft.Container(visible=False, expand=True)
 
         # ── 主布局（无顶栏，顶栏已合并到窗口标题栏）──
         main_content = ft.Container(
@@ -540,8 +540,7 @@ class BoardPage:
         )
         from app.ui.widgets.overlay_dimmer import OverlayDimmer
         dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.4,
-                                  on_dimmer_click=lambda: dlg.close(),
-                                  on_resize=lambda pw, ph: (setattr(panel, 'left', max(0, (pw - PW) // 2)), setattr(panel, 'top', max(20, (ph - PH) // 2))))
+                                  on_dimmer_click=lambda: dlg.close())
 
     # ── 报表弹窗最小化相关 ──
 
@@ -1494,8 +1493,7 @@ class BoardPage:
         )
 
         from app.ui.widgets.overlay_dimmer import OverlayDimmer
-        dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.55,
-                                  on_resize=lambda pw, ph: (setattr(panel, 'left', max(0, (pw - PW) // 2)), setattr(panel, 'top', max(20, (ph - PH) // 2))))
+        dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.55)
         self._report_dlg = dlg
 
         # ── 异步生成（仅加载中且无运行中线程时）──
@@ -1673,8 +1671,7 @@ class BoardPage:
         )
 
         from app.ui.widgets.overlay_dimmer import OverlayDimmer
-        dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.55,
-                                  on_resize=lambda pw, ph: (setattr(panel, 'left', max(0, (pw - PW) // 2)), setattr(panel, 'top', max(20, (ph - PH) // 2))))
+        dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.55)
         self._review_dlg = dlg
 
         # ── 异步审核 → Agent 深度分析 + 本地规则兜底 ──
@@ -2769,8 +2766,7 @@ class BoardPage:
             if _dimmer_ref[0] is not None:
                 _dimmer_ref[0].close()
         _dimmer_ref[0] = OverlayDimmer.open(self._page, panel, dim_opacity=0.55,
-                                             on_dimmer_click=_close_dlg,
-                                             on_resize=lambda pw, ph: (setattr(panel, 'left', max(0, (pw - PW) // 2)), setattr(panel, 'top', max(10, (ph - PH) // 2))))
+                                             on_dimmer_click=_close_dlg)
 
     def _dlg_filter(self):
         ff = theme.font_family

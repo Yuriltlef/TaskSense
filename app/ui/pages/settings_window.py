@@ -44,9 +44,7 @@ class SettingsOverlay:
         cls._open = True
         cls._dimmer = OverlayDimmer.open(
             page, cls._panel, dim_opacity=0.65,
-            on_dimmer_click=lambda: cls.close(),
-            on_resize=lambda pw, ph: (setattr(cls._panel, 'left', (pw - PANEL_W) // 2),
-                                       setattr(cls._panel, 'top', (ph - PANEL_H) // 2)))
+            on_dimmer_click=lambda: cls.close())
         cls._switch("llm")
         page.update()
 
