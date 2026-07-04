@@ -22,7 +22,7 @@ class AIChatPanel(ft.Container):
         self._input: ChatInput | None = None
         self._busy = False
         self._cancelled = False
-        self._msg_pairs: list[tuple[str, str, str]] = []  # (user, ai, timestamp)
+        self._msg_pairs: list[tuple[str, str, object]] = []  # (user, ai, timestamp/datetime)
         self._session_id = self._new_session()
         self._strict_mode = False  # False=普通 True=严格
         self._task_card: ft.Container | None = None     # 任务进度卡片

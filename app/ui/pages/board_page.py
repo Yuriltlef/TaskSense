@@ -822,9 +822,9 @@ class BoardPage:
             try:
                 if move_to and col:
                     task_service.move_task(tid, col, index=index)
-                updates = {"assignee": f"{aid} {aname}"}
+                updates: dict = {"assignee": f"{aid} {aname}"}
                 try: updates["estimated_hours"] = float(hs)
-                except: pass
+                except ValueError: pass
                 updates["due_date"] = due_dt
                 task_service.update_task(tid, **updates)
                 if move_to and col:
@@ -1713,8 +1713,8 @@ class BoardPage:
         """构建审核汇总 badges。"""
         total = result.get("total_issues", 0)
         tasks_r = result.get("tasks_reviewed", 0)
-        sc = [ft.Text(f"审核 {tasks_r} 个任务", size=s(11),
-                      color=theme.text_secondary, font_family=ff)]
+        sc: list = [ft.Text(f"审核 {tasks_r} 个任务", size=s(11),
+                             color=theme.text_secondary, font_family=ff)]
         if total == 0:
             sc.append(ft.Container(
                 ft.Text("✅ 全部合规", size=s(11), color=theme.success,
@@ -2697,9 +2697,9 @@ class BoardPage:
             left=cx, top=cy,
         )
 
-        _dimmer_ref = [None]
+        _dimmer_ref: list = [None]
         def _close_dlg():
-            if _dimmer_ref[0]:
+            if _dimmer_ref[0] is not None:
                 _dimmer_ref[0].close()
         _dimmer_ref[0] = OverlayDimmer.open(self._page, panel, dim_opacity=0.55,
                                              on_dimmer_click=_close_dlg)
