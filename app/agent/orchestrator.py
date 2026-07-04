@@ -19,8 +19,7 @@ def _load_prompt(name: str) -> str:
 
 def _build_system_prompt(strict: bool = False) -> str:
     """组装完整系统提示词。"""
-    parts = [_load_prompt("system.md")]
-    parts.append(_load_prompt("tool_use.md"))
+    parts = [_load_prompt("system.md"), _load_prompt("tool_use.md")]
     if strict:
         strict_prompt = _load_prompt("strict_mode.md")
         if strict_prompt:
@@ -336,7 +335,8 @@ class AgentOrchestrator:
             )
         return self._format_rag_results(question, kb_results)
 
-    def _format_rag_results(self, question: str, results: list[dict]) -> str:
+    @staticmethod
+    def _format_rag_results(question: str, results: list[dict]) -> str:
         """纯 RAG 结果格式化。"""
         lines = [f"**Search**: {question}\n"]
         for i, r in enumerate(results, 1):
@@ -356,7 +356,8 @@ class AgentOrchestrator:
 
     # ── 遗留接口（向后兼容） ──
 
-    def generate_daily_report(self) -> str:
+    @staticmethod
+    def generate_daily_report() -> str:
         from app.core.services.board_service import board_service
         stats = board_service.get_stats()
         fleet = board_service.get_fleet_summary()
@@ -402,7 +403,8 @@ class AgentOrchestrator:
             "similar_tasks": [{"id": t.id, "title": t.title} for t in similar],
         }
 
-    def check_compliance(self, task_id: str) -> dict:
+    @staticmethod
+    def check_compliance(task_id: str) -> dict:
         t = state.get_task(task_id)
         if not t:
             return {"is_compliant": False, "warnings": ["Task not found"]}

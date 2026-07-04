@@ -12,8 +12,6 @@
 
 import json
 import os
-from pathlib import Path
-
 
 SETTINGS_FILE = "settings.json"
 

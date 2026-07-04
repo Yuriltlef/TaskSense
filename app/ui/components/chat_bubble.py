@@ -137,7 +137,7 @@ def user_bubble(
     max_w: 父容器可用宽度（如 panel.width）。
     """
     _copy = on_copy or _noop_copy
-    _reflash = on_refresh or _noop_refresh
+    _refresh_btn = on_refresh or _noop_refresh
     bw = min(_line_max_width(text) + PAD * 2 + 4, max_w)
 
     return ft.Column(
@@ -153,7 +153,7 @@ def user_bubble(
                     ),
                 ],
             ),
-            ft.Row([ft.Container(expand=True), _btn_row(text, _copy, _reflash)]),
+            ft.Row([ft.Container(expand=True), _btn_row(text, _copy, _refresh_btn)]),
         ],
         spacing=2, tight=True,
     )
@@ -173,7 +173,7 @@ def ai_bubble(
     plain = _spans_to_plain(spans)
     bw = min(_line_max_width(plain) + PAD * 2 + 4, max_w)
     _copy = on_copy or _noop_copy
-    _reflash = on_refresh or _noop_refresh
+    _refresh_btn = on_refresh or _noop_refresh
 
     return ft.Column(
         [
@@ -189,7 +189,7 @@ def ai_bubble(
                     ft.Container(expand=True, width=40),
                 ],
             ),
-            ft.Row([_btn_row(plain, _copy, _reflash), ft.Container(expand=True)]),
+            ft.Row([_btn_row(plain, _copy, _refresh_btn), ft.Container(expand=True)]),
         ],
         spacing=2, tight=True,
     )
@@ -218,7 +218,7 @@ def error_bubble(
     text_w = max(_line_max_width(plain) + 20, 120)
     bw = min(text_w + PAD * 2 + 4, max_w)
     _copy = on_copy or _noop_copy
-    _reflash = on_refresh or _noop_refresh
+    _refresh_btn = on_refresh or _noop_refresh
 
     _error_text_style = ft.TextStyle(
         color=ERROR_TEXT_COLOR, size=theme.font_md, font_family=_ff, height=1.6,
@@ -251,7 +251,7 @@ def error_bubble(
                     ft.Container(expand=True, width=40),
                 ],
             ),
-            ft.Row([_btn_row(plain, _copy, _reflash), ft.Container(expand=True)]),
+            ft.Row([_btn_row(plain, _copy, _refresh_btn), ft.Container(expand=True)]),
         ],
         spacing=2, tight=True,
     )

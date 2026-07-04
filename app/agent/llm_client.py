@@ -19,7 +19,8 @@ class LLMClient:
         self._cached_key: str = ""
         self._cached_url: str = ""
 
-    def _get_settings(self) -> dict:
+    @staticmethod
+    def _get_settings() -> dict:
         """实时读取 LLM 配置节。"""
         from app.config.settings_manager import SettingsManager
         return SettingsManager().get_section("llm")

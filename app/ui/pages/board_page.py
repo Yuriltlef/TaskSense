@@ -223,10 +223,8 @@ class BoardPage:
                     threading.Thread(target=_delayed_hide, daemon=True).start()
                 # 延迟从状态栏移除
                 def _delayed_unregister(tid=t["id"]):
-                    import time
                     time.sleep(5)
                     self._task_registry.unregister(tid)
-                import threading
                 threading.Thread(target=_delayed_unregister, daemon=True).start()
 
     # load_demo_data() 已废弃 — 数据统一由 data/board_state.json 管理
@@ -335,7 +333,6 @@ class BoardPage:
     def _poll_ghost_resolution(self, label: str, pending_ids: set,
                                 cancel_event, timeout: int = 300):
         """轮询等待幽灵任务全部确认/拒绝。cancel_event 由调用方传入。"""
-        import time
         cancel = cancel_event
         if cancel is None:
             self._finish_task_card(label, "已取消", theme.text_disabled)
@@ -1003,8 +1000,7 @@ class BoardPage:
         if not self._runner.ensure_ready(): return
         self._runner.setup("生成大纲", "outline")
 
-        import threading, time
-
+        
         def _do_outline():
             cancel = self._runner.get_cancel()
             try:
@@ -1075,10 +1071,8 @@ class BoardPage:
         if not self._runner.ensure_ready(): return
         self._runner.setup("生成任务", "gen_tasks")
 
-        import threading, time
-
+        
         def _do_gen():
-            import traceback
             cancel = self._runner.get_cancel() if self.ai_chat else None
             if cancel is None:
                 self.ai_chat.hide_task_card() if self.ai_chat else None
@@ -1150,7 +1144,6 @@ class BoardPage:
         self._runner.setup("自动分类", "classify", initial_status=f"正在分析 {len(backlog)} 个任务...")
         self.ai_chat.update_task_card(f"正在分析 {len(backlog)} 个任务...")
 
-        import threading, traceback
 
         def _do():
             log.debug("classify", "_do thread started")
@@ -1209,7 +1202,6 @@ class BoardPage:
         self._runner.setup("自动排程", "schedule", initial_status=f"正在分析 {len(triage)} 个任务...")
         self.ai_chat.update_task_card(f"正在分析 {len(triage)} 个任务...")
 
-        import threading
         def _do():
             cancel = self._runner.get_cancel()
             try:
@@ -1263,7 +1255,6 @@ class BoardPage:
         self._runner.setup("自动验收", "acceptance", initial_status=f"正在审核 {len(insp)} 个任务...")
         self.ai_chat.update_task_card(f"正在审核 {len(insp)} 个任务...")
 
-        import threading, traceback
 
         def _do():
             cancel = self._runner.get_cancel()
@@ -1462,7 +1453,6 @@ class BoardPage:
 
         # ── 异步生成（仅加载中且无运行中线程时）──
         if is_loading and (self._report_thread is None or not self._report_thread.is_alive()):
-            import threading
             def _gen():
                 try:
                     from app.ui.services.agent_service import AgentService
@@ -1478,7 +1468,6 @@ class BoardPage:
                 try: progress.update(); report_f.update()
                 except Exception: pass
                 # 5 秒后自动消失
-                import time; time.sleep(5)
                 self._task_registry.unregister("report")
             t = threading.Thread(target=_gen, daemon=True)
             self._report_thread = t
@@ -1653,7 +1642,6 @@ class BoardPage:
                 padding=ft.padding.symmetric(vertical=s(50)),
                 alignment=ft.alignment.center)
 
-        import threading
         def _review():
             log.debug("review", "_review thread started")
             try:
@@ -1692,7 +1680,6 @@ class BoardPage:
                 result = AgentService.task_review(on_batch=_on_batch)
                 log.debug("review", f"task_review done: issues={result.get('total_issues',0)}")
             except Exception as ex:
-                import traceback; traceback.print_exc()
                 result = {"issues": [{
                     "task_id": "", "title": "Agent 审核失败", "severity": "critical",
                     "dimension": "系统错误",
@@ -1706,7 +1693,6 @@ class BoardPage:
             self._task_registry.update_status("review", "已完成", 1.0)
             if self._review_dlg:
                 self._cmd_review_show_result(result)
-            import time; time.sleep(5)
             self._task_registry.unregister("review")
 
         # 仅加载中且无运行中线程时才启动
@@ -2031,21 +2017,18 @@ class BoardPage:
 
     def _start_ghost_polling(self, session_id: str, label: str):
         """定期检查幽灵卡片是否已全部处理，若是则完成任务卡片。"""
-        import threading, time
         def _poll():
             for _ in range(30):  # 最多轮询 60 秒
                 time.sleep(2)
-                # 检查是否已取消或已完成
                 found = False
                 for t in self._task_registry.get_all():
                     if t["id"] == session_id:
                         found = True
                         if t.get("status") not in ("等待确认",):
-                            return  # 已被取消或完成
+                            return
                         break
                 if not found:
-                    return  # 任务已被移除
-                # 检查幽灵卡片
+                    return
                 proposed = [t for t in state.get_all_tasks() if t.ai_proposed]
                 if not proposed:
                     log.debug("ghost_poll", f"all ghosts resolved, completing {session_id}")
@@ -2067,7 +2050,6 @@ class BoardPage:
         self._runner.setup(label, session_id)
         log.debug("ai_action", f"task registered, starting background thread...")
 
-        import threading, traceback as _tb
 
         def _do():
             log.debug("ai_action_bg", f"thread started for {label}")
