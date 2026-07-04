@@ -131,10 +131,6 @@ class _Log:
     def section(cls, title: str):
         _ensure_file_handler()
         line = "=" * 60
-        with _lock:
-            print(f"\n{line}")
-            print(f"  {title}")
-            print(f"{line}")
         _logger.info(f"{line}")
         _logger.info(f"  {title}")
         _logger.info(f"{line}")

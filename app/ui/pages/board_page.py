@@ -410,13 +410,13 @@ class BoardPage:
                 elif ttype == "review":
                     self._cancel_review()
                 else:
+                    label = t.get("label", "")
                     if self.ai_chat:
                         ce = self._runner.get_cancel()
-                        log.info("task.cancel", f"ce={'SET' if ce else 'NONE'}")
                         if ce:
                             ce.set()
-                        print(f"[CANCEL_DBG] task_card={'OK' if self.ai_chat._task_card else 'NONE'} status_text={'OK' if hasattr(self.ai_chat, '_status_text') else 'NONE'}")
                         self.ai_chat.update_task_card("已取消", border_color=theme.text_disabled)
+                        self.ai_chat.show_status_bubble(f"{label} 已取消", theme.text_disabled)
                     self._reject_all_proposals(task_id)
                     self._force_clear_all_ghosts(task_id)
                     self._task_registry.update_status(task_id, "已取消", 0)
@@ -558,6 +558,7 @@ class BoardPage:
             self._report_dlg = None
         self._task_registry.unregister("report")
         self._refresh_status_bar()
+        Toast.show(self._page, "报表任务已取消", "info")
 
     def _reopen_report_dlg(self):
         """重新打开报表弹窗（加载中或已完成）。"""
@@ -574,6 +575,7 @@ class BoardPage:
             self._review_dlg = None
         self._task_registry.unregister("review")
         self._refresh_status_bar()
+        Toast.show(self._page, "审核任务已取消", "info")
 
     def _reopen_review_dlg(self):
         """重新打开审核弹窗（加载中或已完成）。"""
