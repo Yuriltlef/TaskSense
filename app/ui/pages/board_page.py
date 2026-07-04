@@ -72,6 +72,10 @@ class BoardPage:
         )
         self._task_registry._on_change = self._refresh_status_bar
 
+        # ── BoardRenderer 回调注册 ──
+        from app.ui.services.board_renderer import BoardRenderer
+        BoardRenderer.set_callbacks(self._make_ghost_callbacks)
+
         # ── 搜索字段（由 app.py 统一标题栏引用）──
         self._search_field = ft.TextField(
             hint_text="搜索任务、ATA 章节、飞机注册号...",
@@ -120,121 +124,20 @@ class BoardPage:
     # ═══════════════════════ 数据 ═══════════════════════
 
     def _fill_board_from_state(self):
-        if not self.kanban_board: return
-        bs = board_service.get_board()
-        tasks_map = {}
-        ai_proposed = {}
-        for ids in bs.tasks.values():
-            for tid in ids:
-                t = state.get_task(tid)
-                if not t: continue
-                if t.ai_proposed:
-                    ai_proposed[tid] = t
-                else:
-                    tasks_map[tid] = t
-        self.kanban_board.render_board(bs, tasks_map, do_update=False)
-        self._render_ai_ghost_cards(ai_proposed)
-        s = board_service.get_fleet_summary()
-        if self.fleet_status: self.fleet_status._build(s)
+        from app.ui.services.board_renderer import BoardRenderer
+        BoardRenderer.fill_board(self.kanban_board, self.fleet_status)
 
-    def _render_ai_ghost_cards(self, ai_tasks: dict):
-        """将 AI 建议的任务渲染为幽灵卡片（注入目标列预览，拒绝则退回源列）。"""
-        from app.ui.widgets.ai_ghost_card import AIGhostCard, AIProposal, GhostCardManager
-        if not hasattr(self, '_ghost_mgr'):
-            self._ghost_mgr = GhostCardManager()
-
-        for col in self.kanban_board._columns.values():
-            if not hasattr(col, 'card_list') or not col.card_list:
-                continue
-            to_remove = [c for c in col.card_list.controls
-                          if isinstance(c, AIGhostCard)]
-            for c in to_remove:
-                col.card_list.controls.remove(c)
-
-        for tid, t in ai_tasks.items():
-            schedule_data = {}
-            for sug in (t.ai_suggestions or []):
-                if isinstance(sug, dict) and sug.get("proposal_type") == "schedule":
-                    schedule_data = sug
-                    break
-
-            if t.ai_priority:
-                prop_type = "classify"
-                display_priority = t.ai_priority.value
-                render_column = "triage"
-                source_column = "backlog"
-            elif schedule_data:
-                prop_type = "schedule"
-                display_priority = t.priority.value
-                render_column = "scheduled"
-                source_column = "triage"
-            elif getattr(t, 'ai_acceptance_recommendation', None):
-                # ── 验收审核类型 ──
-                prop_type = "acceptance"
-                display_priority = t.priority.value
-                render_column = t.status.value
-                source_column = render_column
-                log.debug("ghost", f"acceptance detected: {tid} rec={t.ai_acceptance_recommendation} reason={t.ai_acceptance_reason}")
-            else:
-                prop_type = "new_task"
-                display_priority = t.priority.value
-                render_column = t.status.value
-                source_column = render_column
-
-            if render_column not in self.kanban_board._columns:
-                continue
-            col = self.kanban_board._columns[render_column]
-            if not hasattr(col, 'card_list') or not col.card_list:
-                continue
-
-            if prop_type == "acceptance":
-                rec = getattr(t, 'ai_acceptance_recommendation', '')
-                task_data = {
-                    "id": tid, "title": t.title,
-                    "recommendation": rec,
-                    "reason": getattr(t, 'ai_acceptance_reason', ''),
-                    "aircraft_reg": t.aircraft_reg,
-                    "ata_chapter": t.ata_chapter,
-                    "priority": display_priority,
-                    "employee_name": t.employee_name,
-                }
-                on_acc = lambda p, tid=tid, r=rec: self._accept_acceptance(tid, r)
-                on_rej = lambda p, tid=tid: self._reject_acceptance(tid)
-                log.debug("ghost_bind", f"{tid[:8]} acceptance -> _accept_acceptance / _reject_acceptance")
-            else:
-                task_data = {
-                    "id": tid, "title": t.title, "description": t.description,
-                    "ata_chapter": t.ata_chapter, "aircraft_reg": t.aircraft_reg,
-                    "priority": display_priority, "task_type": t.task_type.value,
-                    "zone": t.zone, "estimated_hours": float(schedule_data.get("estimated_hours", t.estimated_hours)),
-                }
-                if schedule_data:
-                    for k in ("planned_start", "planned_end", "employee_id", "employee_name"):
-                        if schedule_data.get(k):
-                            task_data[k] = schedule_data[k]
-                on_acc = lambda p, tid=tid: self._accept_ai_task(tid)
-                log.debug("ghost_bind", f"{tid[:8]} {prop_type} -> _accept_ai_task / _reject_ai_task")
-                on_rej = lambda p, tid=tid: self._reject_ai_task(tid)
-
-            proposal = AIProposal(
-                id=f"ai_{tid}",
-                proposal_type=prop_type,
-                task_data=task_data,
-                source_column=source_column,
-                target_column=render_column,
+    def _make_ghost_callbacks(self, prop_type: str, tid: str, rec: str = ""):
+        """为幽灵卡片创建 accept/reject 回调（根据提案类型分发）。"""
+        if prop_type == "acceptance":
+            return (
+                lambda p, tid=tid, r=rec: self._accept_acceptance(tid, r),
+                lambda p, tid=tid: self._reject_acceptance(tid),
             )
-            ghost = AIGhostCard(
-                proposal,
-                on_accept=on_acc,
-                on_reject=on_rej,
-            )
-            col.card_list.controls.insert(0, ghost)
-        if ai_tasks:
-            try:
-                self.kanban_board.column_row.update()
-                self.kanban_board.update()
-            except Exception:
-                pass
+        return (
+            lambda p, tid=tid: self._accept_ai_task(tid),
+            lambda p, tid=tid: self._reject_ai_task(tid),
+        )
 
     def _accept_ai_task(self, tid):
         """接受 AI 建议任务——委托 ProposalHandler 执行业务变更。"""
@@ -350,126 +253,10 @@ class BoardPage:
             close_current_menu()
         except Exception:
             pass
-        if not self.kanban_board: return
-        bs = board_service.get_board()
-        tasks_map = {}
-        ai_proposed = {}
-        for ids in bs.tasks.values():
-            for tid in ids:
-                t = state.get_task(tid)
-                if not t: continue
-                if t.ai_proposed:
-                    ai_proposed[tid] = t
-                else:
-                    tasks_map[tid] = t
-
-        # ── 首次渲染 → 全量 render_board ──
-        if not self.kanban_board._columns:
-            self.kanban_board.render_board(bs, tasks_map)
-            self._render_ai_ghost_cards(ai_proposed)
-            self.fleet_status.update_summary(board_service.get_fleet_summary())
+        if not self.kanban_board:
             return
-
-        # ── 后续刷新 → 列级原地更新（不销毁 Column 对象）──
-        from app.ui.widgets.ai_ghost_card import AIGhostCard
-        existing_ghost_ids = set()
-        for col in self.kanban_board._columns.values():
-            if not hasattr(col, 'card_list') or not col.card_list:
-                continue
-            # 保留现有幽灵卡片
-            ghosts_in_col = [c for c in col.card_list.controls
-                            if isinstance(c, AIGhostCard)]
-            for g in ghosts_in_col:
-                existing_ghost_ids.add(g.proposal.id.replace("ai_", ""))
-
-            # 重建本列真实任务卡片
-            task_ids = bs.tasks.get(col.column.id, [])
-            col_tasks = [tasks_map[tid] for tid in task_ids if tid in tasks_map]
-            col.column.task_count = len(col_tasks)
-            new_cards = col._build_cards(col_tasks)
-
-            # 合并：幽灵在顶部 + 新任务卡片（幽灵 remove_self 已自动删除被操作的卡）
-            col.card_list.controls = ghosts_in_col + new_cards
-
-        # ── 幽灵卡片增量同步（只增删变化的部分）──
-        new_ghost_ids = set(ai_proposed.keys())
-        # 移除已不存在的幽灵（任务不再 ai_proposed）
-        for col in self.kanban_board._columns.values():
-            if not hasattr(col, 'card_list') or not col.card_list:
-                continue
-            stale = [c for c in col.card_list.controls
-                     if isinstance(c, AIGhostCard)
-                     and c.proposal.id.replace("ai_", "") not in new_ghost_ids]
-            for c in stale:
-                try: col.card_list.controls.remove(c)
-                except ValueError: pass
-
-        # 添加新幽灵（本次操作新增的 ai_proposed 任务）
-        for tid in new_ghost_ids - existing_ghost_ids:
-            self._add_single_ghost(tid, ai_proposed[tid])
-
-        try:
-            self.kanban_board.column_row.update()
-        except Exception:
-            pass
-        self.fleet_status.update_summary(board_service.get_fleet_summary())
-
-    def _add_single_ghost(self, tid: str, t):
-        """添加单个幽灵卡片到对应列（内部方法，不触发全列重建）。"""
-        from app.ui.widgets.ai_ghost_card import AIGhostCard, AIProposal
-
-        schedule_data = {}
-        for sug in (t.ai_suggestions or []):
-            if isinstance(sug, dict) and sug.get("proposal_type") == "schedule":
-                schedule_data = sug; break
-
-        if t.ai_priority:
-            prop_type, render_column = "classify", "triage"
-        elif schedule_data:
-            prop_type, render_column = "schedule", "scheduled"
-        elif getattr(t, 'ai_acceptance_recommendation', None):
-            prop_type, render_column = "acceptance", t.status.value
-        else:
-            prop_type, render_column = "new_task", t.status.value
-
-        if render_column not in self.kanban_board._columns:
-            return
-        col = self.kanban_board._columns[render_column]
-        if not hasattr(col, 'card_list') or not col.card_list:
-            return
-
-        display_priority = t.priority.value
-        if prop_type == "acceptance":
-            rec = getattr(t, 'ai_acceptance_recommendation', '')
-            task_data = {
-                "id": tid, "title": t.title,
-                "recommendation": rec,
-                "reason": getattr(t, 'ai_acceptance_reason', ''),
-                "aircraft_reg": t.aircraft_reg, "ata_chapter": t.ata_chapter,
-                "priority": display_priority, "employee_name": t.employee_name,
-            }
-            on_acc = lambda p, tid=tid, r=rec: self._accept_acceptance(tid, r)
-            on_rej = lambda p, tid=tid: self._reject_acceptance(tid)
-        else:
-            task_data = {
-                "id": tid, "title": t.title, "description": t.description,
-                "ata_chapter": t.ata_chapter, "aircraft_reg": t.aircraft_reg,
-                "priority": display_priority, "task_type": t.task_type.value,
-                "zone": t.zone,
-                "estimated_hours": float(schedule_data.get("estimated_hours", t.estimated_hours)),
-            }
-            if schedule_data:
-                for k in ("planned_start", "planned_end", "employee_id", "employee_name"):
-                    if schedule_data.get(k):
-                        task_data[k] = schedule_data[k]
-            on_acc = lambda p, tid=tid: self._accept_ai_task(tid)
-            on_rej = lambda p, tid=tid: self._reject_ai_task(tid)
-
-        proposal = AIProposal(id=f"ai_{tid}", proposal_type=prop_type,
-                              task_data=task_data,
-                              source_column=render_column, target_column=render_column)
-        ghost = AIGhostCard(proposal, on_accept=on_acc, on_reject=on_rej)
-        col.card_list.controls.insert(0, ghost)
+        from app.ui.services.board_renderer import BoardRenderer
+        BoardRenderer.refresh_incremental(self.kanban_board, self.fleet_status)
 
     def _on_drag_start(self, e):
         """记录拖拽起始状态（面板宽度 + 光标绝对位置）。"""
