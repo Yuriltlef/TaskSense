@@ -139,6 +139,71 @@ def build_datetime(date_state: dict, h_f: ft.TextField,
             pass
     return d
 
+def make_date_picker(page, initial_date=None, locked: bool = False,
+                    on_pick_callback=None) -> tuple:
+    """统一日期选择器工厂。
+
+    返回 (ctrl, state_dict, set_err_fn, clear_err_fn)。
+    state_dict["date"] 存储选中的日期。
+    """
+    from datetime import datetime as dt
+    ff = theme.font_family
+    state = {"date": initial_date}
+    dp = ft.DatePicker(
+        first_date=dt(2024, 1, 1), last_date=dt(2030, 12, 31),
+        on_change=lambda e: _on_pick(e))
+
+    if initial_date:
+        display = ft.Text(initial_date.strftime("%Y-%m-%d"), size=s(12),
+                          color="#e0e0e0", font_family=ff)
+    elif locked:
+        display = ft.Text("—", size=s(12), color=theme.text_secondary,
+                          font_family=ff)
+    else:
+        display = ft.Text("点击选择日期", size=s(12),
+                          color=theme.text_secondary, font_family=ff)
+
+    ctrl = ft.Container(
+        content=ft.Row([
+            ft.Icon(ft.Icons.CALENDAR_TODAY_OUTLINED, size=s(14),
+                    color=theme.text_secondary),
+            display,
+        ], spacing=s(6)),
+        bgcolor=theme.card, border_radius=s(6),
+        border=ft.border.all(1, theme.border),
+        padding=ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8)),
+        on_click=None if locked else (lambda e: page.open(dp)),
+        ink=not locked,
+    )
+
+    def _on_pick(e):
+        if e.control.value:
+            state["date"] = e.control.value
+            display.value = state["date"].strftime("%Y-%m-%d")
+            display.color = "#e0e0e0"
+            ctrl.update()
+            if on_pick_callback:
+                on_pick_callback()
+
+    def _set_err(msg):
+        display.value = msg
+        display.color = theme.error
+        ctrl.border = ft.border.all(1, theme.error)
+        ctrl.update()
+
+    def _clear_err():
+        if state["date"]:
+            display.value = state["date"].strftime("%Y-%m-%d")
+            display.color = "#e0e0e0"
+        else:
+            display.value = "点击选择日期"
+            display.color = theme.text_secondary
+        ctrl.border = ft.border.all(1, theme.border)
+        ctrl.update()
+
+    return ctrl, state, _set_err, _clear_err
+
+
 # ── dialog_builder 公开 API ──
 __all__ = [
     "button_style", "header", "footer",

@@ -754,39 +754,14 @@ class BoardPage:
                           (due_hour_f, 23), (due_min_f, 59)]:
             _tf.on_blur = lambda e, t=_tf, h=_hi: _clamp_tf(t, h)
 
-        def _make_date_picker(initial_date=None):
-            from datetime import datetime as dt
-            state = {"date": initial_date}
-            dp = ft.DatePicker(first_date=dt(2024,1,1), last_date=dt(2030,12,31),
-                on_change=lambda e: _on_pick(e))
-            if initial_date:
-                display = ft.Text(initial_date.strftime("%Y-%m-%d"), size=s(12), color="#e0e0e0", font_family=ff)
-            else:
-                display = ft.Text("点击选择日期", size=s(12), color=theme.text_secondary, font_family=ff)
-            ctrl = ft.Container(
-                content=ft.Row([
-                    ft.Icon(ft.Icons.CALENDAR_TODAY_OUTLINED, size=s(14), color=theme.text_secondary),
-                    display,
-                ], spacing=s(6)),
-                bgcolor=theme.card, border_radius=s(6),
-                border=ft.border.all(1, theme.border),
-                padding=ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8)),
-                on_click=lambda e: self._page.open(dp), ink=True)
-            def _on_pick(e):
-                if e.control.value: state["date"]=e.control.value; display.value=state["date"].strftime("%Y-%m-%d"); display.color="#e0e0e0"; ctrl.update(); _recalc()
-            def _set_err(msg): display.value=msg; display.color=theme.error; ctrl.border=ft.border.all(1,theme.error); ctrl.update()
-            def _clear_err():
-                if state["date"]: display.value=state["date"].strftime("%Y-%m-%d"); display.color="#e0e0e0"
-                else: display.value="点击选择日期"; display.color=theme.text_secondary
-                ctrl.border=ft.border.all(1,theme.border); ctrl.update()
-            return ctrl, state, _set_err, _clear_err
+        from app.ui.services.dialog_builder import make_date_picker as _mkdp
 
         # ── 预填任务已有的计划时间/人员 ──
         t = state.get_task(tid)
-        start_date_ctrl, start_date_state, start_date_err, start_date_clr = _make_date_picker(
-            initial_date=t.planned_start if t else None)
-        due_date_ctrl, due_date_state, due_date_err, due_date_clr = _make_date_picker(
-            initial_date=t.planned_end if t else None)
+        start_date_ctrl, start_date_state, start_date_err, start_date_clr = _mkdp(
+            self._page, t.planned_start if t else None, on_pick_callback=lambda: _recalc())
+        due_date_ctrl, due_date_state, due_date_err, due_date_clr = _mkdp(
+            self._page, t.planned_end if t else None, on_pick_callback=lambda: _recalc())
         if t:
             if t.planned_start:
                 start_hour_f.value = t.planned_start.strftime("%H")
@@ -2530,44 +2505,7 @@ class BoardPage:
             for _tf, _hi in [(sh, 23), (sm, 59), (eh, 23), (em, 59)]:
                 _tf.on_blur = lambda e, t=_tf, h=_hi: _clamp_tf(t, h)
 
-        def _make_date_picker(initial_date=None):
-            state = {"date": initial_date}
-            dp = ft.DatePicker(first_date=dt(2024, 1, 1), last_date=dt(2030, 12, 31),
-                               on_change=lambda e: _on_pick(e))
-            if initial_date:
-                display = ft.Text(initial_date.strftime("%Y-%m-%d"), size=s(12), color="#e0e0e0", font_family=ff)
-            elif _TIME_LOCKED:
-                display = ft.Text("—", size=s(12), color=theme.text_secondary, font_family=ff)
-            else:
-                display = ft.Text("点击选择日期", size=s(12), color=theme.text_secondary, font_family=ff)
-            ctrl = ft.Container(
-                content=ft.Row([
-                    ft.Icon(ft.Icons.CALENDAR_TODAY_OUTLINED, size=s(14),
-                            color=theme.text_secondary),
-                    display,
-                ], spacing=s(6)),
-                bgcolor=theme.card,
-                border_radius=s(6),
-                border=ft.border.all(1, theme.border),
-                padding=ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8)),
-                on_click=None if _TIME_LOCKED else (lambda e: self._page.open(dp)),
-                ink=not _TIME_LOCKED)
-            def _on_pick(e):
-                if e.control.value:
-                    state["date"] = e.control.value
-                    display.value = state["date"].strftime("%Y-%m-%d")
-                    display.color = "#e0e0e0"
-                    ctrl.update(); _recalc_hours()
-            def _set_err(msg):
-                display.value = msg; display.color = theme.error
-                ctrl.border = ft.border.all(1, theme.error); ctrl.update()
-            def _clear_err():
-                if state["date"]:
-                    display.value = state["date"].strftime("%Y-%m-%d"); display.color = "#e0e0e0"
-                else:
-                    display.value = "点击选择日期"; display.color = theme.text_secondary
-                ctrl.border = ft.border.all(1, theme.border); ctrl.update()
-            return ctrl, state, _set_err, _clear_err
+        from app.ui.services.dialog_builder import make_date_picker as _mkdp
 
         if _TIME_LOCKED:
             start_date_ctrl = ft.Text(
@@ -2580,10 +2518,12 @@ class BoardPage:
             start_date_err = due_date_err = lambda m: None
             start_date_clr = due_date_clr = lambda: None
         else:
-            start_date_ctrl, start_date_state, start_date_err, start_date_clr = _make_date_picker(
-                initial_date=task.planned_start)
-            due_date_ctrl, due_date_state, due_date_err, due_date_clr = _make_date_picker(
-                initial_date=task.planned_end)
+            start_date_ctrl, start_date_state, start_date_err, start_date_clr = _mkdp(
+                self._page, task.planned_start, locked=_TIME_LOCKED,
+                on_pick_callback=lambda: _recalc_hours())
+            due_date_ctrl, due_date_state, due_date_err, due_date_clr = _mkdp(
+                self._page, task.planned_end, locked=_TIME_LOCKED,
+                on_pick_callback=lambda: _recalc_hours())
 
         def _get_dt(date_state, h_f, m_f):
             from app.ui.services.dialog_builder import build_datetime
