@@ -7,7 +7,7 @@ from app.core.services.task_service import task_service
 from app.core.services.employee_service import employee_service
 from app.core.validators import TaskValidators, BusinessRuleError
 from app.ui.widgets.overlay_dimmer import OverlayDimmer
-from app.ui.widgets.ghost_text import GhostTextField, handle_ghost_keyboard
+from app.ui.widgets.ghost_text import GhostTextField
 
 
 class CreateTaskDialog:
@@ -32,10 +32,6 @@ class CreateTaskDialog:
     @classmethod
     def _build(cls):
         ff = theme.font_family; page = cls._page
-
-        # 键盘：幽灵文本 Tab/Esc
-        _orig_kb = page.on_keyboard_event
-        page.on_keyboard_event = lambda e: handle_ghost_keyboard(e) or (_orig_kb(e) if _orig_kb else None)
 
         # ── helpers ──
         def _norm_tf(hint="", **kw):

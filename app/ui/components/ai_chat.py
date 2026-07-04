@@ -52,6 +52,8 @@ class AIChatPanel(ft.Container):
         return uuid.uuid4().hex[:8]
 
     def _reset_chat(self):
+        if self._busy:
+            return
         from app.ui.services.agent_service import AgentService
         AgentService.clear_session(self._session_id)
         self._session_id = self._new_session()

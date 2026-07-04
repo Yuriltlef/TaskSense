@@ -337,22 +337,22 @@ class AgentService:
             tasks = [t for t in tasks if t.status.value not in ("completed", "archived")]
 
         if not tasks:
-            print("[REVIEW_SVC] no tasks to review")
+            log.debug("review_svc", "no tasks to review")
             return {"issues": [], "total_issues": 0, "critical_count": 0,
                     "warning_count": 0, "info_count": 0, "tasks_reviewed": 0}
 
-        print(f"[REVIEW_SVC] reviewing {len(tasks)} tasks")
+        log.debug("review_svc", f"reviewing {len(tasks)} tasks")
 
         # ── Agent 深度审核 → 失败回退本地检查 ──
-        print("[REVIEW_SVC] attempting LLM deep review...")
+        log.debug("review_svc", "attempting LLM deep review...")
         try:
             llm_issues = AgentService._llm_task_review(tasks, on_batch=on_batch)
-            print(f"[REVIEW_SVC] LLM returned {len(llm_issues)} issues")
+            log.debug("review_svc", f"LLM returned {len(llm_issues)} issues")
             issues = llm_issues
         except Exception as e:
-            print(f"[REVIEW_SVC] LLM review FAILED, falling back to local: {e}")
+            log.debug("review_svc", f"LLM review FAILED, falling back to local: {e}")
             issues = AgentService._local_task_review(tasks)
-        print(f"[REVIEW_SVC] final: {len(issues)} issues")
+        log.debug("review_svc", f"final: {len(issues)} issues")
 
         severity_order = {"critical": 0, "warning": 1, "info": 2}
         issues.sort(key=lambda i: severity_order.get(i["severity"], 99))
@@ -434,7 +434,7 @@ class AgentService:
         """分批评审 — 每批 6 个任务，边审边回调渲染。"""
         from app.agent.llm_client import llm
         if not llm.is_available:
-            print("[REVIEW_SVC] LLM not available")
+            log.debug("review_svc", "LLM not available")
             return []
 
         CHUNK_SIZE = 6
@@ -445,15 +445,15 @@ class AgentService:
         for bi in range(0, len(tasks), CHUNK_SIZE):
             chunk = tasks[bi:bi + CHUNK_SIZE]
             batch_num = bi // CHUNK_SIZE + 1
-            print(f"[REVIEW_SVC] === Batch {batch_num}/{total_batches} ({len(chunk)} tasks) ===")
+            log.debug("review_svc", f"=== Batch {batch_num}/{total_batches} ({len(chunk)} tasks) ===")
 
             try:
                 batch_issues = AgentService._review_one_batch(
                     chunk, batch_num, total_batches)
                 all_issues.extend(batch_issues)
-                print(f"[REVIEW_SVC] Batch {batch_num}: {len(batch_issues)} issues, total={len(all_issues)}")
+                log.debug("review_svc", f"Batch {batch_num}: {len(batch_issues)} issues, total={len(all_issues)}")
             except Exception as e:
-                print(f"[REVIEW_SVC] Batch {batch_num} FAILED: {e}")
+                log.debug("review_svc", f"Batch {batch_num} FAILED: {e}")
                 # 为失败批次的每个任务生成错误卡片
                 for t in chunk:
                     all_issues.append({
@@ -506,7 +506,7 @@ class AgentService:
         session_id = f"review_b{batch_num}"
         agent.clear_conversation(session_id)
         result = agent.ask(prompt, session_id=session_id)
-        print(f"[REVIEW_SVC] Batch {batch_num} response: {len(result)} chars, "
+        log.debug("review_svc", f"Batch {batch_num} response: {len(result)} chars, "
               f"preview: {result[:200]}")
 
         # 解析 JSON（多种策略按顺序尝试）
@@ -562,92 +562,42 @@ class AgentService:
     # ═══════════════════════════════════════════
 
     @staticmethod
-    def explain_task(task_info: dict, cancel_event=None) -> str:
-        """AI 解释任务——使用 explain_task.md 提示词。"""
+    def _run_single_task_ai(prompt_file: str, session_prefix: str,
+                            task_info: dict, cancel_event=None) -> str:
+        """所有右键菜单 AI 工具的统一入口。"""
         from app.agent.llm_client import llm
-        print(f"[EXPLAIN] explain_task called, LLM available={llm.is_available}")
         if not llm.is_available:
             return "[Error] LLM 不可用"
         try:
-            prompt = _load_prompt("explain_task.md")
+            prompt = _load_prompt(prompt_file)
             user_msg = "\n".join(f"- {k}: {v}" for k, v in task_info.items())
             full = f"{prompt}\n\n## Task Details\n{user_msg}"
-            print(f"[EXPLAIN] prompt len={len(full)}, calling agent.ask...")
-            result = agent.ask(full, session_id=f"explain_{task_info.get('id','')}",
-                              strict=False, cancel_event=cancel_event, timeout=15.0)
-            print(f"[EXPLAIN] agent.ask returned len={len(result) if result else 0}")
-            print(f"[EXPLAIN] result preview: {(result or '(None)')[:200]}")
-            return result
+            return agent.ask(full, session_id=f"{session_prefix}_{task_info.get('id','')}",
+                           strict=False, cancel_event=cancel_event, timeout=15.0)
         except Exception as e:
-            print(f"[EXPLAIN] exception: {e}")
-            import traceback
-            traceback.print_exc()
             return f"[Error] {e}"
+
+    @staticmethod
+    def explain_task(task_info: dict, cancel_event=None) -> str:
+        return AgentService._run_single_task_ai(
+            "explain_task.md", "explain", task_info, cancel_event)
 
     @staticmethod
     def search_docs(task_info: dict, cancel_event=None) -> str:
-        """AI 搜索文档——使用 search_docs.md 提示词。"""
-        from app.agent.llm_client import llm
-        print(f"[SEARCH_DOCS] search_docs called, LLM available={llm.is_available}")
-        if not llm.is_available:
-            return "[Error] LLM 不可用"
-        try:
-            prompt = _load_prompt("search_docs.md")
-            user_msg = "\n".join(f"- {k}: {v}" for k, v in task_info.items())
-            full = f"{prompt}\n\n## Task Details\n{user_msg}"
-            print(f"[SEARCH_DOCS] prompt len={len(full)}, calling agent.ask...")
-            result = agent.ask(full, session_id=f"search_{task_info.get('id','')}",
-                              strict=False, cancel_event=cancel_event, timeout=15.0)
-            print(f"[SEARCH_DOCS] agent.ask returned len={len(result) if result else 0}")
-            print(f"[SEARCH_DOCS] result preview: {(result or '(None)')[:200]}")
-            return result
-        except Exception as e:
-            print(f"[SEARCH_DOCS] exception: {e}")
-            import traceback
-            traceback.print_exc()
-            return f"[Error] {e}"
+        return AgentService._run_single_task_ai(
+            "search_docs.md", "search", task_info, cancel_event)
 
     @staticmethod
     def classify_single(task_info: dict, cancel_event=None) -> str:
-        """AI 分类单个任务——使用 classify_single.md 提示词。"""
-        from app.agent.llm_client import llm
-        if not llm.is_available:
-            return "[Error] LLM 不可用"
-        try:
-            prompt = _load_prompt("classify_single.md")
-            user_msg = "\n".join(f"- {k}: {v}" for k, v in task_info.items())
-            full = f"{prompt}\n\n## Task Details\n{user_msg}"
-            return agent.ask(full, session_id=f"classify_{task_info.get('id','')}",
-                           strict=False, cancel_event=cancel_event, timeout=15.0)
-        except Exception as e:
-            return f"[Error] {e}"
+        return AgentService._run_single_task_ai(
+            "classify_single.md", "classify", task_info, cancel_event)
 
     @staticmethod
     def schedule_single(task_info: dict, cancel_event=None) -> str:
-        """AI 排程单个任务——使用 schedule_single.md 提示词。"""
-        from app.agent.llm_client import llm
-        if not llm.is_available:
-            return "[Error] LLM 不可用"
-        try:
-            prompt = _load_prompt("schedule_single.md")
-            user_msg = "\n".join(f"- {k}: {v}" for k, v in task_info.items())
-            full = f"{prompt}\n\n## Task Details\n{user_msg}"
-            return agent.ask(full, session_id=f"schedule_{task_info.get('id','')}",
-                           strict=False, cancel_event=cancel_event, timeout=15.0)
-        except Exception as e:
-            return f"[Error] {e}"
+        return AgentService._run_single_task_ai(
+            "schedule_single.md", "schedule", task_info, cancel_event)
 
     @staticmethod
     def review_single(task_info: dict, cancel_event=None) -> str:
-        """AI 验收单个任务——使用 review_single.md 提示词。"""
-        from app.agent.llm_client import llm
-        if not llm.is_available:
-            return "[Error] LLM 不可用"
-        try:
-            prompt = _load_prompt("review_single.md")
-            user_msg = "\n".join(f"- {k}: {v}" for k, v in task_info.items())
-            full = f"{prompt}\n\n## Task Details\n{user_msg}"
-            return agent.ask(full, session_id=f"review_{task_info.get('id','')}",
-                           strict=False, cancel_event=cancel_event, timeout=15.0)
-        except Exception as e:
-            return f"[Error] {e}"
+        return AgentService._run_single_task_ai(
+            "review_single.md", "review", task_info, cancel_event)

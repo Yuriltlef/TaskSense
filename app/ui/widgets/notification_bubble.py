@@ -33,17 +33,17 @@ class NotificationBubble:
 
     @classmethod
     def _drain(cls):
-        if cls._active is not None:
-            return  # already showing
         with cls._lock:
+            if cls._active is not None:
+                return  # already showing
             if not cls._queue:
                 return
             item = cls._queue.popleft()
+            cls._active = item  # mark active inside lock
 
         bubble = cls._build(item)
         cls._page.overlay.append(bubble)
         cls._page.update()
-        cls._active = bubble
 
         # auto-dismiss
         dur = item["duration_ms"]
@@ -56,16 +56,19 @@ class NotificationBubble:
         # trigger next after animation
         def _next():
             time.sleep(0.35)
-            cls._active = None
+            with cls._lock:
+                cls._active = None
             cls._drain()
         threading.Thread(target=_next, daemon=True).start()
 
     @classmethod
     def _remove(cls, bubble):
         try:
-            if bubble in cls._page.overlay:
+            with cls._lock:
+                if bubble not in cls._page.overlay:
+                    return
                 cls._page.overlay.remove(bubble)
-                cls._page.update()
+            cls._page.update()
         except Exception:
             pass
 

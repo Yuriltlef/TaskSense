@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import flet as ft
 
 from app.config.theme import theme, s
+from app.core.logging import log
 from app.core.models.aircraft import Aircraft, AircraftStatus
 from app.core.models.kanban import FilterState
 from app.core.models.task import Priority
@@ -171,7 +172,7 @@ class BoardPage:
                 display_priority = t.priority.value
                 render_column = t.status.value
                 source_column = render_column
-                print(f"[GHOST] acceptance detected: {tid} rec={t.ai_acceptance_recommendation} reason={t.ai_acceptance_reason}")
+                log.debug("ghost", f"acceptance detected: {tid} rec={t.ai_acceptance_recommendation} reason={t.ai_acceptance_reason}")
             else:
                 prop_type = "new_task"
                 display_priority = t.priority.value
@@ -197,7 +198,7 @@ class BoardPage:
                 }
                 on_acc = lambda p, tid=tid, r=rec: self._accept_acceptance(tid, r)
                 on_rej = lambda p, tid=tid: self._reject_acceptance(tid)
-                print(f"[GHOST_BIND] {tid[:8]} acceptance -> _accept_acceptance / _reject_acceptance")
+                log.debug("ghost_bind", f"{tid[:8]} acceptance -> _accept_acceptance / _reject_acceptance")
             else:
                 task_data = {
                     "id": tid, "title": t.title, "description": t.description,
@@ -210,7 +211,7 @@ class BoardPage:
                         if schedule_data.get(k):
                             task_data[k] = schedule_data[k]
                 on_acc = lambda p, tid=tid: self._accept_ai_task(tid)
-                print(f"[GHOST_BIND] {tid[:8]} {prop_type} -> _accept_ai_task / _reject_ai_task")
+                log.debug("ghost_bind", f"{tid[:8]} {prop_type} -> _accept_ai_task / _reject_ai_task")
                 on_rej = lambda p, tid=tid: self._reject_ai_task(tid)
 
             proposal = AIProposal(
@@ -253,7 +254,7 @@ class BoardPage:
         """拒绝 AI 建议任务——验收/分类/排程仅清除标记，新建提案则删除任务。"""
         t = state.get_task(tid)
         if not t:
-            print(f"[REJECT_AI_TASK] tid={tid} TASK NOT FOUND")
+            log.debug("reject_ai_task", f"tid={tid} TASK NOT FOUND")
             return
         title = t.title  # 在状态变更/删除前保存
         acc_rec = getattr(t, 'ai_acceptance_recommendation', None)
@@ -262,11 +263,11 @@ class BoardPage:
             isinstance(s, dict) and s.get("proposal_type") in ("schedule",)
             for s in (t.ai_suggestions or [])
         )
-        print(f"[REJECT_AI_TASK] tid={tid} status={t.status.value} acc_rec={acc_rec} ai_proposed={t.ai_proposed} is_modify={is_modify} is_inspection={is_inspection}")
+        log.debug("reject_ai_task", f"tid={tid} status={t.status.value} acc_rec={acc_rec} ai_proposed={t.ai_proposed} is_modify={is_modify} is_inspection={is_inspection}")
 
         # 验收任务：只清标记，不删除
         if acc_rec:
-            print(f"[REJECT_AI_TASK] -> clearing acceptance flags only")
+            log.debug("reject_ai_task", f"-> clearing acceptance flags only")
             state.update_task(tid, ai_proposed=False,
                               ai_acceptance_recommendation=None,
                               ai_acceptance_reason=None)
@@ -277,19 +278,19 @@ class BoardPage:
             return
 
         if is_modify:
-            print(f"[REJECT_AI_TASK] -> modify proposal, clearing suggestion flags")
+            log.debug("reject_ai_task", f"-> modify proposal, clearing suggestion flags")
             ai_suggestions = [s for s in (t.ai_suggestions or [])
                               if not (isinstance(s, dict) and
                                       s.get("proposal_type") in ("schedule",))]
             state.update_task(tid, ai_proposed=False, ai_priority=None,
                               ai_suggestions=ai_suggestions)
         elif is_inspection:
-            print(f"[REJECT_AI_TASK] -> SAFETY NET: inspection task, clearing flags only")
+            log.debug("reject_ai_task", f"-> SAFETY NET: inspection task, clearing flags only")
             state.update_task(tid, ai_proposed=False,
                               ai_acceptance_recommendation=None,
                               ai_acceptance_reason=None)
         else:
-            print(f"[REJECT_AI_TASK] -> DELETING task {tid}")
+            log.debug("reject_ai_task", f"-> DELETING task {tid}")
             state.delete_task(tid)
         self._sync_chat_proposal(tid, "rejected", title)
         from app.ui.widgets.toast import Toast
@@ -312,7 +313,7 @@ class BoardPage:
 
     def _reject_acceptance(self, tid):
         """用户取消验收建议 → 幽灵卡片已清除标记，此处清理筛选并刷新。"""
-        print(f"[REJECT_ACCEPTANCE] tid={tid} called")
+        log.debug("reject_acceptance", f"tid={tid} called")
         t = state.get_task(tid)
         title = t.title if t else ""
         self._sync_chat_proposal(tid, "rejected", title)
@@ -321,7 +322,7 @@ class BoardPage:
         board_service.set_filters(FilterState())
         Toast.show(self._page, "已取消，任务保留在验收中", "info")
         self._refresh_board()
-        print(f"[REJECT_ACCEPTANCE] tid={tid} done")
+        log.debug("reject_acceptance", f"tid={tid} done")
 
     def _sync_chat_proposal(self, tid: str, result: str, title: str):
         """同步 AI 对话面板中的提案行状态。"""
@@ -342,7 +343,7 @@ class BoardPage:
     def _check_ghost_pending_completion(self):
         """检查是否所有幽灵卡片都已处理，若是则完成等待中的任务卡片。"""
         proposed = [t for t in state.get_all_tasks() if t.ai_proposed]
-        print(f"[GHOST_CHECK] proposed count={len(proposed)} ids={[t.id[:8] for t in proposed]}")
+        log.debug("ghost_check", f"proposed count={len(proposed)} ids={[t.id[:8] for t in proposed]}")
         if proposed:
             return
         # 所有幽灵卡片已处理 → 完成所有"等待确认"的状态栏任务
@@ -597,7 +598,7 @@ class BoardPage:
         import time
         cancel = cancel_event
         if cancel is None:
-            self.ai_chat.hide_task_card() if self.ai_chat else None
+            self._finish_task_card(label, "已取消", theme.text_disabled)
             return
         for i in range(timeout):
             if cancel and cancel.is_set():
@@ -670,11 +671,11 @@ class BoardPage:
 
     def _on_status_task_cancel(self, task_id: str):
         """状态栏取消——立即清理幽灵卡片 + 更新 UI + 设取消事件。"""
-        print(f"[CANCEL] ENTER task_id={task_id}")
+        log.debug("cancel", f"ENTER task_id={task_id}")
         for t in self._task_registry:
             if t["id"] == task_id:
                 ttype = t.get("type", "")
-                print(f"[CANCEL] type={ttype}")
+                log.debug("cancel", f"type={ttype}")
                 if ttype == "report":
                     self._cancel_report()
                 elif ttype == "review":
@@ -682,10 +683,10 @@ class BoardPage:
                 else:
                     if self.ai_chat:
                         ce = getattr(self.ai_chat, '_cancel_event', None)
-                        print(f"[CANCEL] ce={'SET' if ce else 'NONE'}")
+                        log.debug("cancel", f"ce={'SET' if ce else 'NONE'}")
                         if ce:
                             ce.set()
-                            print(f"[CANCEL] event set, is_set={ce.is_set()}")
+                            log.debug("cancel", f"event set, is_set={ce.is_set()}")
                         self.ai_chat.update_task_card("已取消", border_color=theme.text_disabled)
                     self._force_clear_all_ghosts(task_id)
                     self._reject_all_proposals(task_id)
@@ -702,7 +703,7 @@ class BoardPage:
                         self._unregister_task(task_id)
                     threading.Thread(target=_finish, daemon=True).start()
                 return
-        print(f"[CANCEL] task_id not found in registry")
+        log.debug("cancel", f"task_id not found in registry")
 
     def _force_clear_all_ghosts(self, task_id: str):
         """清除幽灵卡片：单任务模式清指定任务，批量模式清全部。"""
@@ -1699,13 +1700,15 @@ class BoardPage:
     # ═══════════════════════════════════════════
 
     def _cmd_classify(self):
-        print("[CLASSIFY] _cmd_classify called")
+        log.debug("classify", "_cmd_classify called")
         if not self.ai_chat:
-            print("[CLASSIFY] no ai_chat!"); return
+            log.debug("CLASSIFY", "no ai_chat!")
+            return
         if self.ai_chat.is_task_running:
-            print("[CLASSIFY] task already running"); return
+            log.debug("CLASSIFY", "task already running")
+            return
         backlog = [t for t in state.get_all_tasks() if t.status.value == "backlog"]
-        print(f"[CLASSIFY] backlog count={len(backlog)}")
+        log.debug("classify", f"backlog count={len(backlog)}")
         if not backlog:
             self._open_ai_panel()
             self._show_ai_in_panel("自动分类", "待处理列中没有任务需要分类。")
@@ -1725,9 +1728,9 @@ class BoardPage:
         import threading, traceback
 
         def _do():
-            print("[CLASSIFY] _do thread started")
+            log.debug("classify", "_do thread started")
             cancel = getattr(self.ai_chat, '_cancel_event', None)
-            print(f"[CLASSIFY] cancel_event={cancel}")
+            log.debug("classify", f"cancel_event={cancel}")
             try:
                 from app.ui.services.agent_service import AgentService
                 prompt = (f"{self._CMD_PROMPTS['classify']}\n\n"
@@ -1738,9 +1741,9 @@ class BoardPage:
                     if bt.ai_proposed:
                         state.update_task(bt.id, ai_proposed=False, ai_priority=None)
                 pending_before = {t.id for t in state.get_all_tasks() if t.ai_proposed}
-                print(f"[CLASSIFY] before ask, pending_before={len(pending_before)}")
+                log.debug("classify", f"before ask, pending_before={len(pending_before)}")
                 result = AgentService.ask(prompt, session_id="classify", cancel_event=cancel)
-                print(f"[CLASSIFY] ask done, result_len={len(result) if result else 0}")
+                log.debug("classify", f"ask done, result_len={len(result) if result else 0}")
                 if cancel and cancel.is_set():
                     self._finish_task_card("自动分类", "已取消", theme.text_disabled)
                     return
@@ -1754,9 +1757,9 @@ class BoardPage:
             except Exception as ex:
                 self._finish_task_card("自动分类", f"失败: {ex}", theme.error)
 
-        print("[CLASSIFY] starting thread")
+        log.debug("classify", "starting thread")
         threading.Thread(target=_do, daemon=True).start()
-        print("[CLASSIFY] thread started")
+        log.debug("classify", "thread started")
 
     # ═══════════════════════════════════════════
     # 4. 自动排程 → AI 面板交互
@@ -1815,21 +1818,21 @@ class BoardPage:
         threading.Thread(target=_do, daemon=True).start()
 
     def _cmd_acceptance(self):
-        print("[ACCEPTANCE] ===== _cmd_acceptance called =====")
+        log.debug("acceptance", "===== _cmd_acceptance called =====")
         if not self.ai_chat:
-            print("[ACCEPTANCE] no ai_chat!")
+            log.debug("acceptance", "no ai_chat!")
             Toast.show(self._page, "AI 面板未就绪", "warning"); return
         if self.ai_chat.is_task_running:
-            print("[ACCEPTANCE] task already running")
+            log.debug("acceptance", "task already running")
             Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
         insp = [t for t in state.get_all_tasks() if t.status.value == "inspection"]
-        print(f"[ACCEPTANCE] inspection tasks found: {len(insp)}")
+        log.debug("acceptance", f"inspection tasks found: {len(insp)}")
         if not insp:
             self._open_ai_panel()
             self._show_ai_in_panel("自动验收", "验收列中没有任务。")
             return
         for t in insp:
-            print(f"[ACCEPTANCE]   - {t.id}: {t.title} | log={'有' if t.shift_handover_log else '无'} | ai_proposed={t.ai_proposed} | rec={t.ai_acceptance_recommendation}")
+            log.debug("acceptance", f"- {t.id}: {t.title} | log={'有' if t.shift_handover_log else '无'} | ai_proposed={t.ai_proposed} | rec={t.ai_acceptance_recommendation}")
         tasks_str = "\n".join(
             f"- [{t.id}] {t.title} (负责人: {t.employee_name or '未指定'})"
             for t in insp
@@ -1846,7 +1849,7 @@ class BoardPage:
 
         def _do():
             cancel = getattr(self.ai_chat, '_cancel_event', None)
-            print(f"[ACCEPTANCE] _do thread started, cancel_event={cancel}")
+            log.debug("acceptance", f"_do thread started, cancel_event={cancel}")
             try:
                 from app.ui.services.agent_service import AgentService
                 prompt = (f"{self._CMD_PROMPTS['acceptance']}\n\n"
@@ -1854,7 +1857,7 @@ class BoardPage:
                           f"对每个验收中任务，必须调用 acceptance_review 工具提交审核建议。\n"
                           f"参数: task_id=任务ID, recommendation=approve(通过)或reject(驳回), reason=具体理由。\n"
                           f"不要只是写文字报告——必须调用工具！工具调用会创建幽灵卡片供人工确认。")
-                print(f"[ACCEPTANCE] prompt length={len(prompt)}")
+                log.debug("acceptance", f"prompt length={len(prompt)}")
                 self.ai_chat.update_task_card("正在审核提交日志...", border_color=theme.warning)
                 # 清除验收中任务残留的 ai_proposed 标记，确保本次能检测到新幽灵卡
                 for t in insp:
@@ -1862,41 +1865,41 @@ class BoardPage:
                         state.update_task(t.id, ai_proposed=False,
                                           ai_acceptance_recommendation=None,
                                           ai_acceptance_reason=None)
-                        print(f"[ACCEPTANCE] cleared stale ai_proposed for {t.id}")
+                        log.debug("acceptance", f"cleared stale ai_proposed for {t.id}")
                 pending_before = {t.id for t in state.get_all_tasks() if t.ai_proposed}
-                print(f"[ACCEPTANCE] pending_before={len(pending_before)}: {pending_before}")
-                print(f"[ACCEPTANCE] calling AgentService.ask()...")
+                log.debug("acceptance", f"pending_before={len(pending_before)}: {pending_before}")
+                log.debug("acceptance", f"calling AgentService.ask()...")
                 result = AgentService.ask(prompt, session_id="acceptance", cancel_event=cancel)
-                print(f"[ACCEPTANCE] AgentService.ask() returned, len={len(result) if result else 0}")
-                print(f"[ACCEPTANCE] result[:300]={result[:300] if result else 'None'}")
+                log.debug("acceptance", f"AgentService.ask() returned, len={len(result) if result else 0}")
+                log.debug("acceptance", f"result[:300]={result[:300] if result else 'None'}")
                 if cancel and cancel.is_set():
-                    print("[ACCEPTANCE] cancelled after ask")
+                    log.debug("acceptance", "cancelled after ask")
                     self._finish_task_card("自动验收", "已取消", theme.text_disabled)
                     return
-                print("[ACCEPTANCE] about to call _refresh_board()")
+                log.debug("acceptance", "about to call _refresh_board()")
                 self._refresh_board()
-                print("[ACCEPTANCE] _refresh_board() done")
+                log.debug("acceptance", "_refresh_board() done")
                 # 在聊天面板显示 Agent 审核报告
                 self._show_ai_in_panel("自动验收", result)
                 pending_after = {t.id for t in state.get_all_tasks() if t.ai_proposed}
-                print(f"[ACCEPTANCE] pending_after={len(pending_after)}: {pending_after}")
+                log.debug("acceptance", f"pending_after={len(pending_after)}: {pending_after}")
                 pending = pending_after - pending_before
-                print(f"[ACCEPTANCE] new pending ghosts={len(pending)}: {pending}")
+                log.debug("acceptance", f"new pending ghosts={len(pending)}: {pending}")
                 if pending:
-                    print("[ACCEPTANCE] entering _poll_ghost_resolution...")
+                    log.debug("acceptance", "entering _poll_ghost_resolution...")
                     self._poll_ghost_resolution("自动验收", pending, cancel)
-                    print("[ACCEPTANCE] _poll_ghost_resolution returned")
+                    log.debug("acceptance", "_poll_ghost_resolution returned")
                 else:
-                    print("[ACCEPTANCE] no pending ghosts, finishing")
+                    log.debug("acceptance", "no pending ghosts, finishing")
                     self._finish_task_card("自动验收", "完成（无幽灵卡）", theme.success)
             except Exception as ex:
                 traceback.print_exc()
-                print(f"[ACCEPTANCE] EXCEPTION: {ex}")
+                log.debug("acceptance", f"EXCEPTION: {ex}")
                 self._finish_task_card("自动验收", f"失败: {ex}", theme.error)
 
-        print("[ACCEPTANCE] starting thread")
+        log.debug("acceptance", "starting thread")
         threading.Thread(target=_do, daemon=True).start()
-        print("[ACCEPTANCE] thread started")
+        log.debug("acceptance", "thread started")
 
     def _run_agent_cmd(self, cmd: str, prompt: str):
         """通用 Agent 命令——打开 AI 面板并执行。"""
@@ -2092,7 +2095,7 @@ class BoardPage:
         ff = theme.font_family
         result = cached_result or self._review_result
         is_loading = result is None
-        print(f"[REVIEW] ===== _cmd_review_show_result loading={is_loading} =====")
+        log.debug("review", f"===== _cmd_review_show_result loading={is_loading} =====")
 
         # ── 关闭旧弹窗避免叠加 ──
         if self._review_dlg:
@@ -2248,7 +2251,7 @@ class BoardPage:
 
         import threading
         def _review():
-            print("[REVIEW] _review thread started")
+            log.debug("review", "_review thread started")
             try:
                 from app.ui.services.agent_service import AgentService
 
@@ -2279,11 +2282,11 @@ class BoardPage:
                         except Exception: pass
                     # 更新状态栏
                     self._update_task_status("review", f"审核中 ({len(issues_so_far)}个问题)", 0.5)
-                    print(f"[REVIEW] batch rendered in-place: {len(issues_so_far)} issues so far")
+                    log.debug("review", f"batch rendered in-place: {len(issues_so_far)} issues so far")
 
-                print("[REVIEW] calling AgentService.task_review() with batching...")
+                log.debug("review", "calling AgentService.task_review() with batching...")
                 result = AgentService.task_review(on_batch=_on_batch)
-                print(f"[REVIEW] task_review done: issues={result.get('total_issues',0)}")
+                log.debug("review", f"task_review done: issues={result.get('total_issues',0)}")
             except Exception as ex:
                 import traceback; traceback.print_exc()
                 result = {"issues": [{
@@ -2304,13 +2307,13 @@ class BoardPage:
 
         # 仅加载中且无运行中线程时才启动
         if is_loading and (self._review_thread is None or not self._review_thread.is_alive()):
-            print("[REVIEW] starting review thread")
+            log.debug("review", "starting review thread")
             t = threading.Thread(target=_review, daemon=True)
             self._review_thread = t
             t.start()
-            print("[REVIEW] review thread started")
+            log.debug("review", "review thread started")
         else:
-            print("[REVIEW] review already running or result cached, skipping thread")
+            log.debug("review", "review already running or result cached, skipping thread")
 
     # ── 审核结果渲染辅助 ──
 
@@ -2461,12 +2464,12 @@ class BoardPage:
 
     def _card_action(self, tid, action):
         """右键菜单动作分发。"""
-        print(f"[CARD_ACTION] tid={tid[:8]} action={action}")
+        log.debug("card_action", f"tid={tid[:8]} action={action}")
         t = state.get_task(tid)
         if not t:
-            print(f"[CARD_ACTION] TASK NOT FOUND tid={tid}")
+            log.debug("card_action", f"TASK NOT FOUND tid={tid}")
             return
-        print(f"[CARD_ACTION] task={t.title[:20]} col={t.status.value}")
+        log.debug("card_action", f"task={t.title[:20]} col={t.status.value}")
 
         # ── 编辑 → 直接打开编辑弹窗 ──
         if action == "edit":
@@ -2628,7 +2631,7 @@ class BoardPage:
                 # 检查幽灵卡片
                 proposed = [t for t in state.get_all_tasks() if t.ai_proposed]
                 if not proposed:
-                    print(f"[GHOST_POLL] all ghosts resolved, completing {session_id}")
+                    log.debug("ghost_poll", f"all ghosts resolved, completing {session_id}")
                     self._check_ghost_pending_completion()
                     return
         threading.Thread(target=_poll, daemon=True).start()
@@ -2636,8 +2639,8 @@ class BoardPage:
     def _run_ai_action(self, label: str, task_info: dict,
                        action_fn, session_id: str, keep_open: bool = False):
         """通用 AI 动作：打开面板 + 任务卡片 + 后台调用 service 方法 + 结果气泡。"""
-        print(f"[AI_ACTION] _run_ai_action label={label} session={session_id}")
-        print(f"[AI_ACTION] ai_chat={'OK' if self.ai_chat else 'NONE'} "
+        log.debug("ai_action", f"_run_ai_action label={label} session={session_id} "
+              f"ai_chat={'OK' if self.ai_chat else 'NONE'} "
               f"is_task_running={self.ai_chat.is_task_running if self.ai_chat else 'N/A'}")
         if not self.ai_chat:
             Toast.show(self._page, "AI 面板未就绪", "warning"); return
@@ -2645,7 +2648,7 @@ class BoardPage:
             Toast.show(self._page, "AI 正在处理中，请等待当前任务完成", "warning"); return
 
         self._open_ai_panel()
-        print(f"[AI_ACTION] panel opened, showing task card...")
+        log.debug("ai_action", f"panel opened, showing task card...")
         # 任务卡片内取消按钮 → 同步更新状态栏
         self.ai_chat.show_task_card(
             label,
@@ -2653,36 +2656,36 @@ class BoardPage:
         self._register_task(session_id, label, "准备中...", "ai_panel", None)
         active_task_registry.set_active(session_id, label, "executing",
                                         f"Running: {label}")
-        print(f"[AI_ACTION] task registered, starting background thread...")
+        log.debug("ai_action", f"task registered, starting background thread...")
 
         import threading, traceback as _tb
 
         def _do():
-            print(f"[AI_ACTION:BG] thread started for {label}")
+            log.debug("ai_action_bg", f"thread started for {label}")
             cancel = getattr(self.ai_chat, '_cancel_event', None)
-            print(f"[AI_ACTION:BG] cancel_event={'OK' if cancel else 'None'}")
+            log.debug("ai_action_bg", f"cancel_event={'OK' if cancel else 'None'}")
             # 调用前检查取消（状态栏已处理清理，此处仅收尾 UI）
             if cancel and cancel.is_set():
-                print(f"[AI_ACTION:BG] pre-cancelled")
+                log.debug("ai_action_bg", f"pre-cancelled")
                 self._finish_task_card(label, "已取消", theme.text_disabled)
                 return
             try:
                 self.ai_chat.update_task_card("正在分析...", border_color=theme.warning)
-                print(f"[AI_ACTION:BG] calling action_fn...")
+                log.debug("ai_action_bg", f"calling action_fn...")
                 result = action_fn(task_info, cancel)
-                print(f"[AI_ACTION:BG] result len={len(result) if result else 0} "
+                log.debug("ai_action_bg", f"result len={len(result) if result else 0} "
                       f"preview={(result or '')[:100]}")
                 if not result:
-                    print(f"[AI_ACTION:BG] empty result")
+                    log.debug("ai_action_bg", f"empty result")
                     self._finish_task_card(label, "无结果", theme.error)
                     return
                 if result.startswith("[Error]") or result == "回答已中断":
-                    print(f"[AI_ACTION:BG] error/cancelled: {result}")
+                    log.debug("ai_action_bg", f"error/cancelled: {result}")
                     self._finish_task_card(label, "已取消", theme.text_disabled)
                     return
                 # 成功——通过 _msg_pairs + _rebuild_bubbles 保持响应式布局
                 # __AI_ONLY__ 前缀：只显示 AI 气泡，不显示用户气泡
-                print(f"[AI_ACTION:BG] success, adding to _msg_pairs...")
+                log.debug("ai_action_bg", f"success, adding to _msg_pairs...")
                 from datetime import datetime
                 self.ai_chat._msg_pairs.append(
                     (f"__AI_ONLY__{label}", result, datetime.now()))
@@ -2705,18 +2708,18 @@ class BoardPage:
                         self._start_ghost_polling(session_id, label)
                     else:
                         # AI 未调工具——当作失败处理
-                        print(f"[AI_ACTION:BG] keep_open but no ghost card created for {tid}")
+                        log.debug("ai_action_bg", f"keep_open but no ghost card created for {tid}")
                         self._finish_task_card(label, "AI 未创建提案", theme.error)
                 else:
                     self._finish_task_card(label, "完成", theme.success)
-                print(f"[AI_ACTION:BG] done")
+                log.debug("ai_action_bg", f"done")
             except Exception as ex:
-                print(f"[AI_ACTION:BG] EXCEPTION: {ex}")
+                log.debug("ai_action_bg", f"EXCEPTION: {ex}")
                 _tb.print_exc()
                 self._finish_task_card(label, f"失败: {ex}", theme.error)
 
         threading.Thread(target=_do, daemon=True).start()
-        print(f"[AI_ACTION] thread started")
+        log.debug("ai_action", f"thread started")
 
     def handle_keyboard(self, e: ft.KeyboardEvent, page: ft.Page):
         # 幽灵文本键盘处理（Tab/Esc）—— 不影响 Ctrl+K 等组合键
@@ -3007,7 +3010,7 @@ class BoardPage:
         if _TITLE_LOCKED:
             title_gf = _norm_tf("任务标题", str(task.title), readonly=True)
             _fields["title"] = title_gf
-            print(f"[EDIT] title='{task.title}' locked=True (plain TF)")
+            log.debug("edit", f"title='{task.title}' locked=True (plain TF)")
         else:
             title_gf = GhostTextField(
                 hint_text="任务标题", field_name="title",
@@ -3015,14 +3018,14 @@ class BoardPage:
             )
             title_gf.value = task.title
             _fields["title"] = title_gf
-            print(f"[EDIT] title='{task.title}' locked=False (GhostTextField)")
+            log.debug("edit", f"title='{task.title}' locked=False (GhostTextField)")
 
         # ── 描述 ──
         if _DESC_LOCKED:
             desc_gf = ft.Text(task.description or "—", size=s(13),
                                color=theme.text_disabled, font_family=ff)
             _fields["description"] = desc_gf
-            print(f"[EDIT] desc='{(task.description or '')[:30]}' locked=True (plain TF)")
+            log.debug("edit", f"desc='{(task.description or '')[:30]}' locked=True (plain TF)")
         else:
             desc_gf = GhostTextField(
                 hint_text="任务描述", field_name="description",
@@ -3031,18 +3034,18 @@ class BoardPage:
             )
             desc_gf.value = task.description or ""
             _fields["description"] = desc_gf
-            print(f"[EDIT] desc='{(task.description or '')[:30]}' locked=False (GhostTextField)")
+            log.debug("edit", f"desc='{(task.description or '')[:30]}' locked=False (GhostTextField)")
 
         # ── 飞机注册号 ──
         reg_f = _norm_tf("飞机注册号，如 B-5823", str(task.aircraft_reg or ""), readonly=_CORE_LOCKED)
-        print(f"[EDIT] reg='{task.aircraft_reg}' locked={_CORE_LOCKED}")
+        log.debug("edit", f"reg='{task.aircraft_reg}' locked={_CORE_LOCKED}")
         _fields["aircraft_reg"] = reg_f
 
         # ── ATA 章节 ──
         if _CORE_LOCKED:
             ata_gf = _norm_tf("ATA 章节，如 32-41-03", str(task.ata_chapter or ""), readonly=True)
             _fields["ata_chapter"] = ata_gf
-            print(f"[EDIT] ata='{task.ata_chapter}' locked=True (plain TF)")
+            log.debug("edit", f"ata='{task.ata_chapter}' locked=True (plain TF)")
         else:
             ata_gf = GhostTextField(
                 hint_text="ATA 章节，如 32-41-03", field_name="ata_chapter",
@@ -3050,7 +3053,7 @@ class BoardPage:
             )
             ata_gf.value = task.ata_chapter or ""
             _fields["ata_chapter"] = ata_gf
-            print(f"[EDIT] ata='{task.ata_chapter}' locked=False (GhostTextField)")
+            log.debug("edit", f"ata='{task.ata_chapter}' locked=False (GhostTextField)")
 
         # ── 优先级 ──
         _PRI_OPTS = [("aog","AOG",theme.priority_color("aog")),("cat_a","Cat A",theme.priority_color("cat_a")),
@@ -3108,7 +3111,7 @@ class BoardPage:
         # ── 员工 ──
         emp_id_f = _norm_tf("员工 ID，如 ZH001", str(task.employee_id or ""), readonly=_EMP_LOCKED)
         emp_name_f = _norm_tf("员工姓名，如 张工", str(task.employee_name or ""), readonly=_EMP_LOCKED)
-        print(f"[EDIT] emp_id='{task.employee_id}' name='{task.employee_name}' locked={_EMP_LOCKED}")
+        log.debug("edit", f"emp_id='{task.employee_id}' name='{task.employee_name}' locked={_EMP_LOCKED}")
         _fields["employee_id"] = emp_id_f
         _fields["employee_name"] = emp_name_f
         if not _EMP_LOCKED:
@@ -3141,7 +3144,7 @@ class BoardPage:
                        width=s(56), readonly=_TIME_LOCKED)
         hrs_str = f"{task.estimated_hours:.1f}" if task.estimated_hours else ""
         hours_f = _norm_tf("（可选）", value=hrs_str, width=120, readonly=_TIME_LOCKED)
-        print(f"[EDIT] planned_start={task.planned_start} planned_end={task.planned_end} hrs={task.estimated_hours} locked={_TIME_LOCKED}")
+        log.debug("edit", f"planned_start={task.planned_start} planned_end={task.planned_end} hrs={task.estimated_hours} locked={_TIME_LOCKED}")
 
         # 仅 backlog/triage 有时分校验
         if not _TIME_LOCKED:
@@ -3252,7 +3255,7 @@ class BoardPage:
 
         # ── 区域 ──
         zone_f = _norm_tf("区域 (Zone)，如 710", str(task.zone or ""), readonly=_ZONE_LOCKED)
-        print(f"[EDIT] zone='{task.zone}' locked={_ZONE_LOCKED}")
+        log.debug("edit", f"zone='{task.zone}' locked={_ZONE_LOCKED}")
         _fields["zone"] = zone_f
 
         # ── 交接班日志 ──
@@ -3399,7 +3402,7 @@ class BoardPage:
             border=ft.border.only(top=ft.BorderSide(1, theme.border)),
         )
 
-        print(f"[EDIT] opening dialog: st={st} locked={{core:{_CORE_LOCKED} pri:{_PRI_LOCKED} type:{_TYPE_LOCKED} emp:{_EMP_LOCKED} time:{_TIME_LOCKED} zone:{_ZONE_LOCKED} title:{_TITLE_LOCKED} desc:{_DESC_LOCKED} log:{_LOG_LOCKED}}}")
+        log.debug("edit", f"opening dialog: st={st} locked={{core:{_CORE_LOCKED} pri:{_PRI_LOCKED} type:{_TYPE_LOCKED} emp:{_EMP_LOCKED} time:{_TIME_LOCKED} zone:{_ZONE_LOCKED} title:{_TITLE_LOCKED} desc:{_DESC_LOCKED} log:{_LOG_LOCKED}}}")
 
         # 照搬 CreateTaskDialog 的定位逻辑：OverlayDimmer + Stack 绝对定位
         PW, PH = 700, 750

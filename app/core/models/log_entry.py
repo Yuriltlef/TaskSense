@@ -55,10 +55,14 @@ class LogEntry:
 
     @classmethod
     def from_dict(cls, d: dict) -> "LogEntry":
+        try:
+            log_type = LogType(d.get("log_type", "system_auto"))
+        except (ValueError, KeyError):
+            log_type = LogType.SYSTEM_AUTO
         return cls(
             id=d.get("id", ""),
             timestamp=datetime.fromisoformat(d["timestamp"]) if d.get("timestamp") else datetime.now(),
-            log_type=LogType(d.get("log_type", "system_auto")),
+            log_type=log_type,
             task_id=d.get("task_id", ""),
             task_title=d.get("task_title", ""),
             user=d.get("user", "system"),
