@@ -634,70 +634,36 @@ class BoardPage:
         log.debug("cancel", f"task_id not found in registry")
 
     def _force_clear_all_ghosts(self, task_id: str):
-        """清除幽灵卡片：单任务模式清指定任务，批量模式清全部。"""
-        # 单任务 AI：提取真实 task_id，只清除该任务
-        for prefix in ("classify_", "schedule_", "review_"):
-            if task_id.startswith(prefix):
-                real_tid = task_id[len(prefix):]
-                if real_tid:
-                    t = state.get_task(real_tid)
-                    if t and t.ai_proposed:
-                        updates = {"ai_proposed": False}
-                        if t.ai_priority:
-                            updates["ai_priority"] = None
-                        if t.ai_acceptance_recommendation:
-                            updates["ai_acceptance_recommendation"] = None
-                            updates["ai_acceptance_reason"] = None
-                        if t.ai_suggestions:
-                            cleaned = [s for s in t.ai_suggestions
-                                       if not (isinstance(s, dict) and
-                                               s.get("proposal_type") in ("schedule",))]
-                            if len(cleaned) != len(t.ai_suggestions):
-                                updates["ai_suggestions"] = cleaned
-                        try:
-                            state.update_task(real_tid, **updates)
-                        except Exception:
-                            pass
-                        self._refresh_board()
-                return
-        # 批量 AI 工具：清除全部幽灵卡片
-        count = 0
-        for t in state.get_all_tasks():
-            if t.ai_proposed:
-                try:
-                    state.update_task(t.id, ai_proposed=False,
-                                      ai_priority=None,
-                                      ai_acceptance_recommendation=None,
-                                      ai_acceptance_reason=None)
-                    count += 1
-                except Exception:
-                    pass
-        if count:
+        """清除幽灵卡片标记——委托 CancelCoordinator。"""
+        from app.ui.services.cancel_coordinator import CancelCoordinator
+        affected = CancelCoordinator.clear_ghost(task_id)
+        if affected:
             self._refresh_board()
 
     def _reject_all_proposals(self, task_id: str):
-        """将 AI 对话区中关联的提案行标记为已拒绝。"""
+        """将 AI 对话区关联提案标记为已拒绝——委托 ProposalHandler。"""
         if not self.ai_chat or not hasattr(self.ai_chat, '_proposal_results'):
             return
-        # 单任务 AI：拒绝指定任务提案
+        from app.ui.services.proposal_handler import ProposalHandler
+        # 单任务 AI：拒绝指定任务
         for prefix in ("classify_", "schedule_", "review_"):
             if task_id.startswith(prefix):
                 real_tid = task_id[len(prefix):]
                 if real_tid:
+                    ProposalHandler.reject(real_tid)
                     t = state.get_task(real_tid)
-                    title = t.title if t else ""
-                    self.ai_chat._proposal_results.append((real_tid, "rejected", title))
-                    try:
-                        if hasattr(self.ai_chat, '_rebuild_bubbles'):
-                            self.ai_chat._rebuild_bubbles()
-                            self.ai_chat.update()
-                    except Exception:
-                        pass
+                    self.ai_chat._proposal_results.append(
+                        (real_tid, "rejected", t.title if t else ""))
+                    self._sync_proposal_ui()
                 return
-        # 批量 AI 工具：拒绝全部活跃提案
-        for t in state.get_all_tasks():
-            if t.ai_proposed:
-                self.ai_chat._proposal_results.append((t.id, "rejected", t.title))
+        # 批量 AI 工具：拒绝全部
+        for r in ProposalHandler.reject_all():
+            self.ai_chat._proposal_results.append(
+                (r.task_id, "rejected", r.title))
+        self._sync_proposal_ui()
+
+    def _sync_proposal_ui(self):
+        """刷新 AI 对话区提案 UI。"""
         try:
             if hasattr(self.ai_chat, '_rebuild_bubbles'):
                 self.ai_chat._rebuild_bubbles()
