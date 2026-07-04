@@ -1183,11 +1183,18 @@ class BoardPage:
                 # 再次检查取消标志——取消处理器可能已在主线程清除了幽灵卡
                 if cancel and cancel.is_set():
                     return
+                registry_status = next((t.get("status") for t in self._task_registry.get_all() if t["id"] == "acceptance"), None)
+                if registry_status and registry_status not in ("准备中...", "分析中..."):
+                    return
                 pending_after = {t.id for t in state.get_all_tasks() if t.ai_proposed}
                 pending = pending_after - pending_before
                 if pending:
                     self._poll_ghost_resolution("自动分类", pending, cancel)
                 else:
+                    # 检查是否用户已手动处理（幽灵卡被快速接受/拒绝）
+                    registry_status = next((t.get("status") for t in self._task_registry.get_all() if t["id"] == "classify"), None)
+                    if registry_status and registry_status != "准备中..." and registry_status != "分析中...":
+                        return  # 用户已处理，_check_ghost_pending_completion 已接管
                     self._finish_task_card("自动分类", "完成（无幽灵卡）", theme.success)
             except Exception as ex:
                 self._finish_task_card("自动分类", f"失败: {ex}", theme.error)
@@ -1238,11 +1245,17 @@ class BoardPage:
                 self._rebuild_chat_ui_sync()
                 if cancel and cancel.is_set():
                     return
+                registry_status = next((t.get("status") for t in self._task_registry.get_all() if t["id"] == "acceptance"), None)
+                if registry_status and registry_status not in ("准备中...", "分析中..."):
+                    return
                 pending_after = {t.id for t in state.get_all_tasks() if t.ai_proposed}
                 pending = pending_after - pending_before
                 if pending:
                     self._poll_ghost_resolution("自动排程", pending, cancel)
                 else:
+                    registry_status = next((t.get("status") for t in self._task_registry.get_all() if t["id"] == "schedule"), None)
+                    if registry_status and registry_status not in ("准备中...", "分析中..."):
+                        return
                     self._finish_task_card("自动排程", "完成（无幽灵卡）", theme.success)
             except Exception as ex:
                 self._finish_task_card("自动排程", f"失败: {ex}", theme.error)
@@ -1307,6 +1320,9 @@ class BoardPage:
                 # 在聊天面板显示 Agent 审核报告
                 self._show_ai_in_panel("自动验收", result)
                 if cancel and cancel.is_set():
+                    return
+                registry_status = next((t.get("status") for t in self._task_registry.get_all() if t["id"] == "acceptance"), None)
+                if registry_status and registry_status not in ("准备中...", "分析中..."):
                     return
                 pending_after = {t.id for t in state.get_all_tasks() if t.ai_proposed}
                 log.debug("acceptance", f"pending_after={len(pending_after)}: {pending_after}")
