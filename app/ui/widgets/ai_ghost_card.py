@@ -287,7 +287,8 @@ class AIGhostCard(ft.Container):
                 data={"proposal_id": self.proposal.id, "type": ptype, "task_id": tid},
             ))
         except Exception as ex:
-            print(f"[AIGhostCard] accept failed: {ex}")
+            from app.core.logging import log
+            log.warn("ghost_card.accept", f"failed: {ex}")
 
         if self._on_accept:
             self._on_accept(self.proposal)
