@@ -40,12 +40,14 @@ class OverlayDimmer:
     def __init__(self, page: ft.Page, content: ft.Control, *,
                  dim_opacity: float = 0.4,
                  on_dimmer_click=None,
-                 close_on_dimmer_click: bool = True):
+                 close_on_dimmer_click: bool = True,
+                 on_resize=None):
         self._page = page
         self._content = content
         self._dim_opacity = max(0.0, min(1.0, dim_opacity))
         self._on_dimmer_click = on_dimmer_click
         self._close_on_dimmer = close_on_dimmer_click
+        self._on_resize_cb = on_resize      # fn(page_w, page_h) → 重新定位内容面板
         self._overlay: ft.Stack | None = None
         self._open = False
 
@@ -66,12 +68,18 @@ class OverlayDimmer:
         self._overlay = self._build()
         self._page.overlay.append(self._overlay)
         self._page.update()
+        # 监听窗口缩放以更新遮罩尺寸
+        self._orig_on_resized = self._page.on_resized
+        self._page.on_resized = self._on_resize
 
     def close(self):
         """关闭遮罩。"""
         if not self._open or not self._page:
             return
         self._open = False
+        # 恢复原始 resize 回调
+        if hasattr(self, '_orig_on_resized'):
+            self._page.on_resized = self._orig_on_resized
         try:
             self._page.overlay.remove(self._overlay)
         except (ValueError, AssertionError):
@@ -85,6 +93,31 @@ class OverlayDimmer:
 
     # ── 内部 ──
 
+    def _on_resize(self, e):
+        """窗口缩放时更新遮罩尺寸 + 内容面板位置。"""
+        if callable(self._orig_on_resized):
+            try:
+                self._orig_on_resized(e)
+            except Exception:
+                pass
+        if self._overlay and self._page:
+            pw, ph = self._page.width, self._page.height
+            self._overlay.width = pw
+            self._overlay.height = ph
+            if self._overlay.controls:
+                self._overlay.controls[0].width = pw
+                self._overlay.controls[0].height = ph
+            # 回调：重新定位内容面板
+            if self._on_resize_cb:
+                try:
+                    self._on_resize_cb(pw, ph)
+                except Exception:
+                    pass
+            try:
+                self._overlay.update()
+            except Exception:
+                pass
+
     def _build(self) -> ft.Stack:
         pw, ph = self._page.width, self._page.height
 
@@ -94,7 +127,6 @@ class OverlayDimmer:
             elif self._close_on_dimmer:
                 self.close()
 
-        # Container.opacity 作用于整层（0.28.3 确认可用）
         dimmer = ft.Container(
             width=pw, height=ph,
             bgcolor=ft.Colors.BLACK,

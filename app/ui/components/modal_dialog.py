@@ -25,12 +25,9 @@ class ModalDialog:
         self._on_close = on_close
         self._close_on_dimmer = close_on_dimmer_click
         self._dimmer: OverlayDimmer | None = None
+        self._w, self._h = width, height
 
         panel_bg = bgcolor or theme.surface
-
-        cx = max(0, (page.width - width) // 2)
-        cy = max(10, (page.height - height) // 2)
-
         self._panel = ft.Container(
             content=content,
             width=width, bgcolor=panel_bg,
@@ -38,13 +35,20 @@ class ModalDialog:
             border=ft.border.all(1, theme.border),
             shadow=ft.BoxShadow(
                 spread_radius=1, blur_radius=16, color="#000000aa"),
-            left=cx, top=cy,
         )
+        self._reposition()
+
+    def _reposition(self):
+        pw, ph = self._page.width, self._page.height
+        self._panel.left = max(0, (pw - self._w) // 2)
+        self._panel.top = max(10, (ph - self._h) // 2)
 
     def open(self):
+        self._reposition()
         self._dimmer = OverlayDimmer.open(
             self._page, self._panel, dim_opacity=0.55,
-            on_dimmer_click=(lambda: self.close()) if self._close_on_dimmer else None)
+            on_dimmer_click=(lambda: self.close()) if self._close_on_dimmer else None,
+            on_resize=lambda pw, ph: self._reposition())
 
     def close(self):
         if self._dimmer:
