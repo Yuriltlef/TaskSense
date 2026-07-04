@@ -55,23 +55,33 @@ def open(page: ft.Page, task):
     def _col(lbl, ctrl):
         return ft.Column([lbl, ctrl], spacing=s(4), tight=True, expand=True)
 
-    # ── 上下文收集（供 AI 补全）──
+    # ── 上下文收集（供 AI 补全，仅未锁定字段）──
     _fields = {}
+    # 字段 → 锁定标志映射
+    _FIELD_LOCKS = {
+        "title": lambda: _TITLE_LOCKED, "description": lambda: _DESC_LOCKED,
+        "ata_chapter": lambda: _CORE_LOCKED, "aircraft_reg": lambda: _CORE_LOCKED,
+        "employee_id": lambda: _EMP_LOCKED, "employee_name": lambda: _EMP_LOCKED,
+        "zone": lambda: _ZONE_LOCKED, "task_type": lambda: _TYPE_LOCKED,
+    }
 
     def _get_ctx():
         result = {}
-        for fn in ["title", "description", "ata_chapter", "aircraft_reg",
-                   "employee_id", "employee_name", "zone", "task_type"]:
+        for fn, is_locked in _FIELD_LOCKS.items():
+            if is_locked():
+                continue  # 跳过已锁定字段
             ctrl = _fields.get(fn)
-            if ctrl is None:
+            if ctrl is None or not hasattr(ctrl, 'value'):
                 result[fn] = ""
-            elif hasattr(ctrl, 'value'):
-                result[fn] = ctrl.value or ""
             else:
-                result[fn] = ""
+                result[fn] = ctrl.value or ""
         return result
 
     def _on_filled(target_field: str, value: str):
+        # 拒绝填充已锁定字段
+        lock_fn = _FIELD_LOCKS.get(target_field)
+        if lock_fn and lock_fn():
+            return
         ctrl = _fields.get(target_field)
         if ctrl is None: return
         if hasattr(ctrl, 'text_field'):
