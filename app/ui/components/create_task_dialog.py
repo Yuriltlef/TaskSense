@@ -14,14 +14,23 @@ class CreateTaskDialog:
     _dimmer = None
     _page = None
     _open = False
-    _fields: dict = {}  # field_name → control reference
+    _fields: dict = {}
+    _panel = None
+
+    @classmethod
+    def _reposition(cls, pw, ph):
+        if cls._panel:
+            cls._panel.left = max(0, (pw - 720) // 2)
+            cls._panel.top = max(20, (ph - 780) // 2)
 
     @classmethod
     def open(cls, page):
         if cls._open: return
         cls._page = page; cls._open = True; cls._fields = {}
-        cls._dimmer = OverlayDimmer.open(page, cls._build(), dim_opacity=0.55,
-                                         on_dimmer_click=lambda: cls.close())
+        cls._panel = cls._build()
+        cls._dimmer = OverlayDimmer.open(page, cls._panel, dim_opacity=0.55,
+                                         on_dimmer_click=lambda: cls.close(),
+                                         on_resize=lambda pw, ph: cls._reposition(pw, ph))
 
     @classmethod
     def close(cls):
