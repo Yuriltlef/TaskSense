@@ -1654,6 +1654,7 @@ class BoardPage:
         from app.ui.dialogs.submit_dialog import open as dlg_submit
         dlg_submit(self._page, tid)
 
+
     def _dlg_block(self, tid):
         from app.ui.dialogs.block_dialog import open as dlg_block
         dlg_block(self._page, tid)
