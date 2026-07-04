@@ -104,10 +104,9 @@ class TestAppStateDeep:
         assert result is None
 
     def test_move_task_to_nonexistent_column(self, state):
-        """移动到不存在的列：列ID需要是有效的 TaskStatus 值。"""
+        """移动到不存在的列：validate_transition 会拒绝。"""
         t = state.create_task(title="Test")
-        # "fantasy_column" 不是有效的 TaskStatus → 会在 transition_to 中抛 ValueError
-        with pytest.raises(ValueError):
+        with pytest.raises(BusinessRuleError):
             state.move_task(t.id, "fantasy_column")
 
     def test_move_task_history_accumulates(self, state):

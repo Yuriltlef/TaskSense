@@ -190,6 +190,48 @@ class Task:
         self.checklist.append(item)
         return item
 
+    def to_submission_context(self) -> str:
+        """构建任务提交审核上下文（供 AI 审核使用）。"""
+        lines = [
+            f"任务ID: {self.id}",
+            f"工卡号: {self.work_order_id or '无'}",
+            f"标题: {self.title}",
+            f"描述: {self.description or '无'}",
+            f"飞机注册号: {self.aircraft_reg or '未指定'}",
+            f"机型: {self.aircraft_model or '未指定'}",
+            f"ATA章节: {self.ata_chapter or '未指定'}",
+            f"区域: {self.zone or '未指定'}",
+            f"优先级: {self.priority.value}",
+            f"任务类型: {self.task_type.value}",
+            f"负责人: {self.employee_name or self.assignee or '未分配'} (ID: {self.employee_id or '无'})",
+            f"预估工时: {self.estimated_hours}h" if self.estimated_hours else "预估工时: 未设置",
+            f"实际工时: {self.actual_hours}h" if self.actual_hours else "实际工时: 未填写",
+        ]
+        if self.planned_start or self.planned_end:
+            ps = self.planned_start.strftime('%Y-%m-%d %H:%M') if self.planned_start else '未设置'
+            pe = self.planned_end.strftime('%Y-%m-%d %H:%M') if self.planned_end else '未设置'
+            lines.append(f"计划时间: {ps} → {pe}")
+        lines += [
+            f"RII必检项目: {'是' if self.is_rii else '否'}",
+            f"检查员: {self.inspector or '未指定'}",
+            f"阻塞状态: {'是 — ' + self.block_reason if self.is_blocked else '否'}",
+            "",
+            "=== 提交材料（交接班日志）===",
+            self.shift_handover_log if self.shift_handover_log else "（无提交日志 — 这是严重问题！）",
+        ]
+        done, total = self.checklist_progress()
+        if total > 0:
+            lines.append("")
+            lines.append(f"=== 检查清单 ({done}/{total}) ===")
+            for ci in self.checklist:
+                status = "✓" if ci.completed else "✗"
+                lines.append(f"  [{status}] {ci.text}")
+        if self.ad_numbers:
+            lines.append(f"AD: {', '.join(self.ad_numbers)}")
+        if self.sb_numbers:
+            lines.append(f"SB: {', '.join(self.sb_numbers)}")
+        return "\n".join(lines)
+
     def checklist_progress(self) -> tuple[int, int]:
         """返回 (已完成, 总数)。"""
         if not self.checklist:

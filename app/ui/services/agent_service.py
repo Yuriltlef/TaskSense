@@ -193,44 +193,8 @@ class AgentService:
 
     @staticmethod
     def _build_submission_context(task) -> str:
-        """构建任务提交审核上下文。可被 review_submission 和 auto_acceptance 复用。"""
-        t = task
-        lines = [
-            f"任务ID: {t.id}",
-            f"工卡号: {t.work_order_id or '无'}",
-            f"标题: {t.title}",
-            f"描述: {t.description or '无'}",
-            f"飞机注册号: {t.aircraft_reg or '未指定'}",
-            f"机型: {t.aircraft_model or '未指定'}",
-            f"ATA章节: {t.ata_chapter or '未指定'}",
-            f"区域: {t.zone or '未指定'}",
-            f"优先级: {t.priority.value if hasattr(t.priority, 'value') else str(t.priority)}",
-            f"任务类型: {t.task_type.value if hasattr(t.task_type, 'value') else str(t.task_type)}",
-            f"负责人: {t.employee_name or t.assignee or '未分配'} (ID: {t.employee_id or '无'})",
-            f"预估工时: {t.estimated_hours}h" if t.estimated_hours else "预估工时: 未设置",
-            f"实际工时: {t.actual_hours}h" if t.actual_hours else "实际工时: 未填写",
-            f"计划时间: {t.planned_start.strftime('%Y-%m-%d %H:%M') if t.planned_start else '未设置'} → {t.planned_end.strftime('%Y-%m-%d %H:%M') if t.planned_end else '未设置'}",
-            f"RII必检项目: {'是' if t.is_rii else '否'}",
-            f"检查员: {t.inspector or '未指定'}",
-            f"阻塞状态: {'是 — ' + t.block_reason if t.is_blocked else '否'}",
-            "",
-            f"=== 提交材料（交接班日志）===",
-            t.shift_handover_log if t.shift_handover_log else "（无提交日志 — 这是严重问题！）",
-        ]
-        # 检查清单
-        done, total = t.checklist_progress()
-        if total > 0:
-            lines.append("")
-            lines.append(f"=== 检查清单 ({done}/{total}) ===")
-            for ci in t.checklist:
-                status = "✓" if ci.completed else "✗"
-                lines.append(f"  [{status}] {ci.text}")
-        # 适航指令
-        if t.ad_numbers:
-            lines.append(f"AD: {', '.join(t.ad_numbers)}")
-        if t.sb_numbers:
-            lines.append(f"SB: {', '.join(t.sb_numbers)}")
-        return "\n".join(lines)
+        """构建任务提交审核上下文（委托 Task 模型）。"""
+        return task.to_submission_context()
 
     @staticmethod
     def review_submission(task_id: str) -> str:
@@ -471,7 +435,6 @@ class AgentService:
     def _review_one_batch(tasks: list, batch_num: int, total_batches: int) -> list[dict]:
         """审核单批任务 — 单阶段：调工具收集数据 + 输出 JSON 一步完成。"""
         from app.agent.orchestrator import agent, _load_prompt
-        import re, json
 
         tasks_str = "\n".join(
             f"- [{t.id}] {t.title} | ATA:{t.ata_chapter or '无'} | "
@@ -508,53 +471,8 @@ class AgentService:
         log.debug("review_svc", f"Batch {batch_num} response: {len(result)} chars, "
               f"preview: {result[:200]}")
 
-        # 解析 JSON（多种策略按顺序尝试）
-        if len(result.strip()) < 30:
-            raise RuntimeError(f"返回过短 ({len(result)} 字符): {result.strip()[:100]}")
-
-        if result.startswith("[Error]"):
-            raise RuntimeError(f"LLM 调用失败: {result}")
-
-        # 策略 1: ```json ... ``` 代码块
-        json_match = re.search(r'```json\s*\n(.*?)\n\s*```', result, re.DOTALL)
-        if json_match:
-            try:
-                return json.loads(json_match.group(1))
-            except json.JSONDecodeError:
-                pass  # 继续尝试其他策略
-
-        # 策略 2: 裸 JSON 数组（贪婪匹配到最后一个 ]）
-        bare_match = re.search(r'\[\s*\{[\s\S]*}\s*]', result)
-        if bare_match:
-            try:
-                return json.loads(bare_match.group(0))
-            except json.JSONDecodeError:
-                pass
-
-        # 策略 3: 如果整个响应就是 JSON
-        stripped = result.strip()
-        if stripped.startswith('['):
-            try:
-                return json.loads(stripped)
-            except json.JSONDecodeError:
-                pass
-
-        # 策略 4: 逐行提取 JSON 对象（最宽松）
-        obj_matches = re.findall(r'\{\s*"task_id"[\s\S]*?}', result)
-        if obj_matches:
-            issues = []
-            for om in obj_matches:
-                try:
-                    issues.append(json.loads(om))
-                except json.JSONDecodeError:
-                    continue
-            if issues:
-                return issues
-
-        raise RuntimeError(
-            f"未找到有效 JSON（{len(result)} 字符）。\n"
-            f"响应预览: {result[:300]}\n"
-            f"响应尾: ...{result[-200:] if len(result) > 200 else ''}")
+        from app.agent.json_extractor import extract_json_array
+        return extract_json_array(result)
 
     # ═══════════════════════════════════════════
     # 右键菜单 AI 功能

@@ -166,10 +166,16 @@ class AppState:
 
     def move_task(self, task_id: str, to_col: str,
                   index: int = -1, changed_by: str = "system") -> Optional[Task]:
-        """移动任务到目标列。"""
+        """移动任务到目标列（含状态转换验证）。"""
         task = self._tasks.get(task_id)
         if not task:
             return None
+
+        # 状态转换验证（同列重排序跳过）
+        if task.status.value != to_col:
+            from app.core.validators import TaskValidators
+            columns = list(self._columns.values())
+            TaskValidators.validate_transition(task, to_col, columns)
 
         # 找到当前列
         from_col = None

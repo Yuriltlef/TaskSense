@@ -62,6 +62,9 @@ class TaskValidators:
         if len(title) > 200:
             raise BusinessRuleError("任务标题不能超过200个字符", "TITLE_TOO_LONG")
 
+        if aircraft_reg and aircraft_reg.strip():
+            TaskValidators.validate_aircraft_reg(aircraft_reg)
+
     @staticmethod
     def validate_wip(column: ColumnConfig) -> Optional[str]:
         """检查 WIP 限制。返回警告信息或 None。"""

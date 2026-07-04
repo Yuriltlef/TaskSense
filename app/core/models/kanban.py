@@ -25,10 +25,10 @@ class ColumnConfig:
 
     @property
     def wip_exceeded(self) -> bool:
-        """WIP 是否超限。"""
+        """WIP 是否超限（≥ 上限即视为超限，与 validators 保持一致）。"""
         if self.wip_limit is None:
             return False
-        return self.task_count > self.wip_limit
+        return self.task_count >= self.wip_limit
 
     @property
     def wip_percentage(self) -> float:

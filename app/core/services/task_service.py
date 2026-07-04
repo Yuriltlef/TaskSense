@@ -45,8 +45,6 @@ class TaskService:
         """
         # 校验
         TaskValidators.validate_create(title, aircraft_reg)
-        if aircraft_reg:
-            TaskValidators.validate_aircraft_reg(aircraft_reg)
         if ata_chapter:
             TaskValidators.validate_ata_chapter(ata_chapter)
         if employee_id:
@@ -95,11 +93,7 @@ class TaskService:
         if not task:
             raise BusinessRuleError(f"任务 '{task_id}' 不存在", "TASK_NOT_FOUND")
 
-        # 同列重排序不改变状态，跳过状态转换校验
-        if task.status.value != to_column:
-            columns = self.state.get_columns()
-            TaskValidators.validate_transition(task, to_column, columns)
-
+        # 状态转换验证已由 state.move_task 统一处理
         return self.state.move_task(task_id, to_column, index, changed_by)
 
     def update_task(self, task_id: str, **changes) -> Optional[Task]:

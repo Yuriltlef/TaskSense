@@ -327,10 +327,10 @@ class TestColumnConfigEdgeCases:
     """ColumnConfig — 边界测试。"""
 
     def test_wip_exactly_at_limit(self):
-        """恰好达到 WIP 限制不算超限。"""
+        """恰好达到 WIP 限制视为超限（与 validate_wip 保持一致）。"""
         col = ColumnConfig(id="test", title="T", wip_limit=5)
         col.task_count = 5
-        assert not col.wip_exceeded
+        assert col.wip_exceeded
         assert col.wip_percentage == 1.0
 
     def test_wip_zero_limit_division(self):
