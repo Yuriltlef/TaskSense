@@ -52,9 +52,9 @@ class TestAgentOrchestrator:
 
     def test_guess_ata(self):
         from app.agent.orchestrator import agent
-        assert agent._guess_ata("起落架异响") == "32"
-        assert agent._guess_ata("发动机振动") == "72"
-        assert agent._guess_ata("landing gear issue") == "32"
+        assert agent._guess_ata("起落架异响") == "32-10-00"
+        assert agent._guess_ata("发动机振动") == "77-11-01"
+        assert agent._guess_ata("landing gear issue") == "32-10-00"
         assert agent._guess_ata("unknown thing") == ""
 
     def test_search_with_doc_type(self):

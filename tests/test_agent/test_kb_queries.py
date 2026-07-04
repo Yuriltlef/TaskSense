@@ -106,18 +106,17 @@ class TestAgentTaskSuggestion:
         assert "priority" in result
 
     def test_suggest_ata_guess(self):
-        """验证 ATA 推测能力。"""
-        # 中文关键词 → ATA 章节
-        assert agent._guess_ata("起落架") == "32"
-        assert agent._guess_ata("发动机") == "72"
-        assert agent._guess_ata("燃油泵") == "28"
-        assert agent._guess_ata("APU故障") == "49"
+        """验证 ATA 推测能力 — 返回完整章节号。"""
+        assert agent._guess_ata("起落架") == "32-10-00"
+        assert agent._guess_ata("发动机") == "72-00-00"
+        assert agent._guess_ata("燃油泵") == "28-21-01"
+        assert agent._guess_ata("APU故障") == "49-00-00"
 
     def test_suggest_ata_guess_english(self):
-        assert agent._guess_ata("landing gear issue") == "32"
-        assert agent._guess_ata("engine vibration") == "72"
-        assert agent._guess_ata("hydraulic leak") == "29"
-        assert agent._guess_ata("wing damage") == "57"
+        assert agent._guess_ata("landing gear issue") == "32-10-00"
+        assert agent._guess_ata("engine vibration") == "77-11-01"
+        assert agent._guess_ata("hydraulic leak") == "29-00-00"
+        assert agent._guess_ata("wing damage") == "57-00-00"
 
     def test_suggest_unknown(self):
         """未知关键词返回空字符串。"""
