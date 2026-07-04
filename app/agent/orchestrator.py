@@ -271,19 +271,19 @@ class AgentOrchestrator:
                 if AgentOrchestrator._is_cancelled(cancel_event):
                     executor.shutdown(wait=False)
                     return "回答已中断"
-                future.result(timeout=0.15)
-        except concurrent.futures.TimeoutError:
-            pass  # future.result(timeout=0.15) 超时是正常的轮询行为
-        except Exception:
-            pass
+                # 轮询等待，用内部 try/except 避免 TimeoutError 跳出 while
+                try:
+                    future.result(timeout=0.15)
+                except concurrent.futures.TimeoutError:
+                    pass  # 正常轮询超时
         finally:
             executor.shutdown(wait=False)
 
         try:
             return future.result(timeout=0)
-        except Exception:
+        except Exception as e:
             return "回答已中断" if AgentOrchestrator._is_cancelled(cancel_event) \
-                else "[Error] LLM 调用失败"
+                else f"[Error] LLM 调用失败: {e}"
 
     def _agent_loop(self, conv: Conversation, llm_client,
                     cancel_event=None, timeout: float = 30.0) -> str:

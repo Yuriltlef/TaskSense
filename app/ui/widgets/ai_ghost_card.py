@@ -268,12 +268,10 @@ class AIGhostCard(ft.Container):
                 if tid:
                     rec = td.get("recommendation", "")
                     target = "completed" if rec == "approve" else "backlog"
-                    print(f"[GHOST_CARD] _do_accept: tid={tid} rec={rec} target={target}")
                     task_service.move_task(tid, target, changed_by="ai_agent")
                     state.update_task(tid, ai_proposed=False,
                                       ai_acceptance_recommendation=None,
                                       ai_acceptance_reason=None)
-                    print(f"[GHOST_CARD] _do_accept: moved {tid} to {target}")
 
             # 通知
             from app.core.services.log_service import log_service
@@ -308,13 +306,11 @@ class AIGhostCard(ft.Container):
         real_task = state.get_task(tid) if tid else None
         real_rec = getattr(real_task, 'ai_acceptance_recommendation', None) if real_task else None
         is_acceptance = (ptype == "acceptance" or bool(real_rec))
-        print(f"[GHOST_CARD] _do_reject: tid={tid} ptype={ptype} task_data.rec={td.get('recommendation','')} real_task.rec={real_rec} is_acceptance={is_acceptance}")
 
         if is_acceptance and tid:
             state.update_task(tid, ai_proposed=False,
                               ai_acceptance_recommendation=None,
                               ai_acceptance_reason=None)
-            print(f"[GHOST_CARD] _do_reject: cleared ai_proposed for {tid}, task stays in inspection")
 
         event_bus.emit(AppEvent(
             type=EventType.AI_PROPOSAL_REJECTED,

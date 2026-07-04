@@ -2125,7 +2125,14 @@ class BoardPage:
                         self._check_ghost_pending_completion()
                         self._start_ghost_polling(session_id, label)
                     else:
-                        # AI 未调工具——当作失败处理
+                        # 检查是否已被用户手动处理（接受了幽灵卡/拒绝了幽灵卡）
+                        tid = task_info.get("id", "")
+                        results_list = getattr(self.ai_chat, '_proposal_results', []) if self.ai_chat else []
+                        already_processed = any(r[0] == tid for r in results_list)
+                        if already_processed:
+                            log.debug("ai_action_bg", f"ghost already processed by user for {tid}")
+                            return
+                        # AI 确实未调工具——当作失败处理
                         log.debug("ai_action_bg", f"keep_open but no ghost card created for {tid}")
                         self._finish_task_card(label, "AI 未创建提案", theme.error)
                 else:
