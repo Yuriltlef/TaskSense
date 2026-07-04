@@ -190,7 +190,7 @@ def open(page: ft.Page, task):
     # ── 员工 ──
     emp_id_f = _norm_tf("员工 ID，如 ZH001", str(task.employee_id or ""), readonly=_EMP_LOCKED)
     emp_name_f = _norm_tf("员工姓名，如 张工", str(task.employee_name or ""), readonly=_EMP_LOCKED)
-    print(f"[EDIT] emp_id='{task.employee_id}' name='{task.employee_name}' locked={_EMP_LOCKED}")
+    #emp_id='{task.employee_id}' name='{task.employee_name}' locked={_EMP_LOCKED}")
     _fields["employee_id"] = emp_id_f
     _fields["employee_name"] = emp_name_f
     if not _EMP_LOCKED:
@@ -223,7 +223,7 @@ def open(page: ft.Page, task):
                    width=s(56), readonly=_TIME_LOCKED)
     hrs_str = f"{task.estimated_hours:.1f}" if task.estimated_hours else ""
     hours_f = _norm_tf("（可选）", value=hrs_str, width=120, readonly=_TIME_LOCKED)
-    print(f"[EDIT] planned_start={task.planned_start} planned_end={task.planned_end} hrs={task.estimated_hours} locked={_TIME_LOCKED}")
+    #planned_start={task.planned_start} planned_end={task.planned_end} hrs={task.estimated_hours} locked={_TIME_LOCKED}")
 
     # 仅 backlog/triage 有时分校验
     if not _TIME_LOCKED:
@@ -334,7 +334,7 @@ def open(page: ft.Page, task):
 
     # ── 区域 ──
     zone_f = _norm_tf("区域 (Zone)，如 710", str(task.zone or ""), readonly=_ZONE_LOCKED)
-    print(f"[EDIT] zone='{task.zone}' locked={_ZONE_LOCKED}")
+    #zone='{task.zone}' locked={_ZONE_LOCKED}")
     _fields["zone"] = zone_f
 
     # ── 交接班日志 ──
@@ -480,7 +480,7 @@ def open(page: ft.Page, task):
         border=ft.border.only(top=ft.BorderSide(1, theme.border)),
     )
 
-    print(f"[EDIT] opening dialog: st={st} locked={{core:{_CORE_LOCKED} pri:{_PRI_LOCKED} type:{_TYPE_LOCKED} emp:{_EMP_LOCKED} time:{_TIME_LOCKED} zone:{_ZONE_LOCKED} title:{_TITLE_LOCKED} desc:{_DESC_LOCKED} log:{_LOG_LOCKED}}}")
+    #opening dialog: st={st} locked={{core:{_CORE_LOCKED} pri:{_PRI_LOCKED} type:{_TYPE_LOCKED} emp:{_EMP_LOCKED} time:{_TIME_LOCKED} zone:{_ZONE_LOCKED} title:{_TITLE_LOCKED} desc:{_DESC_LOCKED} log:{_LOG_LOCKED}}}")
 
     # 照搬 CreateTaskDialog 的定位逻辑：OverlayDimmer + Stack 绝对定位
     PW, PH = 700, 750
