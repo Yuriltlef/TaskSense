@@ -258,9 +258,36 @@ class AgentOrchestrator:
         """检查取消标志（安全处理 None）。"""
         return cancel_event is not None and cancel_event.is_set()
 
+    @staticmethod
+    def _chat_with_cancel(llm_client, messages, cancel_event,
+                          timeout: float = 30.0) -> str:
+        """LLM 调用的可中断包装：在后台线程执行 HTTP，主循环轮询取消。"""
+        import concurrent.futures
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(
+            llm_client.chat_messages, messages, timeout=timeout)
+        try:
+            while not future.done():
+                if AgentOrchestrator._is_cancelled(cancel_event):
+                    executor.shutdown(wait=False)
+                    return "回答已中断"
+                future.result(timeout=0.15)
+        except concurrent.futures.TimeoutError:
+            pass  # future.result(timeout=0.15) 超时是正常的轮询行为
+        except Exception:
+            pass
+        finally:
+            executor.shutdown(wait=False)
+
+        try:
+            return future.result(timeout=0)
+        except Exception:
+            return "回答已中断" if AgentOrchestrator._is_cancelled(cancel_event) \
+                else "[Error] LLM 调用失败"
+
     def _agent_loop(self, conv: Conversation, llm_client,
                     cancel_event=None, timeout: float = 30.0) -> str:
-        """Agent 推理循环：LLM ↔ 工具调用。"""
+        """Agent 推理循环：LLM ↔ 工具调用（LLM 调用可被 cancel_event 中断）。"""
         _cancelled = lambda: AgentOrchestrator._is_cancelled(cancel_event)
 
         if _cancelled():
@@ -272,14 +299,17 @@ class AgentOrchestrator:
             if _cancelled():
                 return "回答已中断"
 
-            resp_text = llm_client.chat_messages(messages, timeout=timeout)
+            resp_text = AgentOrchestrator._chat_with_cancel(
+                llm_client, messages, cancel_event, timeout)
 
+            if resp_text == "回答已中断":
+                return "回答已中断"
             if resp_text.startswith("[Error]"):
-                return "回答已中断" if _cancelled() else resp_text
+                return resp_text
 
             tool_calls = _parse_tool_calls(resp_text)
             if not tool_calls:
-                return "回答已中断" if _cancelled() else resp_text
+                return resp_text
 
             if round_num >= self.MAX_TOOL_ROUNDS:
                 if _cancelled():
@@ -290,8 +320,10 @@ class AgentOrchestrator:
                     "content": "Please provide your final answer now based on the tool results above. "
                                "Do NOT request more tool calls."
                 })
-                final = llm_client.chat_messages(messages, timeout=timeout)
-                return "回答已中断" if _cancelled() else (final if not final.startswith("[Error]") else resp_text)
+                final = AgentOrchestrator._chat_with_cancel(
+                    llm_client, messages, cancel_event, timeout)
+                return "回答已中断" if _cancelled() else (
+                    final if not final.startswith("[Error]") else resp_text)
 
             if _cancelled():
                 return "回答已中断"
@@ -303,7 +335,6 @@ class AgentOrchestrator:
                 result = ToolExecutor.execute(tool_name, params)
                 tool_results.append((tool_name, result))
 
-            # 将工具调用和结果添加到 messages
             messages.append({"role": "assistant", "content": resp_text})
             for tool_name, result in tool_results:
                 messages.append({
@@ -314,8 +345,9 @@ class AgentOrchestrator:
                                f"If you have enough information, provide your final answer."
                 })
 
-        # 不应到达这里，但作为兜底
-        return "回答已中断" if _cancelled() else llm_client.chat_messages(messages)
+        return "回答已中断" if _cancelled() else \
+            AgentOrchestrator._chat_with_cancel(
+                llm_client, messages, cancel_event, timeout)
 
     # ── 离线模式 ──
 
