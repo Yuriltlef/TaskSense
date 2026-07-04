@@ -68,18 +68,17 @@ class OverlayDimmer:
         self._overlay = self._build()
         self._page.overlay.append(self._overlay)
         self._page.update()
-        # 监听窗口缩放以更新遮罩尺寸
-        self._orig_on_resized = self._page.on_resized
-        self._page.on_resized = self._on_resize
+        # 监听窗口缩放（RESIZE=拖拽过程中持续触发, RESIZED=松开时触发）
+        self._orig_on_window_event = self._page.window.on_event
+        self._page.window.on_event = self._on_window_event
 
     def close(self):
         """关闭遮罩。"""
         if not self._open or not self._page:
             return
         self._open = False
-        # 恢复原始 resize 回调
-        if hasattr(self, '_orig_on_resized'):
-            self._page.on_resized = self._orig_on_resized
+        if hasattr(self, '_orig_on_window_event'):
+            self._page.window.on_event = self._orig_on_window_event
         try:
             self._page.overlay.remove(self._overlay)
         except (ValueError, AssertionError):
@@ -93,13 +92,16 @@ class OverlayDimmer:
 
     # ── 内部 ──
 
-    def _on_resize(self, e):
-        """窗口缩放时更新遮罩尺寸 + 内容面板位置。"""
-        if callable(self._orig_on_resized):
+    def _on_window_event(self, e):
+        """窗口缩放时（RESIZE+RESIZED）实时更新遮罩尺寸 + 内容面板位置。"""
+        if callable(self._orig_on_window_event):
             try:
-                self._orig_on_resized(e)
+                self._orig_on_window_event(e)
             except Exception:
                 pass
+        # 仅在缩放事件时更新
+        if e.type not in ("resize", "resized"):
+            return
         if self._overlay and self._page:
             pw, ph = self._page.width, self._page.height
             self._overlay.width = pw
@@ -107,7 +109,6 @@ class OverlayDimmer:
             if self._overlay.controls:
                 self._overlay.controls[0].width = pw
                 self._overlay.controls[0].height = ph
-            # 回调：重新定位内容面板
             if self._on_resize_cb:
                 try:
                     self._on_resize_cb(pw, ph)
