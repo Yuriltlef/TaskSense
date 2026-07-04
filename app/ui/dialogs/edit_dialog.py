@@ -1,17 +1,8 @@
 """编辑任务弹窗."""
 import flet as ft
-from datetime import datetime as dt
+
 from app.config.theme import theme, s
 from app.core.services.task_service import task_service
-from app.core.state import state
-from app.ui.widgets.toast import Toast
-from app.ui.widgets.overlay_dimmer import OverlayDimmer
-from app.ui.services.dialog_builder import (
-    header as dlg_header, footer as dlg_footer, button_style as dlg_btn_style,
-    make_field, make_label, make_col, make_date_picker,
-    clamp_time_field, build_datetime,
-)
-from app.ui.widgets.ghost_text import GhostTextField
 
 
 def open(page: ft.Page, task):
@@ -95,7 +86,6 @@ def open(page: ft.Page, task):
     if _TITLE_LOCKED:
         title_gf = _norm_tf("任务标题", str(task.title), readonly=True)
         _fields["title"] = title_gf
-        print(f"[EDIT] title='{task.title}' locked=True (plain TF)")
     else:
         title_gf = GhostTextField(
             hint_text="任务标题", field_name="title",
@@ -103,14 +93,12 @@ def open(page: ft.Page, task):
         )
         title_gf.value = task.title
         _fields["title"] = title_gf
-        print(f"[EDIT] title='{task.title}' locked=False (GhostTextField)")
 
     # ── 描述 ──
     if _DESC_LOCKED:
         desc_gf = ft.Text(task.description or "—", size=s(13),
                            color=theme.text_disabled, font_family=ff)
         _fields["description"] = desc_gf
-        print(f"[EDIT] desc='{(task.description or '')[:30]}' locked=True (plain TF)")
     else:
         desc_gf = GhostTextField(
             hint_text="任务描述", field_name="description",
@@ -119,18 +107,15 @@ def open(page: ft.Page, task):
         )
         desc_gf.value = task.description or ""
         _fields["description"] = desc_gf
-        print(f"[EDIT] desc='{(task.description or '')[:30]}' locked=False (GhostTextField)")
 
     # ── 飞机注册号 ──
     reg_f = _norm_tf("飞机注册号，如 B-5823", str(task.aircraft_reg or ""), readonly=_CORE_LOCKED)
-    print(f"[EDIT] reg='{task.aircraft_reg}' locked={_CORE_LOCKED}")
     _fields["aircraft_reg"] = reg_f
 
     # ── ATA 章节 ──
     if _CORE_LOCKED:
         ata_gf = _norm_tf("ATA 章节，如 32-41-03", str(task.ata_chapter or ""), readonly=True)
         _fields["ata_chapter"] = ata_gf
-        print(f"[EDIT] ata='{task.ata_chapter}' locked=True (plain TF)")
     else:
         ata_gf = GhostTextField(
             hint_text="ATA 章节，如 32-41-03", field_name="ata_chapter",
@@ -138,7 +123,6 @@ def open(page: ft.Page, task):
         )
         ata_gf.value = task.ata_chapter or ""
         _fields["ata_chapter"] = ata_gf
-        print(f"[EDIT] ata='{task.ata_chapter}' locked=False (GhostTextField)")
 
     # ── 优先级 ──
     _PRI_OPTS = [("aog","AOG",theme.priority_color("aog")),("cat_a","Cat A",theme.priority_color("cat_a")),
@@ -402,7 +386,6 @@ def open(page: ft.Page, task):
 
         task_service.update_task(task.id, **changes)
         _close_dlg()
-        self._refresh_board()
         Toast.show(page, "任务已更新", "success")
 
     # ── 组装 ──
@@ -506,9 +489,9 @@ def open(page: ft.Page, task):
         left=cx, top=cy,
     )
 
-    _dimmer_ref = [None]
+    _dimmer_ref: list = [None]
     def _close_dlg():
-        if _dimmer_ref[0]:
+        if _dimmer_ref[0] is not None:
             _dimmer_ref[0].close()
     _dimmer_ref[0] = OverlayDimmer.open(page, panel, dim_opacity=0.55,
                                          on_dimmer_click=_close_dlg)
