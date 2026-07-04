@@ -20,7 +20,8 @@ from app.ui.components.bottom_status_bar import BottomStatusBar
 from app.ui.components.command_bar import CommandBar
 from app.ui.components.kanban_board import KanbanBoard
 from app.ui.components.side_panel import SidePanel
-from app.ui.services.dialog_builder import header as dlg_header, footer as dlg_footer
+from app.ui.services.dialog_builder import header as dlg_header
+from app.ui.services.ai_commands import AICommands, footer as dlg_footer
 from app.ui.services.task_registry import TaskRegistry
 from app.ui.widgets.toast import Toast
 
@@ -74,6 +75,9 @@ class BoardPage:
             on_review_click=self._on_status_review_click,
         )
         self._task_registry._on_change = self._refresh_status_bar
+
+        # ── AI 命令模块 ──
+        self._ai = AICommands(self)
 
         # ── BoardRenderer 回调注册 ──
         from app.ui.services.board_renderer import BoardRenderer
@@ -1019,8 +1023,7 @@ class BoardPage:
     # ═══════════════════════════════════════════
 
     def _cmd_outline(self):
-        if not self._runner.ensure_ready(): return
-        self._runner.setup("生成大纲", "outline")
+        self._ai._cmd_outline()
 
         
         def _do_outline():
@@ -1090,8 +1093,7 @@ class BoardPage:
     }
 
     def _cmd_gen_tasks(self):
-        if not self._runner.ensure_ready(): return
-        self._runner.setup("生成任务", "gen_tasks")
+        self._ai._cmd_gen_tasks()
 
         
         def _do_gen():
@@ -1359,8 +1361,7 @@ class BoardPage:
     # ═══════════════════════════════════════════
 
     def _cmd_report(self):
-        """生成报表 — 可最小化后台运行。"""
-        self._task_registry.register("report", "生成报表", "准备中...", "report", None)
+        self._ai._cmd_report()
         self._cmd_report_show_result(None)  # None = 加载中
         self._refresh_status_bar()
 
@@ -1523,8 +1524,7 @@ class BoardPage:
     # ═══════════════════════════════════════════
 
     def _cmd_review(self):
-        """任务审核 — 可最小化后台运行。"""
-        self._task_registry.register("review", "任务审核", "准备中...", "review", None)
+        self._ai._cmd_review()
         self._cmd_review_show_result(None)
         self._refresh_status_bar()
 
