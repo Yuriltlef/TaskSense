@@ -2,7 +2,6 @@
 """看板渲染器 — 看板数据填充 + 幽灵卡注入 + 列级增量更新。"""
 
 from dataclasses import dataclass
-from typing import Optional
 
 from app.core.services.board_service import board_service
 from app.core.state import state

@@ -440,7 +440,6 @@ class AgentService:
         CHUNK_SIZE = 6
         total_batches = (len(tasks) + CHUNK_SIZE - 1) // CHUNK_SIZE
         all_issues = []
-        import re, json
 
         for bi in range(0, len(tasks), CHUNK_SIZE):
             chunk = tasks[bi:bi + CHUNK_SIZE]
@@ -525,7 +524,7 @@ class AgentService:
                 pass  # 继续尝试其他策略
 
         # 策略 2: 裸 JSON 数组（贪婪匹配到最后一个 ]）
-        bare_match = re.search(r'\[\s*\{[\s\S]*\}\s*\]', result)
+        bare_match = re.search(r'\[\s*\{[\s\S]*}\s*]', result)
         if bare_match:
             try:
                 return json.loads(bare_match.group(0))
@@ -541,7 +540,7 @@ class AgentService:
                 pass
 
         # 策略 4: 逐行提取 JSON 对象（最宽松）
-        obj_matches = re.findall(r'\{\s*"task_id"[\s\S]*?\}', result)
+        obj_matches = re.findall(r'\{\s*"task_id"[\s\S]*?}', result)
         if obj_matches:
             issues = []
             for om in obj_matches:

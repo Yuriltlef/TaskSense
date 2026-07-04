@@ -43,6 +43,7 @@ class LogService:
         self._lock = threading.Lock()
         self._max_memory_logs: int = 1000
         self._loaded: bool = False
+        self._save_timer: Optional[threading.Timer] = None
 
     # ── 加载 / 保存 ──
 
@@ -125,8 +126,12 @@ class LogService:
             if len(self._logs) > self._max_memory_logs:
                 self._logs = self._logs[-self._max_memory_logs:]
 
-        # 异步保存
-        threading.Thread(target=self.save, daemon=True).start()
+        # 延迟持久化（2s debounce，避免高频率创建线程）
+        if self._save_timer:
+            self._save_timer.cancel()
+        self._save_timer = threading.Timer(2.0, self.save)
+        self._save_timer.daemon = True
+        self._save_timer.start()
         return entry
 
     # ── 查询 ──

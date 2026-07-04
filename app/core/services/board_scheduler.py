@@ -7,6 +7,8 @@ import threading
 from datetime import datetime
 from typing import Optional
 
+from app.core.logging import log
+
 
 class BoardScheduler:
     """自动流转调度器（单例）。
@@ -80,8 +82,8 @@ class BoardScheduler:
                                 task.id, "ready", changed_by="system"
                             )
                             summary["scheduled_to_ready"] += 1
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            log.warn("scheduler", f"scheduled→ready failed: {e}")
 
             # 2. ready → in_progress：已分配 + 已就绪超过 5 分钟
             elif task.status == TaskStatus.READY:
@@ -93,8 +95,8 @@ class BoardScheduler:
                                 task.id, "in_progress", changed_by="system"
                             )
                             summary["ready_to_in_progress"] += 1
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            log.warn("scheduler", f"ready→in_progress failed: {e}")
 
         return summary
 
@@ -105,8 +107,8 @@ class BoardScheduler:
         while not self._stop_event.is_set():
             try:
                 self.tick()
-            except Exception:
-                pass
+            except Exception as e:
+                log.warn("scheduler", f"tick error: {e}")
             self._stop_event.wait(self._interval)
 
     @classmethod

@@ -90,7 +90,11 @@ class PersistenceService:
         self._debounce_seconds = debounce_seconds
         self._auto_save_enabled = True
 
-        # 订阅事件总线
+        # 防止重复订阅
+        if getattr(self, '_subscribed', False):
+            return
+        self._subscribed = True
+
         for event_type in (
             EventType.TASK_CREATED, EventType.TASK_MOVED,
             EventType.TASK_UPDATED, EventType.TASK_DELETED,

@@ -253,35 +253,36 @@ class AgentOrchestrator:
             conv.add_assistant(response)
         return response
 
+    @staticmethod
+    def _is_cancelled(cancel_event) -> bool:
+        """检查取消标志（安全处理 None）。"""
+        return cancel_event is not None and cancel_event.is_set()
+
     def _agent_loop(self, conv: Conversation, llm_client,
                     cancel_event=None, timeout: float = 30.0) -> str:
         """Agent 推理循环：LLM ↔ 工具调用。"""
-        # 快速检查取消标志
-        if cancel_event and cancel_event.is_set():
+        _cancelled = lambda: AgentOrchestrator._is_cancelled(cancel_event)
+
+        if _cancelled():
             return "回答已中断"
 
         messages = conv.build_messages()
 
         for round_num in range(self.MAX_TOOL_ROUNDS + 1):
-            if cancel_event and cancel_event.is_set():
+            if _cancelled():
                 return "回答已中断"
 
             resp_text = llm_client.chat_messages(messages, timeout=timeout)
 
             if resp_text.startswith("[Error]"):
-                if cancel_event and cancel_event.is_set():
-                    return "回答已中断"
-                return resp_text
+                return "回答已中断" if _cancelled() else resp_text
 
-            # 检查是否有工具调用
             tool_calls = _parse_tool_calls(resp_text)
             if not tool_calls:
-                if cancel_event and cancel_event.is_set():
-                    return "回答已中断"
-                return resp_text
+                return "回答已中断" if _cancelled() else resp_text
 
             if round_num >= self.MAX_TOOL_ROUNDS:
-                if cancel_event and cancel_event.is_set():
+                if _cancelled():
                     return "回答已中断"
                 messages.append({"role": "assistant", "content": resp_text})
                 messages.append({
@@ -290,16 +291,13 @@ class AgentOrchestrator:
                                "Do NOT request more tool calls."
                 })
                 final = llm_client.chat_messages(messages, timeout=timeout)
-                if cancel_event and cancel_event.is_set():
-                    return "回答已中断"
-                return final if not final.startswith("[Error]") else resp_text
+                return "回答已中断" if _cancelled() else (final if not final.startswith("[Error]") else resp_text)
 
-            # 执行工具调用（执行前检查取消）
-            if cancel_event and cancel_event.is_set():
+            if _cancelled():
                 return "回答已中断"
             tool_results = []
             for tool_name, params in tool_calls:
-                if cancel_event and cancel_event.is_set():
+                if _cancelled():
                     tool_results.append((tool_name, "回答已中断"))
                     break
                 result = ToolExecutor.execute(tool_name, params)
@@ -317,9 +315,7 @@ class AgentOrchestrator:
                 })
 
         # 不应到达这里，但作为兜底
-        if cancel_event and cancel_event.is_set():
-            return "回答已中断"
-        return llm_client.chat_messages(messages)
+        return "回答已中断" if _cancelled() else llm_client.chat_messages(messages)
 
     # ── 离线模式 ──
 

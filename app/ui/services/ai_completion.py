@@ -338,7 +338,7 @@ class AICompletionService:
     def _parse(self, raw: str) -> list[dict]:
         if not raw:
             return []
-        m = re.search(r'\{[^{}]*\}', raw, re.DOTALL)
+        m = re.search(r'\{[^{}]*}', raw, re.DOTALL)
         if not m:
             return []
         try:

@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """AI 命令执行器 — 消除 7 个 _cmd_* 方法中重复的 guard + setup + cancel 样板。"""
 
-from typing import Optional
-
 from app.agent.active_task import active_task_registry
 from app.ui.widgets.toast import Toast
 
