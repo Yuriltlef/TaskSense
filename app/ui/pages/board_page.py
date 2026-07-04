@@ -20,8 +20,8 @@ from app.ui.components.bottom_status_bar import BottomStatusBar
 from app.ui.components.command_bar import CommandBar
 from app.ui.components.kanban_board import KanbanBoard
 from app.ui.components.side_panel import SidePanel
-from app.ui.services.dialog_builder import header as dlg_header
-from app.ui.services.ai_commands import AICommands, footer as dlg_footer
+from app.ui.services.dialog_builder import header as dlg_header, footer as dlg_footer
+from app.ui.services.ai_commands import AICommands
 from app.ui.services.task_registry import TaskRegistry
 from app.ui.widgets.toast import Toast
 
