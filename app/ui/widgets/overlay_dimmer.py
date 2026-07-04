@@ -1,90 +1,91 @@
 """可复用的全屏变暗遮罩组件.
 
 用法：
-    # 简单弹窗
-    dimmer = OverlayDimmer.open(page, my_panel)
+    OverlayDimmer.init_slot(board_page)            # 在 build() 中注册原生槽位
+    dlg = OverlayDimmer.open(page, my_panel)       # 弹窗自动使用原生槽位（响应式）
 
-    # 点击遮罩关闭
-    dimmer = OverlayDimmer.open(page, my_panel, on_dimmer_click=lambda: dimmer.close())
-
-    # 自定义变暗程度
-    dimmer = OverlayDimmer.open(page, my_panel, dim_opacity=0.6)
-
-原理（Flet 0.28.3）：
-    page.overlay 中的控件没有父布局来分配 expand，必须显式设尺寸。
-    #00000066 等 hex-alpha 格式在 0.28.3 不渲染，需用 Container.opacity：
-    page.overlay.append(Stack([
-        Container(width=page.width, height=page.height,
-                  bgcolor=ft.Colors.BLACK, opacity=0.4),  ← 变暗层
-        panel_content,                                      ← 内容面板
-    ], width=page.width, height=page.height))
+原理：
+    优先使用页面内容树中的 Stack 槽位（Flet 原生 expand 布局→实时响应缩放），
+    回退到 page.overlay（手动尺寸→仅 RESIZED 时更新）。
 """
 
 import flet as ft
 
 
 class OverlayDimmer:
-    """全屏变暗遮罩 + 内容面板。
+    """全屏变暗遮罩 + 内容面板。"""
 
-    构造参数（仅 __init__ 接收，不作为实例属性暴露）：
-        dim_opacity: 变暗程度 0.0-1.0（默认 0.4）
-        on_dimmer_click: 点击遮罩区域时的回调（常用于关闭）
-        close_on_dimmer_click: 点击遮罩是否自动关闭（默认 True）
-
-    公开接口：
-        is_open: bool — 是否已打开
-        show() / close() — 显示 / 关闭
-        OverlayDimmer.open(page, content, **kw) — 工厂方法，创建并立即打开
-    """
+    _slot: ft.Container | None = None      # 页面内容树中的遮罩槽位
+    _active: "OverlayDimmer | None" = None  # 当前打开的实例
 
     def __init__(self, page: ft.Page, content: ft.Control, *,
                  dim_opacity: float = 0.4,
                  on_dimmer_click=None,
-                 close_on_dimmer_click: bool = True,
-                 on_resize=None):
+                 close_on_dimmer_click: bool = True):
         self._page = page
         self._content = content
         self._dim_opacity = max(0.0, min(1.0, dim_opacity))
         self._on_dimmer_click = on_dimmer_click
         self._close_on_dimmer = close_on_dimmer_click
-        self._on_resize_cb = on_resize      # fn(page_w, page_h) → 重新定位内容面板
-        self._overlay: ft.Stack | None = None
+        self._use_slot = OverlayDimmer._slot is not None
+        self._old_on_resized = None
         self._open = False
 
     # ── 公开 API ──
 
     @classmethod
-    def open(cls, page: ft.Page, content: ft.Control, **kwargs) -> "OverlayDimmer":
-        """工厂方法：创建并立即打开。"""
+    def init_slot(cls, board_page):
+        """注册页面内容树中的原生遮罩槽位（在 build() 中调用）。"""
+        cls._slot = getattr(board_page, '_dimmer_slot', None)
+
+    @classmethod
+    def open(cls, page, content, **kwargs) -> "OverlayDimmer":
         inst = cls(page, content, **kwargs)
         inst.show()
         return inst
 
     def show(self):
-        """显示遮罩。重复调用无效果。"""
         if self._open:
             return
         self._open = True
-        self._overlay = self._build()
-        self._page.overlay.append(self._overlay)
-        self._page.update()
-        # 监听窗口缩放（RESIZE=拖拽过程中持续触发, RESIZED=松开时触发）
-        self._orig_on_window_event = self._page.window.on_event
-        self._page.window.on_event = self._on_window_event
+
+        if self._use_slot:
+            # 原生槽位：Flet 自动布局→实时响应缩放
+            OverlayDimmer._active = self
+            OverlayDimmer._slot.content = self._build_inline()
+            OverlayDimmer._slot.visible = True
+            try: OverlayDimmer._slot.update()
+            except Exception: pass
+            self._old_on_resized = self._page.on_resized
+            self._page.on_resized = lambda e: self._on_resized(e)
+        else:
+            # 回退到 overlay（旧方案）
+            self._overlay = self._build_overlay()
+            self._page.overlay.append(self._overlay)
+            self._page.update()
+            self._old_on_resized = self._page.on_resized
+            self._page.on_resized = lambda e: self._on_resized(e)
 
     def close(self):
-        """关闭遮罩。"""
-        if not self._open or not self._page:
+        if not self._open:
             return
         self._open = False
-        if hasattr(self, '_orig_on_window_event'):
-            self._page.window.on_event = self._orig_on_window_event
-        try:
-            self._page.overlay.remove(self._overlay)
-        except (ValueError, AssertionError):
-            pass
-        self._overlay = None
-        self._page.update()
+
+        if self._old_on_resized:
+            self._page.on_resized = self._old_on_resized
+
+        if self._use_slot:
+            OverlayDimmer._active = None
+            OverlayDimmer._slot.visible = False
+            OverlayDimmer._slot.content = None
+            try: OverlayDimmer._slot.update()
+            except Exception: pass
+        else:
+            try:
+                self._page.overlay.remove(self._overlay)
+            except (ValueError, AssertionError):
+                pass
+            self._page.update()
 
     @property
     def is_open(self) -> bool:
@@ -92,50 +93,46 @@ class OverlayDimmer:
 
     # ── 内部 ──
 
-    def _on_window_event(self, e):
-        """窗口缩放时（RESIZE+RESIZED）实时更新遮罩尺寸 + 内容面板位置。"""
-        if callable(self._orig_on_window_event):
-            try:
-                self._orig_on_window_event(e)
-            except Exception:
-                pass
-        # 仅在缩放事件时更新
-        if e.type not in ("resize", "resized"):
+    def _on_resized(self, e):
+        """窗口缩放回调（仅 overlay 回退模式需要手动更新）。"""
+        if self._use_slot or not self._open:
             return
-        if self._overlay and self._page:
+        if hasattr(self, '_overlay') and self._overlay:
             pw, ph = self._page.width, self._page.height
             self._overlay.width = pw
             self._overlay.height = ph
-            if self._overlay.controls:
-                self._overlay.controls[0].width = pw
-                self._overlay.controls[0].height = ph
-            if self._on_resize_cb:
-                try:
-                    self._on_resize_cb(pw, ph)
-                except Exception:
-                    pass
-            try:
-                self._overlay.update()
-            except Exception:
-                pass
+            try: self._overlay.update()
+            except Exception: pass
 
-    def _build(self) -> ft.Stack:
-        pw, ph = self._page.width, self._page.height
+    def _build_inline(self) -> ft.Stack:
+        """原生槽位模式：expand=True 由 Flet 自动填满。"""
+        dimmer = ft.Container(
+            expand=True,
+            bgcolor=ft.Colors.BLACK,
+            opacity=self._dim_opacity,
+            on_click=self._on_dim_click,
+        )
+        return ft.Stack(
+            [dimmer, self._content],
+            expand=True,
+        )
 
-        def on_dim_click(e):
-            if self._on_dimmer_click:
-                self._on_dimmer_click()
-            elif self._close_on_dimmer:
-                self.close()
-
+    def _build_overlay(self) -> ft.Stack:
+        """Overlay 回退模式：手动设置尺寸。"""
+        pw, ph = self._page.width or 1280, self._page.height or 900
         dimmer = ft.Container(
             width=pw, height=ph,
             bgcolor=ft.Colors.BLACK,
             opacity=self._dim_opacity,
-            on_click=on_dim_click,
+            on_click=self._on_dim_click,
         )
-
         return ft.Stack(
             [dimmer, self._content],
             width=pw, height=ph,
         )
+
+    def _on_dim_click(self, e):
+        if self._on_dimmer_click:
+            self._on_dimmer_click()
+        elif self._close_on_dimmer:
+            self.close()

@@ -100,8 +100,11 @@ class BoardPage:
             on_blur=lambda e: self._on_search_blur(),
         )
 
+        # ── 遮罩槽位（Flet 原生布局自动填充窗口，缩放时实时响应）──
+        self._dimmer_slot = ft.Container(visible=False)
+
         # ── 主布局（无顶栏，顶栏已合并到窗口标题栏）──
-        main = ft.Container(
+        main_content = ft.Container(
             content=ft.Column([
                 self.fleet_status,
                 ft.Row([
@@ -122,7 +125,14 @@ class BoardPage:
         )
         self._fill_board_from_state()
         self._refresh_status_bar()
-        return main
+        # 注册原生遮罩槽位（Flet 自动布局→缩放时实时响应）
+        from app.ui.widgets.overlay_dimmer import OverlayDimmer
+        OverlayDimmer.init_slot(self)
+        # Stack: 主内容(底层) + 遮罩槽位(顶层, expand 由 Flet 自动填满)
+        return ft.Stack([
+            main_content,
+            self._dimmer_slot,
+        ], expand=True)
 
     # ═══════════════════════ 数据 ═══════════════════════
 
