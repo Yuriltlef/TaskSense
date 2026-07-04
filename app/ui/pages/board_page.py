@@ -741,9 +741,9 @@ class BoardPage:
         assignee_id_f = _field("员工 ID，如 ZH001")
         assignee_name_f = _field("姓名，如 张工")
         start_hour_f = _field("08", width=s(62))
-        start_min_f = _field("30", width=s(62))
-        due_hour_f = _field("08", width=s(62))
-        due_min_f = _field("30", width=s(62))
+        start_min_f = _field("00", width=s(62))
+        due_hour_f = _field("17", width=s(62))
+        due_min_f = _field("00", width=s(62))
 
         # ── 输入校验 ──
         def _clamp_tf(tf, hi):
@@ -822,10 +822,14 @@ class BoardPage:
             try:
                 if move_to and col:
                     task_service.move_task(tid, col, index=index)
-                updates: dict = {"assignee": f"{aid} {aname}"}
+                updates: dict = {
+                    "assignee": f"{aid} {aname}",
+                    "due_date": due_dt,
+                    "planned_start": start_dt,
+                    "planned_end": due_dt,
+                }
                 try: updates["estimated_hours"] = float(hs)
                 except ValueError: pass
-                updates["due_date"] = due_dt
                 task_service.update_task(tid, **updates)
                 if move_to and col:
                     Toast.show(self._page, "已排程", "success")
