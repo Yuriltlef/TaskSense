@@ -37,46 +37,39 @@ def _build_system_prompt(strict: bool = False) -> str:
 class ToolExecutor:
     """执行 LLM 请求的工具调用，返回结果文本。"""
 
+    # 工具注册表（lazy import 避免循环依赖）
+    _TOOLS: dict[str, tuple[str, str]] = {
+        "search_knowledge_base": ("_kb", ""),
+        "lookup_ata_chapter": ("_ata", ""),
+        "get_board_summary": ("board_tools", "get_board_summary"),
+        "get_task_detail": ("board_tools", "get_task_detail"),
+        "search_related_tasks": ("board_tools", "search_related_tasks"),
+        "search_employees": ("board_tools", "search_employees"),
+        "create_task": ("write_tools", "create_task"),
+        "update_task": ("write_tools", "update_task"),
+        "classify_task": ("write_tools", "classify_task"),
+        "schedule_task": ("write_tools", "schedule_task"),
+        "acceptance_review": ("write_tools", "acceptance_review"),
+        "get_active_task": ("task_state_tools", "get_active_task"),
+    }
+
     @staticmethod
     def execute(tool_name: str, params: dict) -> str:
         tool_name = tool_name.strip().lower()
+        entry = ToolExecutor._TOOLS.get(tool_name)
+        if not entry:
+            return f"[Error] Unknown tool: {tool_name}"
         try:
-            if tool_name == "search_knowledge_base":
+            module_ref, func_name = entry
+            if module_ref == "_kb":
                 return ToolExecutor._search_kb(params)
-            elif tool_name == "lookup_ata_chapter":
+            if module_ref == "_ata":
                 return ToolExecutor._lookup_ata(params)
-            elif tool_name == "get_board_summary":
-                from app.agent.tools.board_tools import get_board_summary
-                return get_board_summary.invoke({})
-            elif tool_name == "get_task_detail":
-                from app.agent.tools.board_tools import get_task_detail
-                return get_task_detail.invoke(params)
-            elif tool_name == "search_related_tasks":
-                from app.agent.tools.board_tools import search_related_tasks
-                return search_related_tasks.invoke(params)
-            elif tool_name == "search_employees":
-                from app.agent.tools.board_tools import search_employees
-                return search_employees.invoke(params)
-            elif tool_name == "create_task":
-                from app.agent.tools.write_tools import create_task
-                return create_task.invoke(params)
-            elif tool_name == "update_task":
-                from app.agent.tools.write_tools import update_task
-                return update_task.invoke(params)
-            elif tool_name == "classify_task":
-                from app.agent.tools.write_tools import classify_task
-                return classify_task.invoke(params)
-            elif tool_name == "schedule_task":
-                from app.agent.tools.write_tools import schedule_task
-                return schedule_task.invoke(params)
-            elif tool_name == "acceptance_review":
-                from app.agent.tools.write_tools import acceptance_review
-                return acceptance_review.invoke(params)
-            elif tool_name == "get_active_task":
-                from app.agent.tools.task_state_tools import get_active_task
-                return get_active_task.invoke(params)
-            else:
-                return f"[Error] Unknown tool: {tool_name}"
+            # 动态导入工具模块
+            mod = __import__(f"app.agent.tools.{module_ref}",
+                           fromlist=[func_name])
+            tool_fn = getattr(mod, func_name)
+            return tool_fn.invoke(params if func_name != "get_board_summary" else {})
         except Exception as e:
             return f"[Error] Tool execution failed: {e}"
 
