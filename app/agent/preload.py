@@ -42,14 +42,15 @@ def preload_async() -> threading.Thread:
             _preload_status = "done"
             _preload_done = True
             elapsed = time.time() - t0
-            print(f"[Preload] All ready in {elapsed:.1f}s — "
-                  f"{dev_name}, {total:,} chunks")
+            from app.core.logging import log
+            log.info("preload", f"All ready in {elapsed:.1f}s — {dev_name}, {total:,} chunks")
 
         except Exception as e:
             _preload_status = "error"
             _preload_message = f"Preload failed: {e}"
             _preload_done = True
-            print(f"[Preload] Failed: {e}")
+            from app.core.logging import log
+            log.error("preload", f"Failed: {e}")
 
     thread = threading.Thread(target=_load, daemon=True, name="preload")
     thread.start()

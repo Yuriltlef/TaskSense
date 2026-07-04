@@ -43,15 +43,15 @@ class TaskSenseApp:
         log_service.set_path(
             f"{log_dir}/log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
         loaded = persistence_service.load()
-        print(f"[BOOT] persistence loaded={loaded}, path={persistence_service._path}")
+        log.info("boot", f"persistence loaded={loaded}")
 
         self.board_page = BoardPage(api_ready=api_ready)
         if not loaded:
-            print("[BOOT] FATAL: board_state.json not found — run scripts/gen_demo_json.py first")
+            log.error("boot", "board_state.json not found")
         else:
             from app.core.state import state
             if len(state.get_all_tasks()) == 0:
-                print("[BOOT] FATAL: board_state.json is empty — run scripts/gen_demo_json.py first")
+                log.warn("boot", "board_state.json is empty")
         persistence_service.start_auto_save(debounce_seconds=5.0)
 
         # ── 启动自动流转调度器 ──
