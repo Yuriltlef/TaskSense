@@ -4,6 +4,7 @@
 被 board_page._on_status_task_cancel 调用。
 """
 
+from app.core.logging import log
 from app.core.state import state
 
 
@@ -30,6 +31,7 @@ class CancelCoordinator:
             if task_id.startswith(prefix):
                 real_tid = task_id[len(prefix):]
                 if real_tid:
+                    log.info("cancel.clear_ghost", task_id=real_tid, mode="single")
                     CancelCoordinator._clear_one(real_tid)
                     return [real_tid]
                 return []

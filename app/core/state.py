@@ -231,12 +231,12 @@ class AppState:
 
     def delete_task(self, task_id: str) -> bool:
         """删除任务（从所有列移除，不保留数据）。"""
-        if task_id not in self._tasks:
+        task = self._tasks.get(task_id)
+        if not task:
             return False
 
-        # 先获取任务信息用于日志
-        task = self._tasks[task_id]
         task_title = task.title
+        log.info("state.delete_task", task_id=task_id, title=task_title[:30])
 
         for task_ids in self._task_order.values():
             if task_id in task_ids:

@@ -122,8 +122,8 @@ def update_task(task_id: str, fields_json: str) -> str:
     allowed_fields = {k: v for k, v in fields.items() if k in _UPDATE_ALLOWED}
     rejected = [k for k in fields if k not in _UPDATE_ALLOWED]
     if rejected:
-        log_msg = f"update_task blocked fields: {rejected}"
-        print(f"[SAFETY] {log_msg}")
+        from app.core.logging import log
+        log.warn("safety.update_task", task_id=task_id, rejected=str(rejected))
 
     if not allowed_fields:
         return (f"[Error] 所有请求字段被安全策略拒绝: {rejected}。"

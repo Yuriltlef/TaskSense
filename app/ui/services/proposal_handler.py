@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+from app.core.logging import log
 from app.core.state import state
 from app.core.services.task_service import task_service
 
@@ -55,6 +56,7 @@ class ProposalHandler:
             state.update_task(task_id, ai_proposed=False,
                               ai_acceptance_recommendation=None,
                               ai_acceptance_reason=None)
+            log.info("proposal.accept", task_id=task_id, type="acceptance", target=target)
             return ProposalResult(task_id, title, "accepted", "moved",
                                   f"移至 {target}")
 
@@ -67,6 +69,7 @@ class ProposalHandler:
                                s.get("proposal_type") == "schedule")]
             state.update_task(task_id, ai_proposed=False, ai_priority=None,
                               ai_suggestions=cleaned)
+            log.info("proposal.accept", task_id=task_id, type="schedule", target="scheduled")
             return ProposalResult(task_id, title, "accepted", "moved",
                                   "移至 scheduled")
 
@@ -75,10 +78,12 @@ class ProposalHandler:
             task_service.set_priority(task_id, t.ai_priority.value)
             task_service.move_task(task_id, "triage", changed_by="ai_agent")
             state.update_task(task_id, ai_proposed=False, ai_priority=None)
+            log.info("proposal.accept", task_id=task_id, type="classify", target="triage")
             return ProposalResult(task_id, title, "accepted", "moved",
                                   "移至 triage")
 
         # 新任务提案：仅清除标记
+        log.info("proposal.accept", task_id=task_id, type="new_task", target="cleared")
         state.update_task(task_id, ai_proposed=False)
         return ProposalResult(task_id, title, "accepted", "cleared",
                               "标记已清除")
@@ -105,6 +110,7 @@ class ProposalHandler:
             state.update_task(task_id, ai_proposed=False,
                               ai_acceptance_recommendation=None,
                               ai_acceptance_reason=None)
+            log.info("proposal.reject", task_id=task_id, type="acceptance", action="cleared")
             return ProposalResult(task_id, title, "rejected", "cleared",
                                   "验收标记已清除，任务保留")
 
@@ -114,9 +120,11 @@ class ProposalHandler:
                                s.get("proposal_type") == "schedule")]
             state.update_task(task_id, ai_proposed=False, ai_priority=None,
                               ai_suggestions=cleaned)
+            log.info("proposal.reject", task_id=task_id, type="modify", action="cleared")
             return ProposalResult(task_id, title, "rejected", "cleared",
                                   "建议标记已清除，任务保留")
 
+        log.info("proposal.reject", task_id=task_id, type="new_task", action="deleted")
         state.delete_task(task_id)
         return ProposalResult(task_id, title, "rejected", "deleted",
                               "任务已删除")

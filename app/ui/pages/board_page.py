@@ -149,7 +149,7 @@ class BoardPage:
         from app.ui.services.proposal_handler import ProposalHandler
         ProposalHandler.accept(tid)
         self._sync_chat_proposal(tid, "accepted", title)
-        Toast.show(self._page, "AI 建议已接受", "success")
+        log.info("ghost.accept", task_id=tid[:8]); Toast.show(self._page, "AI 建议已接受", "success")
         self._refresh_board()
 
     def _reject_ai_task(self, tid):
@@ -159,7 +159,7 @@ class BoardPage:
         from app.ui.services.proposal_handler import ProposalHandler
         ProposalHandler.reject(tid)
         self._sync_chat_proposal(tid, "rejected", title)
-        Toast.show(self._page, "AI 建议已拒绝", "info")
+        log.info("ghost.reject", task_id=tid[:8]); Toast.show(self._page, "AI 建议已拒绝", "info")
         self._refresh_board()
 
     def _accept_acceptance(self, tid, recommendation):
@@ -386,11 +386,11 @@ class BoardPage:
 
     def _on_status_task_cancel(self, task_id: str):
         """状态栏取消——立即清理幽灵卡片 + 更新 UI + 设取消事件。"""
-        log.debug("cancel", f"ENTER task_id={task_id}")
+        log.info("task.cancel", task_id=task_id[:20])
         for t in self._task_registry.get_all():
             if t["id"] == task_id:
                 ttype = t.get("type", "")
-                log.debug("cancel", f"type={ttype}")
+                log.info("task.cancel", f"type={ttype}")
                 if ttype == "report":
                     self._cancel_report()
                 elif ttype == "review":
@@ -398,10 +398,10 @@ class BoardPage:
                 else:
                     if self.ai_chat:
                         ce = self._runner.get_cancel()
-                        log.debug("cancel", f"ce={'SET' if ce else 'NONE'}")
+                        log.info("task.cancel", f"ce={'SET' if ce else 'NONE'}")
                         if ce:
                             ce.set()
-                            log.debug("cancel", f"event set, is_set={ce.is_set()}")
+                            log.info("task.cancel", f"event set, is_set={ce.is_set()}")
                         self.ai_chat.update_task_card("已取消", border_color=theme.text_disabled)
                     self._reject_all_proposals(task_id)
                     self._force_clear_all_ghosts(task_id)
@@ -418,7 +418,7 @@ class BoardPage:
                         self._task_registry.unregister(task_id)
                     threading.Thread(target=_finish, daemon=True).start()
                 return
-        log.debug("cancel", f"task_id not found in registry")
+        log.info("task.cancel", f"task_id not found in registry")
 
     def _force_clear_all_ghosts(self, task_id: str):
         """清除幽灵卡片标记——委托 CancelCoordinator。"""
