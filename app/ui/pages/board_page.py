@@ -21,6 +21,7 @@ from app.ui.components.ai_chat import AIChatPanel
 from app.ui.components.bottom_status_bar import BottomStatusBar
 from app.ui.widgets.toast import Toast
 from app.ui.services.task_registry import TaskRegistry
+from app.ui.services.dialog_builder import header as dlg_header, footer as dlg_footer, button_style as dlg_btn_style
 
 
 class BoardPage:
@@ -843,27 +844,6 @@ class BoardPage:
 
         from app.ui.components.modal_dialog import ModalDialog
 
-        header = ft.Container(
-            ft.Row([
-                ft.Icon(ft.Icons.FLAG_OUTLINED, size=s(15), color="#5294e2"),
-                ft.Text("确认优先级", size=s(14),
-                        weight=ft.FontWeight.W_600,
-                        color=theme.text_primary, font_family=ff),
-                ft.Container(expand=True),
-                ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
-                              icon_color=theme.text_secondary,
-                              style=ft.ButtonStyle(
-                                  bgcolor=ft.Colors.TRANSPARENT,
-                                  overlay_color=ft.Colors.RED_900,
-                                  shape=ft.RoundedRectangleBorder(radius=s(4))),
-                              on_click=lambda e: dlg.close()),
-            ], spacing=s(8)),
-            padding=ft.padding.only(
-                left=s(14), top=s(8), right=s(6), bottom=s(8)),
-            border=ft.border.only(
-                bottom=ft.BorderSide(1, theme.border)),
-        )
-
         form = ft.Container(
             ft.Column([
                 ft.Row(chips[:3], spacing=s(8),
@@ -874,35 +854,13 @@ class BoardPage:
             padding=ft.padding.all(s(14)),
         )
 
-        btn_style = ft.ButtonStyle(
-            shape=ft.RoundedRectangleBorder(radius=s(6)),
-            padding=ft.padding.only(
-                left=s(18), top=s(7), right=s(18), bottom=s(7)),
-            text_style=ft.TextStyle(size=s(12), font_family=ff),
-        )
-        footer = ft.Container(
-            ft.Row([
-                ft.Container(expand=True),
-                ft.OutlinedButton("取消", on_click=lambda e: dlg.close(),
-                    style=ft.ButtonStyle(
-                        shape=btn_style.shape, padding=btn_style.padding,
-                        text_style=btn_style.text_style,
-                        side=ft.BorderSide(1, theme.border),
-                        color=theme.text_secondary)),
-                ft.ElevatedButton("确认", on_click=_confirm,
-                    style=ft.ButtonStyle(
-                        shape=btn_style.shape, padding=btn_style.padding,
-                        text_style=btn_style.text_style,
-                        bgcolor="#5294e2", color=ft.Colors.WHITE,
-                        elevation=0)),
-            ], spacing=s(8)),
-            padding=ft.padding.only(
-                left=s(14), top=s(8), right=s(14), bottom=s(10)),
-            border=ft.border.only(
-                top=ft.BorderSide(1, theme.border)),
-        )
-
-        content = ft.Column([header, form, footer], spacing=0, tight=True)
+        content = ft.Column([
+            dlg_header(ft.Icons.FLAG_OUTLINED, "确认优先级",
+                       lambda e: dlg.close()),
+            form,
+            dlg_footer("取消", "确认", _confirm,
+                       on_cancel=lambda e: dlg.close()),
+        ], spacing=0, tight=True)
         dlg = ModalDialog(self._page, content, width=540)
         dlg.open()
 
@@ -1063,17 +1021,8 @@ class BoardPage:
             dlg.close()
 
         from app.ui.components.modal_dialog import ModalDialog
-        header=ft.Container(
-            ft.Row([ft.Icon(ft.Icons.CALENDAR_MONTH_OUTLINED,size=s(15),color="#5294e2"),
-                ft.Text("排程信息",size=s(14),weight=ft.FontWeight.W_600,color=theme.text_primary,font_family=ff),
-                ft.Container(expand=True),
-                ft.IconButton(ft.Icons.CLOSE,icon_size=s(16),icon_color=theme.text_secondary,
-                    style=ft.ButtonStyle(bgcolor=ft.Colors.TRANSPARENT,
-                        overlay_color=ft.Colors.RED_900,
-                        shape=ft.RoundedRectangleBorder(radius=s(4))),
-                    on_click=lambda e: dlg.close())],spacing=s(8)),
-            padding=ft.padding.only(left=s(14),top=s(8),right=s(6),bottom=s(8)),
-            border=ft.border.only(bottom=ft.BorderSide(1,theme.border)))
+        header = dlg_header(ft.Icons.CALENDAR_MONTH_OUTLINED, "排程信息",
+                            lambda e: dlg.close())
         sep=ft.Divider(height=s(12), color=ft.Colors.TRANSPARENT)
         def _date_row(label_text, date_ctrl, h_f, m_f):
             return ft.Column([
@@ -1093,19 +1042,8 @@ class BoardPage:
                 ft.Row([_col(_label("员工 ID", required=True), assignee_id_f), _col(_label("姓名", required=True), assignee_name_f)], spacing=s(12)),
             ], spacing=s(4), tight=True),
             padding=ft.padding.all(s(14)))
-        bs=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=s(6)),
-            padding=ft.padding.only(left=s(18),top=s(7),right=s(18),bottom=s(7)),
-            text_style=ft.TextStyle(size=s(12),font_family=ff))
-        footer=ft.Container(
-            ft.Row([ft.Container(expand=True),
-                ft.OutlinedButton("取消",on_click=lambda e: dlg.close(),
-                    style=ft.ButtonStyle(shape=bs.shape,padding=bs.padding,text_style=bs.text_style,
-                        side=ft.BorderSide(1,theme.border),color=theme.text_secondary)),
-                ft.ElevatedButton("确认排程",on_click=_confirm,
-                    style=ft.ButtonStyle(shape=bs.shape,padding=bs.padding,text_style=bs.text_style,
-                        bgcolor="#5294e2",color=ft.Colors.WHITE,elevation=0))],spacing=s(8)),
-            padding=ft.padding.only(left=s(14),top=s(8),right=s(14),bottom=s(10)),
-            border=ft.border.only(top=ft.BorderSide(1,theme.border)))
+        footer = dlg_footer("取消", "确认排程", _confirm,
+                            on_cancel=lambda e: dlg.close())
         content=ft.Column([header,form,footer],spacing=0,tight=True)
         dlg=ModalDialog(self._page,content,width=520)
         dlg.open()
@@ -2469,15 +2407,9 @@ class BoardPage:
                 Toast.show(self._page, str(e), "warning")
 
         # ── 按钮 + 字段样式（与 CreateTaskDialog 一致）──
-        btn_st = ft.ButtonStyle(
-            shape=ft.RoundedRectangleBorder(radius=s(6)),
-            padding=ft.padding.only(left=s(18), top=s(7), right=s(18), bottom=s(7)),
-            text_style=ft.TextStyle(size=s(12), font_family=ff),
-        )
         field_style = ft.TextStyle(color="#e0e0e0", size=s(12), font_family=ff)
         hint_style = ft.TextStyle(color=theme.text_secondary, size=s(11), font_family=ff)
         field_pad = ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8))
-        # 统一字段样式
         for fld in [result_f, hours_f]:
             fld.text_style = field_style
             fld.hint_style = hint_style
@@ -2485,22 +2417,6 @@ class BoardPage:
             fld.content_padding = field_pad
             fld.dense = True
 
-        header = ft.Container(
-            ft.Row([
-                ft.Icon(ft.Icons.ASSIGNMENT_TURNED_IN_OUTLINED, size=s(15), color="#5294e2"),
-                ft.Text("提交验收", size=s(14), weight=ft.FontWeight.W_600,
-                        color=theme.text_primary, font_family=ff),
-                ft.Container(expand=True),
-                ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
-                              icon_color=theme.text_secondary,
-                              style=ft.ButtonStyle(bgcolor=ft.Colors.TRANSPARENT,
-                                                   overlay_color=ft.Colors.RED_900,
-                                                   shape=ft.RoundedRectangleBorder(radius=s(4))),
-                              on_click=lambda e: dlg.close()),
-            ], spacing=s(8)),
-            padding=ft.padding.only(left=s(14), top=s(8), right=s(6), bottom=s(8)),
-            border=ft.border.only(bottom=ft.BorderSide(1, theme.border)),
-        )
         body = ft.Container(
             ft.Column([
                 ft.Text(t.title[:40], size=s(13), weight=ft.FontWeight.W_500,
@@ -2514,22 +2430,13 @@ class BoardPage:
             ], spacing=0, tight=True),
             padding=ft.padding.all(s(14)),
         )
-        footer = ft.Container(
-            ft.Row([
-                ft.Container(expand=True),
-                ft.OutlinedButton("取消", on_click=lambda e: dlg.close(),
-                    style=ft.ButtonStyle(shape=btn_st.shape, padding=btn_st.padding,
-                        text_style=btn_st.text_style,
-                        side=ft.BorderSide(1, theme.border), color=theme.text_secondary)),
-                ft.ElevatedButton("提交验收", on_click=submit,
-                    style=ft.ButtonStyle(shape=btn_st.shape, padding=btn_st.padding,
-                        text_style=btn_st.text_style,
-                        bgcolor="#5294e2", color=ft.Colors.WHITE, elevation=0)),
-            ], spacing=s(8)),
-            padding=ft.padding.only(left=s(14), top=s(8), right=s(14), bottom=s(10)),
-            border=ft.border.only(top=ft.BorderSide(1, theme.border)),
-        )
-        content = ft.Column([header, body, footer], spacing=0, tight=True)
+        content = ft.Column([
+            dlg_header(ft.Icons.ASSIGNMENT_TURNED_IN_OUTLINED, "提交验收",
+                       lambda e: dlg.close()),
+            body,
+            dlg_footer("取消", "提交验收", submit,
+                       on_cancel=lambda e: dlg.close()),
+        ], spacing=0, tight=True)
         from app.ui.components.modal_dialog import ModalDialog
         dlg = ModalDialog(self._page, content, width=480)
         dlg.open()
@@ -2562,27 +2469,6 @@ class BoardPage:
                 Toast.show(self._page, str(e), "warning")
 
         from app.ui.components.modal_dialog import ModalDialog
-        btn_st = ft.ButtonStyle(
-            shape=ft.RoundedRectangleBorder(radius=s(6)),
-            padding=ft.padding.only(left=s(18), top=s(7), right=s(18), bottom=s(7)),
-            text_style=ft.TextStyle(size=s(12), font_family=ff),
-        )
-        header = ft.Container(
-            ft.Row([
-                ft.Icon(ft.Icons.BLOCK_OUTLINED, size=s(15), color=theme.warning),
-                ft.Text("阻塞任务", size=s(14), weight=ft.FontWeight.W_600,
-                        color=theme.text_primary, font_family=ff),
-                ft.Container(expand=True),
-                ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
-                              icon_color=theme.text_secondary,
-                              style=ft.ButtonStyle(bgcolor=ft.Colors.TRANSPARENT,
-                                                   overlay_color=ft.Colors.RED_900,
-                                                   shape=ft.RoundedRectangleBorder(radius=s(4))),
-                              on_click=lambda e: dlg.close()),
-            ], spacing=s(8)),
-            padding=ft.padding.only(left=s(14), top=s(8), right=s(6), bottom=s(8)),
-            border=ft.border.only(bottom=ft.BorderSide(1, theme.border)),
-        )
         body = ft.Container(
             ft.Column([
                 ft.Text(t.title[:40], size=s(13), weight=ft.FontWeight.W_500,
@@ -2592,22 +2478,14 @@ class BoardPage:
             ], spacing=0, tight=True),
             padding=ft.padding.all(s(14)),
         )
-        footer = ft.Container(
-            ft.Row([
-                ft.Container(expand=True),
-                ft.OutlinedButton("取消", on_click=lambda e: dlg.close(),
-                    style=ft.ButtonStyle(shape=btn_st.shape, padding=btn_st.padding,
-                        text_style=btn_st.text_style,
-                        side=ft.BorderSide(1, theme.border), color=theme.text_secondary)),
-                ft.ElevatedButton("确认阻塞", on_click=_do_block,
-                    style=ft.ButtonStyle(shape=btn_st.shape, padding=btn_st.padding,
-                        text_style=btn_st.text_style,
-                        bgcolor=theme.warning, color=ft.Colors.WHITE, elevation=0)),
-            ], spacing=s(8)),
-            padding=ft.padding.only(left=s(14), top=s(8), right=s(14), bottom=s(10)),
-            border=ft.border.only(top=ft.BorderSide(1, theme.border)),
-        )
-        content = ft.Column([header, body, footer], spacing=0, tight=True)
+        content = ft.Column([
+            dlg_header(ft.Icons.BLOCK_OUTLINED, "阻塞任务",
+                       lambda e: dlg.close()),
+            body,
+            dlg_footer("取消", "确认阻塞", _do_block,
+                       on_cancel=lambda e: dlg.close(),
+                       confirm_color=theme.warning),
+        ], spacing=0, tight=True)
         dlg = ModalDialog(self._page, content, width=460)
         dlg.open()
 
@@ -3157,24 +3035,6 @@ class BoardPage:
 
         from app.ui.components.modal_dialog import ModalDialog
 
-        header = ft.Container(
-            ft.Row([
-                ft.Icon(ft.Icons.FILTER_ALT_OUTLINED, size=s(15), color="#5294e2"),
-                ft.Text("筛选任务", size=s(14), weight=ft.FontWeight.W_600,
-                        color=theme.text_primary, font_family=ff),
-                ft.Container(expand=True),
-                ft.IconButton(ft.Icons.CLOSE, icon_size=s(16),
-                              icon_color=theme.text_secondary,
-                              style=ft.ButtonStyle(
-                                  bgcolor=ft.Colors.TRANSPARENT,
-                                  overlay_color=ft.Colors.RED_900,
-                                  shape=ft.RoundedRectangleBorder(radius=s(4))),
-                              on_click=lambda e: dlg.close()),
-            ], spacing=s(8)),
-            padding=ft.padding.only(left=s(14), top=s(8), right=s(6), bottom=s(8)),
-            border=ft.border.only(bottom=ft.BorderSide(1, theme.border)),
-        )
-
         form = ft.Container(
             ft.Column([
                 _label("ATA 章节"),
@@ -3186,31 +3046,13 @@ class BoardPage:
             padding=ft.padding.only(left=s(14), top=s(14), right=s(14), bottom=s(14)),
         )
 
-        btn_style = ft.ButtonStyle(
-            shape=ft.RoundedRectangleBorder(radius=s(6)),
-            padding=ft.padding.only(left=s(18), top=s(7), right=s(18), bottom=s(7)),
-            text_style=ft.TextStyle(size=s(12), font_family=ff),
-        )
-        footer = ft.Container(
-            ft.Row([
-                ft.Container(expand=True),
-                ft.OutlinedButton("清除", on_click=_clear,
-                    style=ft.ButtonStyle(
-                        shape=btn_style.shape, padding=btn_style.padding,
-                        text_style=btn_style.text_style,
-                        side=ft.BorderSide(1, theme.border),
-                        color=theme.text_secondary)),
-                ft.ElevatedButton("应用筛选", on_click=_apply,
-                    style=ft.ButtonStyle(
-                        shape=btn_style.shape, padding=btn_style.padding,
-                        text_style=btn_style.text_style,
-                        bgcolor="#5294e2", color=ft.Colors.WHITE, elevation=0)),
-            ], spacing=s(8)),
-            padding=ft.padding.only(left=s(14), top=s(8), right=s(14), bottom=s(10)),
-            border=ft.border.only(top=ft.BorderSide(1, theme.border)),
-        )
-
-        content = ft.Column([header, form, footer], spacing=0, tight=True)
+        content = ft.Column([
+            dlg_header(ft.Icons.FILTER_ALT_OUTLINED, "筛选任务",
+                       lambda e: dlg.close()),
+            form,
+            dlg_footer("清除", "应用筛选", _apply,
+                       on_cancel=_clear),
+        ], spacing=0, tight=True)
         dlg = ModalDialog(self._page, content, width=360)
         dlg.open()
 
