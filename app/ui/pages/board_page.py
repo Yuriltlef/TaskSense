@@ -2020,6 +2020,15 @@ class BoardPage:
 
         self._page.update()
 
+    async def _rebuild_chat_ui(self):
+        """主线程调度：重建 AI 对话气泡 + 提案 UI。"""
+        try:
+            if self.ai_chat:
+                self.ai_chat._rebuild_bubbles()
+                self.ai_chat.update()
+        except Exception:
+            pass
+
     def _show_ai_in_panel(self, title: str, content: str):
         """在 AI 对话面板中显示结果。有脆弱内容时不重建。"""
         if not self.ai_chat or not self.ai_chat.is_open:
@@ -2264,8 +2273,9 @@ class BoardPage:
                 self.ai_chat._msg_pairs.append(
                     (f"__AI_ONLY__{label}", result, datetime.now()))
                 try:
-                    self.ai_chat._rebuild_bubbles()
-                    self.ai_chat.update()
+                    # 必须通过 page.run_task 调度到主线程更新 UI
+                    if self._page:
+                        self._page.run_task(self._rebuild_chat_ui)
                 except Exception:
                     pass
                 # 收尾
