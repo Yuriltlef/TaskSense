@@ -27,6 +27,26 @@ def open(page: ft.Page, tid: str, col=None, index=-1, move_to=True):
     hours_f = _field("计划工时 (h)，如 4.5", width=220)
     assignee_id_f = _field("员工 ID，如 ZH001")
     assignee_name_f = _field("姓名，如 张工")
+
+    # 员工 ID 自动补全（与新建任务弹窗逻辑一致）
+    def _on_emp_id(e):
+        val = (e.control.value or "").strip()
+        if not val:
+            assignee_name_f.value = ""
+            try: assignee_name_f.update()
+            except Exception: pass
+            return
+        from app.core.services.employee_service import employee_service
+        emp = employee_service.get_employee(val)
+        if emp and emp.get("available", True):
+            assignee_name_f.value = emp["name"]
+        elif emp:
+            assignee_name_f.value = emp["name"] + "(不可用)"
+        else:
+            assignee_name_f.value = "未知员工"
+        try: assignee_name_f.update()
+        except Exception: pass
+    assignee_id_f.on_change = _on_emp_id
     start_hour_f = _field("08", width=s(62))
     start_min_f = _field("00", width=s(62))
     due_hour_f = _field("17", width=s(62))
@@ -104,6 +124,15 @@ def open(page: ft.Page, tid: str, col=None, index=-1, move_to=True):
         if not hs: hours_f.border_color = theme.error; hours_f.hint_text = "请输入计划工时"; hours_f.update(); return
         if not aid: assignee_id_f.border_color = theme.error; assignee_id_f.hint_text = "请输入员工 ID"; assignee_id_f.update(); return
         if not aname: assignee_name_f.border_color = theme.error; assignee_name_f.hint_text = "请输入姓名"; assignee_name_f.update(); return
+        # 校验员工存在且可用
+        if aid:
+            from app.core.services.employee_service import employee_service
+            from app.core.validators import TaskValidators, BusinessRuleError
+            try:
+                TaskValidators.validate_employee(aid)
+            except BusinessRuleError as e:
+                assignee_id_f.border_color = theme.error; assignee_id_f.update()
+                Toast.show(page, str(e), "warning"); return
         try:
             if move_to and col:
                 task_service.move_task(tid, col, index=index)
