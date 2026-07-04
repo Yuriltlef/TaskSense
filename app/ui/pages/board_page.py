@@ -208,22 +208,22 @@ class BoardPage:
         # 所有幽灵卡片已处理 → 完成状态栏中等待/进行中的任务
         for t in self._task_registry.get_all():
             if t.get("status") in ("等待确认", "准备中..."):
+                label = t["label"]
                 self._task_registry.update_status(t["id"], "已完成", 1.0)
-                # 如果对话区任务卡片还开着，关闭它
                 if self.ai_chat:
                     try:
                         self.ai_chat.update_task_card("已完成", border_color=theme.success)
+                        self.ai_chat.show_status_bubble(f"{label} 完成", theme.success)
                     except Exception:
                         pass
-                    import time, threading
                     def _delayed_hide():
                         time.sleep(2)
                         try:
-                            self.ai_chat.hide_task_card()
+                            if self.ai_chat:
+                                self.ai_chat.hide_task_card()
                         except Exception:
                             pass
                     threading.Thread(target=_delayed_hide, daemon=True).start()
-                # 延迟从状态栏移除
                 def _delayed_unregister(tid=t["id"]):
                     time.sleep(5)
                     self._task_registry.unregister(tid)
