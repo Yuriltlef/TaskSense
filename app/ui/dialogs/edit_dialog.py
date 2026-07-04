@@ -57,13 +57,17 @@ def open(page: ft.Page, task):
 
     # ── 上下文收集（供 AI 补全，仅未锁定字段）──
     _fields = {}
-    # 字段 → 锁定标志映射
+    # 字段 → 锁定标志映射（_get_ctx 和 field_filter 共用）
     _FIELD_LOCKS = {
         "title": lambda: _TITLE_LOCKED, "description": lambda: _DESC_LOCKED,
         "ata_chapter": lambda: _CORE_LOCKED, "aircraft_reg": lambda: _CORE_LOCKED,
         "employee_id": lambda: _EMP_LOCKED, "employee_name": lambda: _EMP_LOCKED,
         "zone": lambda: _ZONE_LOCKED, "task_type": lambda: _TYPE_LOCKED,
     }
+    # GhostTextField 字段过滤器：排除锁定字段的 AI 建议
+    def _allow_field(field_name: str) -> bool:
+        lock_fn = _FIELD_LOCKS.get(field_name)
+        return not lock_fn() if lock_fn else True
 
     def _get_ctx():
         result = {}
@@ -100,6 +104,7 @@ def open(page: ft.Page, task):
         title_gf = GhostTextField(
             hint_text="任务标题", field_name="title",
             get_context=_get_ctx, on_field_filled=_on_filled,
+            field_filter=_allow_field,
         )
         title_gf.value = task.title
         _fields["title"] = title_gf
@@ -113,7 +118,7 @@ def open(page: ft.Page, task):
         desc_gf = GhostTextField(
             hint_text="任务描述", field_name="description",
             get_context=_get_ctx, on_field_filled=_on_filled,
-            multiline=True, min_lines=3,
+            multiline=True, min_lines=3, field_filter=_allow_field,
         )
         desc_gf.value = task.description or ""
         _fields["description"] = desc_gf
@@ -130,6 +135,7 @@ def open(page: ft.Page, task):
         ata_gf = GhostTextField(
             hint_text="ATA 章节，如 32-41-03", field_name="ata_chapter",
             get_context=_get_ctx, on_field_filled=_on_filled,
+            field_filter=_allow_field,
         )
         ata_gf.value = task.ata_chapter or ""
         _fields["ata_chapter"] = ata_gf

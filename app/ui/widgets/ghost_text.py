@@ -54,6 +54,7 @@ class GhostTextField(ft.Column):
         on_change=None,
         on_field_filled=None,
         get_context=None,
+        field_filter=None,  # fn(field_name) → bool, 返回 False 的字段不显示建议
         **_kw,
     ):
         super().__init__(spacing=s(2), tight=True)
@@ -61,6 +62,7 @@ class GhostTextField(ft.Column):
         self.field_name = field_name
         self._on_field_filled = on_field_filled
         self._get_context = get_context
+        self._field_filter = field_filter
         self._ghost_value = ""         # 幽灵补充文本
         self._ghost_target = field_name  # 幽灵文本的目标字段
         self._suggestions: list[dict] = []
@@ -262,9 +264,12 @@ class GhostTextField(ft.Column):
             except Exception:
                 pass
 
-        # 所有建议显示为 chip（已排序，当前字段优先）
+        # 过滤锁定字段 + 当前字段优先排序
+        visible = self._suggestions
+        if self._field_filter:
+            visible = [s for s in visible if self._field_filter(s.get("field", ""))]
         self.suggestion_bar.show_suggestions(
-            self._suggestions,
+            visible,
             on_chip_click=self._on_chip_clicked,
         )
         log.info("ghost.suggestions", field=self.field_name,
