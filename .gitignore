@@ -224,3 +224,4 @@ data/logs/
 data/board_state.json
 .model_cache/
 *.db
+/data/reports/
