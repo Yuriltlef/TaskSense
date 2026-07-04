@@ -2109,9 +2109,11 @@ class BoardPage:
                     log.debug("ai_action_bg", f"error/cancelled: {result}")
                     self._finish_task_card(label, "已取消", theme.text_disabled)
                     return
-                # 成功——但先检查是否已被取消（取消处理器可能已清理）
+                # 成功——但先检查是否已被取消（取消处理器已清理幽灵标记）
+                # 此时 _finish_task_card 补上气泡+关闭任务卡片
                 if self._runner.get_cancel() and self._runner.get_cancel().is_set():
-                    log.debug("ai_action_bg", "cancelled after LLM returned")
+                    log.debug("ai_action_bg", "cancelled after LLM returned, finishing card")
+                    self._finish_task_card(label, "已取消", theme.text_disabled)
                     return
                 # 成功——通过 _msg_pairs + _rebuild_bubbles 保持响应式布局
                 # __AI_ONLY__ 前缀：只显示 AI 气泡，不显示用户气泡
