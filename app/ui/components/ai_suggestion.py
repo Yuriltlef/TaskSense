@@ -53,21 +53,3 @@ class FleetStatusBar(ft.Container):
         self._build(summary); self.update()
 
 
-class AISuggestionPanel(ft.Container):
-    def __init__(self, **_kw):
-        super().__init__(
-            padding=ft.padding.all(theme.pad_md),
-            border_radius=theme.radius_md,
-            border=ft.border.all(1, theme.border),
-        )
-        ff = theme.font_family
-        self.content = ft.Column([
-            ft.Row([
-                ft.Icon(ft.Icons.PSYCHOLOGY_OUTLINED, size=theme.font_lg,
-                        color=theme.type_removal_install),
-                ft.Text("AI 建议", size=theme.font_sm, weight=ft.FontWeight.W_600,
-                        color=theme.text_primary, font_family=ff),
-            ], spacing=theme.spacing_sm),
-            ft.Text("AI Agent 功能将在后续版本集成\n• 自动 ATA 分类\n• 操作步骤建议\n• 合规检查提醒\n• 相关知识检索",
-                    size=theme.font_xs, color=theme.text_disabled, font_family=ff),
-        ], spacing=theme.pad_sm)

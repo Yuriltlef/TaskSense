@@ -2,9 +2,8 @@
 
 from langchain.tools import tool
 
-from app.core.state import state
-from app.core.services.task_service import task_service
 from app.core.services.board_service import board_service
+from app.core.state import state
 
 
 @tool

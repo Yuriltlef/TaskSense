@@ -1318,19 +1318,6 @@ class BoardPage:
         threading.Thread(target=_do, daemon=True).start()
         log.debug("acceptance", "thread started")
 
-    def _run_agent_cmd(self, cmd: str, prompt: str):
-        """通用 Agent 命令——打开 AI 面板并执行。"""
-        self._open_ai_panel()
-        if not self.ai_chat:
-            return
-        # 将命令注入 AI 面板的 send 流程
-        try:
-            from app.ui.services.agent_service import AgentService
-            result = AgentService.ask(prompt, session_id=cmd)
-            self._show_ai_in_panel(_cmd_labels.get(cmd, cmd), result)
-        except Exception as e:
-            Toast.show(self._page, f"执行失败: {e}", "warning")
-
     # ═══════════════════════════════════════════
     # 6. 生成报表 → 弹窗显示 MD 报表、可保存
     # ═══════════════════════════════════════════
@@ -2805,8 +2792,3 @@ class BoardPage:
         dlg.open()
 
 
-_cmd_labels = {
-    "gen_tasks": "生成任务", "classify": "自动分类",
-    "schedule": "自动排程", "acceptance": "自动验收",
-    "report": "生成报表", "review": "任务审核",
-}
