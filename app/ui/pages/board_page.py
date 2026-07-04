@@ -781,7 +781,13 @@ class BoardPage:
 
         def _recalc():
             sd = _get_dt(start_date_state, start_hour_f, start_min_f)
-            ed = _get_dt(due_date_state, due_hour_f, due_min_f)
+            # 完成时间的小时/分钟尚未填入时跳过校验（避免未填完就误判失败）
+            due_h = (due_hour_f.value or "").strip()
+            due_m = (due_min_f.value or "").strip()
+            if due_h and due_m:
+                ed = _get_dt(due_date_state, due_hour_f, due_min_f)
+            else:
+                ed = None
             if sd and ed:
                 diff = (ed - sd).total_seconds() / 3600
                 if diff > 0:
@@ -2505,7 +2511,10 @@ class BoardPage:
         def _recalc_hours():
             if _TIME_LOCKED: return
             sd_dt = _get_dt(start_date_state, sh, sm)
-            ed_dt = _get_dt(due_date_state, eh, em)
+            # 完成时间的时/分尚未填入时跳过校验
+            ed_h = (eh.value or "").strip()
+            ed_m = (em.value or "").strip()
+            ed_dt = _get_dt(due_date_state, eh, em) if (ed_h and ed_m) else None
             if sd_dt and ed_dt:
                 diff = (ed_dt - sd_dt).total_seconds() / 3600
                 if diff > 0:
