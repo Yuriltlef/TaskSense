@@ -1910,155 +1910,138 @@ class BoardPage:
         except Exception as e:
             Toast.show(self._page, f"AI 未就绪: {e}", "warning")
 
+    # ── 右键动作注册表: action → handler(tid, task) ──
+    _ACTION_HANDLERS = None  # 懒初始化
+
+    def _init_action_handlers(self):
+        """初始化右键菜单动作分发注册表（添加新动作只需在这里注册）。"""
+        self._ACTION_HANDLERS = {
+            "edit":             self._act_edit,
+            "delete":           self._act_delete,
+            "search":           self._act_search,
+            "ai_explain":       self._act_ai_explain,
+            "submit":           self._act_submit,
+            "ai_review":        self._act_ai_review,
+            "ai_classify":      self._act_ai_classify,
+            "ai_schedule":      self._act_ai_schedule,
+            "ai_review_single": self._act_ai_review_single,
+            "block":            self._act_block,
+            "unblock":          self._act_unblock,
+            "set_priority":     self._act_set_priority,
+            "change_priority":  self._act_change_priority,
+            "schedule":         self._act_schedule,
+            "reschedule":       self._act_reschedule,
+            "archive_now":      self._act_archive_now,
+            "complete_direct":  self._act_complete_direct,
+            "approve":          self._act_approve,
+        }
+
     def _card_action(self, tid, action):
-        """右键菜单动作分发。"""
-        log.debug("card_action", f"tid={tid[:8]} action={action}")
+        """右键菜单动作分发（注册表模式）。"""
         t = state.get_task(tid)
         if not t:
-            log.debug("card_action", f"TASK NOT FOUND tid={tid}")
             return
-        log.debug("card_action", f"task={t.title[:20]} col={t.status.value}")
+        # 懒初始化
+        if self._ACTION_HANDLERS is None:
+            self._init_action_handlers()
+        # 精确匹配
+        handler = self._ACTION_HANDLERS.get(action)
+        if handler:
+            handler(tid, t)
+            return
+        # move_to:<col> 模式
+        if action.startswith("move_to:"):
+            return self._act_move_to(tid, action.split(":", 1)[1])
 
-        # ── 编辑 → 直接打开编辑弹窗 ──
-        if action == "edit":
-            self._dlg_edit(t)
+    # ── 动作处理方法（按需查阅）──
 
-        elif action == "delete":
-            task_service.delete_task(tid)
-            if self.side_panel: self.side_panel.close()
-            Toast.show(self._page, "已删除", "info")
+    def _act_edit(self, tid, t):       self._dlg_edit(t)
+    def _act_delete(self, tid, t):     task_service.delete_task(tid); self.side_panel and self.side_panel.close(); Toast.show(self._page, "已删除", "info")
+    def _act_submit(self, tid, t):     self._dlg_submit(tid)
+    def _act_ai_review(self, tid, t):  self._cmd_acceptance()
+    def _act_block(self, tid, t):      self._dlg_block(tid)
+    def _act_set_priority(self, tid, t):    self._dlg_priority(tid, "triage", -1)
+    def _act_change_priority(self, tid, t): self._dlg_priority(tid)
+    def _act_schedule(self, tid, t):        self._dlg_schedule(tid, "scheduled", -1)
+    def _act_reschedule(self, tid, t):      self._dlg_schedule(tid, move_to=False)
 
-        elif action == "search":
-            from app.ui.services.agent_service import AgentService
-            task_info = {
-                "id": tid, "title": t.title, "ata_chapter": t.ata_chapter,
-                "aircraft_reg": t.aircraft_reg, "aircraft_model": t.aircraft_model or "",
-                "fault_code": getattr(t, 'fault_code', '') or "",
-            }
-            self._run_ai_action("AI 查找文档", task_info,
-                                lambda ci, ce: AgentService.search_docs(ci, ce),
-                                f"search_{tid}")
+    def _act_search(self, tid, t):
+        from app.ui.services.agent_service import AgentService
+        self._run_ai_action("AI 查找文档",
+            {"id": tid, "title": t.title, "ata_chapter": t.ata_chapter,
+             "aircraft_reg": t.aircraft_reg, "aircraft_model": t.aircraft_model or "",
+             "fault_code": getattr(t, 'fault_code', '') or ""},
+            lambda ci, ce: AgentService.search_docs(ci, ce), f"search_{tid}")
 
-        elif action == "ai_explain":
-            from app.ui.services.agent_service import AgentService
-            task_info = {
-                "id": tid, "title": t.title, "description": t.description or "",
-                "aircraft_reg": t.aircraft_reg, "aircraft_model": t.aircraft_model or "",
-                "ata_chapter": t.ata_chapter, "task_type": t.task_type.value,
-                "priority": t.priority.value, "zone": t.zone or "",
-                "work_order_id": t.work_order_id, "estimated_hours": t.estimated_hours,
-                "is_rii": t.is_rii,
-            }
-            self._run_ai_action("AI 解释任务", task_info,
-                                lambda ci, ce: AgentService.explain_task(ci, ce),
-                                f"explain_{tid}")
+    def _act_ai_explain(self, tid, t):
+        from app.ui.services.agent_service import AgentService
+        self._run_ai_action("AI 解释任务",
+            {"id": tid, "title": t.title, "description": t.description or "",
+             "aircraft_reg": t.aircraft_reg, "aircraft_model": t.aircraft_model or "",
+             "ata_chapter": t.ata_chapter, "task_type": t.task_type.value,
+             "priority": t.priority.value, "zone": t.zone or "",
+             "work_order_id": t.work_order_id, "estimated_hours": t.estimated_hours,
+             "is_rii": t.is_rii},
+            lambda ci, ce: AgentService.explain_task(ci, ce), f"explain_{tid}")
 
-        elif action == "submit":
-            self._dlg_submit(tid)
+    def _act_ai_classify(self, tid, t):
+        from app.ui.services.agent_service import AgentService
+        self._run_ai_action("AI 分类此任务",
+            {"id": tid, "title": t.title, "description": t.description or "",
+             "aircraft_reg": t.aircraft_reg, "ata_chapter": t.ata_chapter,
+             "task_type": t.task_type.value, "aircraft_model": t.aircraft_model or ""},
+            lambda ci, ce: AgentService.classify_single(ci, ce), f"classify_{tid}", keep_open=True)
 
-        elif action == "ai_review":
-            self._cmd_acceptance()
+    def _act_ai_schedule(self, tid, t):
+        from app.ui.services.agent_service import AgentService
+        self._run_ai_action("AI 排程此任务",
+            {"id": tid, "title": t.title, "description": t.description or "",
+             "aircraft_reg": t.aircraft_reg, "ata_chapter": t.ata_chapter,
+             "task_type": t.task_type.value, "priority": t.priority.value,
+             "zone": t.zone or "", "estimated_hours": t.estimated_hours},
+            lambda ci, ce: AgentService.schedule_single(ci, ce), f"schedule_{tid}", keep_open=True)
 
-        elif action == "ai_classify":
-            from app.ui.services.agent_service import AgentService
-            self._run_ai_action("AI 分类此任务", {
-                "id": tid, "title": t.title, "description": t.description or "",
-                "aircraft_reg": t.aircraft_reg, "ata_chapter": t.ata_chapter,
-                "task_type": t.task_type.value, "aircraft_model": t.aircraft_model or "",
-            }, lambda ci, ce: AgentService.classify_single(ci, ce),
-            f"classify_{tid}", keep_open=True)
+    def _act_ai_review_single(self, tid, t):
+        from app.ui.services.agent_service import AgentService
+        self._run_ai_action("AI 验收此任务",
+            {"id": tid, "title": t.title, "description": t.description or "",
+             "aircraft_reg": t.aircraft_reg, "aircraft_model": t.aircraft_model or "",
+             "ata_chapter": t.ata_chapter, "task_type": t.task_type.value,
+             "priority": t.priority.value, "zone": t.zone or "",
+             "employee_name": t.employee_name or "", "employee_id": t.employee_id or "",
+             "estimated_hours": t.estimated_hours, "actual_hours": t.actual_hours,
+             "shift_handover_log": t.shift_handover_log or "(无)",
+             "is_rii": t.is_rii, "checklist_progress": t.checklist_progress()},
+            lambda ci, ce: AgentService.review_single(ci, ce), f"review_{tid}", keep_open=True)
 
-        elif action == "ai_schedule":
-            from app.ui.services.agent_service import AgentService
-            self._run_ai_action("AI 排程此任务", {
-                "id": tid, "title": t.title, "description": t.description or "",
-                "aircraft_reg": t.aircraft_reg, "ata_chapter": t.ata_chapter,
-                "task_type": t.task_type.value, "priority": t.priority.value,
-                "zone": t.zone or "", "estimated_hours": t.estimated_hours,
-            }, lambda ci, ce: AgentService.schedule_single(ci, ce),
-            f"schedule_{tid}", keep_open=True)
+    def _act_unblock(self, tid, t):
+        try:
+            task_service.unblock_task(tid, "user")
+            Toast.show(self._page, "已取消阻塞，任务返回就绪", "success")
+        except Exception as e:
+            Toast.show(self._page, str(e), "warning")
 
-        elif action == "ai_review_single":
-            from app.ui.services.agent_service import AgentService
-            self._run_ai_action("AI 验收此任务", {
-                "id": tid, "title": t.title, "description": t.description or "",
-                "aircraft_reg": t.aircraft_reg, "aircraft_model": t.aircraft_model or "",
-                "ata_chapter": t.ata_chapter, "task_type": t.task_type.value,
-                "priority": t.priority.value, "zone": t.zone or "",
-                "employee_name": t.employee_name or "", "employee_id": t.employee_id or "",
-                "estimated_hours": t.estimated_hours, "actual_hours": t.actual_hours,
-                "shift_handover_log": t.shift_handover_log or "(无)",
-                "is_rii": t.is_rii, "checklist_progress": t.checklist_progress(),
-            }, lambda ci, ce: AgentService.review_single(ci, ce),
-            f"review_{tid}", keep_open=True)
+    def _act_archive_now(self, tid, t):
+        try: task_service.move_task(tid, "archived", changed_by="user"); Toast.show(self._page, "已归档", "success")
+        except Exception as e: Toast.show(self._page, str(e), "warning")
 
-        # ── 列移动（move_to:<target_col>） ──
-        elif action.startswith("move_to:"):
-            target_col = action.split(":", 1)[1]
-            try:
-                task_service.move_task(tid, target_col, changed_by="user")
-                col_titles = {
-                    "ready": "已标记就绪", "in_progress": "已开始执行",
-                    "scheduled": "已退回已排程", "triage": "已退回已分类",
-                    "backlog": "已退回待处理", "archived": "已归档",
-                    "completed": "已完成",
-                }
-                msg = col_titles.get(target_col, f"已移至{target_col}")
-                Toast.show(self._page, msg, "success")
-            except Exception as e:
-                Toast.show(self._page, str(e), "warning")
+    def _act_complete_direct(self, tid, t):
+        try: task_service.move_task(tid, "completed", changed_by="user"); Toast.show(self._page, "已完成", "success")
+        except Exception as e: Toast.show(self._page, str(e), "warning")
 
-        # ── 阻塞 ──
-        elif action == "block":
-            self._dlg_block(tid)
+    def _act_approve(self, tid, t):
+        try: task_service.move_task(tid, "completed", changed_by="user"); Toast.show(self._page, "验收通过", "success")
+        except Exception as e: Toast.show(self._page, str(e), "warning")
 
-        # ── 取消阻塞 ──
-        elif action == "unblock":
-            try:
-                task_service.unblock_task(tid, "user")
-                Toast.show(self._page, "已取消阻塞，任务返回就绪", "success")
-            except Exception as e:
-                Toast.show(self._page, str(e), "warning")
-
-        # ── 设置优先级并分类（backlog → triage）—— 复用拖放弹窗 ──
-        elif action == "set_priority":
-            self._dlg_priority(tid, "triage", -1)
-
-        # ── 更改优先级（triage，不移动）—— 复用同一弹窗 ──
-        elif action == "change_priority":
-            self._dlg_priority(tid)  # col=None → 仅更新优先级
-
-        # ── 排程（triage → scheduled）—— 复用拖放弹窗 ──
-        elif action == "schedule":
-            self._dlg_schedule(tid, "scheduled", -1)
-
-        # ── 重新排程（ready，不移动列）—— 复用排程弹窗 ──
-        elif action == "reschedule":
-            self._dlg_schedule(tid, move_to=False)
-
-        # ── 直接归档（backlog → archived） ──
-        elif action == "archive_now":
-            try:
-                task_service.move_task(tid, "archived", changed_by="user")
-                Toast.show(self._page, "已归档", "success")
-            except Exception as e:
-                Toast.show(self._page, str(e), "warning")
-
-        # ── 直接完成（in_progress → completed） ──
-        elif action == "complete_direct":
-            try:
-                task_service.move_task(tid, "completed", changed_by="user")
-                Toast.show(self._page, "已完成", "success")
-            except Exception as e:
-                Toast.show(self._page, str(e), "warning")
-
-        # ── 验收通过（inspection → completed） ──
-        elif action == "approve":
-            try:
-                task_service.move_task(tid, "completed", changed_by="user")
-                Toast.show(self._page, "验收通过，已移至已完成", "success")
-            except Exception as e:
-                Toast.show(self._page, str(e), "warning")
+    def _act_move_to(self, tid, target_col):
+        try:
+            task_service.move_task(tid, target_col, changed_by="user")
+            col_titles = {"ready": "已标记就绪", "in_progress": "已开始执行",
+                          "scheduled": "已退回已排程", "triage": "已退回已分类",
+                          "backlog": "已退回待处理", "archived": "已归档", "completed": "已完成"}
+            Toast.show(self._page, col_titles.get(target_col, f"已移至{target_col}"), "success")
+        except Exception as e:
+            Toast.show(self._page, str(e), "warning")
 
     def _start_ghost_polling(self, session_id: str, label: str):
         """定期检查幽灵卡片是否已全部处理，若是则完成任务卡片。"""
