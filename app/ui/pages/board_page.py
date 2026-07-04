@@ -205,9 +205,9 @@ class BoardPage:
         log.debug("ghost_check", f"proposed count={len(proposed)} ids={[t.id[:8] for t in proposed]}")
         if proposed:
             return
-        # 所有幽灵卡片已处理 → 完成所有"等待确认"的状态栏任务
+        # 所有幽灵卡片已处理 → 完成状态栏中等待/进行中的任务
         for t in self._task_registry.get_all():
-            if t.get("status") == "等待确认":
+            if t.get("status") in ("等待确认", "准备中..."):
                 self._task_registry.update_status(t["id"], "已完成", 1.0)
                 # 如果对话区任务卡片还开着，关闭它
                 if self.ai_chat:
@@ -2131,6 +2131,7 @@ class BoardPage:
                         already_processed = any(r[0] == tid for r in results_list)
                         if already_processed:
                             log.debug("ai_action_bg", f"ghost already processed by user for {tid}")
+                            self._finish_task_card(label, "已完成", theme.success)
                             return
                         # AI 确实未调工具——当作失败处理
                         log.debug("ai_action_bg", f"keep_open but no ghost card created for {tid}")
