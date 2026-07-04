@@ -10,10 +10,9 @@ import traceback
 from datetime import datetime
 
 from app.agent.active_task import active_task_registry
-from app.core.logging import log
-from app.core.services.board_service import board_service
-from app.core.state import state
 from app.config.theme import theme
+from app.core.logging import log
+from app.core.state import state
 from app.ui.services.agent_service import AgentService
 from app.ui.widgets.toast import Toast
 
@@ -71,8 +70,7 @@ class AICommands:
             log.debug("ai_action_bg", f"cancel_event={'OK' if cancel else 'None'}")
             if cancel and cancel.is_set():
                 log.debug("ai_action_bg", f"pre-cancelled")
-                self._finish_task_card(label, "已取消", theme.text_disabled)
-                return
+                return  # 取消处理器已更新 UI
             try:
                 self.ai_chat.update_task_card("正在分析...", border_color=theme.warning)
                 log.debug("ai_action_bg", f"calling action_fn...")
@@ -85,12 +83,10 @@ class AICommands:
                     return
                 if result.startswith("[Error]") or result == "回答已中断":
                     log.debug("ai_action_bg", f"error/cancelled: {result}")
-                    self._finish_task_card(label, "已取消", theme.text_disabled)
-                    return
+                    return  # 取消处理器已更新 UI
                 if self._runner.get_cancel() and self._runner.get_cancel().is_set():
-                    log.debug("ai_action_bg", "cancelled after LLM returned, finishing card")
-                    self._finish_task_card(label, "已取消", theme.text_disabled)
-                    return
+                    log.debug("ai_action_bg", "cancelled after LLM returned")
+                    return  # 取消处理器已更新 UI
                 log.debug("ai_action_bg", f"success, adding to _msg_pairs...")
                 self.ai_chat._msg_pairs.append(
                     (f"__AI_ONLY__{label}", result, datetime.now()))
@@ -150,15 +146,13 @@ class AICommands:
                 result = AgentService.ask(prompt, session_id="outline",
                                         strict=True, cancel_event=cancel)
                 if cancel and cancel.is_set():
-                    self._finish_task_card("生成大纲", "已取消", theme.text_disabled)
-                    return
+                    return  # 取消处理器已更新 UI
                 self.ai_chat.show_prompt_bubble(result)
                 self.ai_chat.update_task_card("请回复上方紫色气泡中的问题...")
                 busy_seen = False
                 for _ in range(300):
                     if cancel and cancel.is_set():
-                        self._finish_task_card("生成大纲", "已取消", theme.text_disabled)
-                        return
+                        return  # 取消处理器已更新 UI
                     time.sleep(1)
                     if not self.ai_chat: break
                     if self.ai_chat._busy:
@@ -194,16 +188,15 @@ class AICommands:
                 result = AgentService.ask(prompt, session_id="gen_tasks",
                                                          strict=True, cancel_event=cancel)
                 if cancel and cancel.is_set():
-                    self._finish_task_card("生成任务", "已取消", theme.text_disabled)
-                    return
+                    return  # 取消处理器已更新 UI
                 self.ai_chat.show_prompt_bubble(result)
                 self.ai_chat.update_task_card("请回复上方紫色气泡中的问题...")
                 known_before = {t.id for t in state.get_all_tasks()}
                 busy_seen = False
                 for _ in range(300):
                     if cancel and cancel.is_set():
-                        self._finish_task_card("生成任务", "已取消", theme.text_disabled)
-                        return
+                        return  # 取消处理器已更新 UI
+
                     time.sleep(1)
                     if not self.ai_chat: break
                     if self.ai_chat._busy:
