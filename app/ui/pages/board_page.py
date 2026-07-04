@@ -403,8 +403,8 @@ class BoardPage:
                             ce.set()
                             log.debug("cancel", f"event set, is_set={ce.is_set()}")
                         self.ai_chat.update_task_card("已取消", border_color=theme.text_disabled)
-                    self._force_clear_all_ghosts(task_id)
                     self._reject_all_proposals(task_id)
+                    self._force_clear_all_ghosts(task_id)
                     self._task_registry.update_status(task_id, "已取消", 0)
                     import time, threading
                     def _finish():
