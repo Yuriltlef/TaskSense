@@ -19,6 +19,10 @@ asyncio.streams.StreamWriter.__del__ = _safe_del
 from app.knowledge.cache_utils import setup_model_cache
 setup_model_cache(Path(__file__).parent)
 
+# ── 日志自动清理（后台线程，不阻塞启动）──
+from app.core.log_manager import start_cleanup
+start_cleanup()
+
 # ── 后台预加载嵌入模型 + 知识库 ──
 # 避免首次提问时等待模型加载（GPU 模型加载需 3-10 秒）
 from app.agent.preload import preload_async

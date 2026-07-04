@@ -53,10 +53,9 @@ def _ensure_file_handler():
         return
     try:
         os.makedirs(_LOG_DIR, exist_ok=True)
-        _file_path = os.path.join(
-            _LOG_DIR, f"tasksense_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+        _file_path = os.path.join(_LOG_DIR, "tasksense.log")
         _file_handler = logging.handlers.RotatingFileHandler(
-            _file_path, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
+            _file_path, maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8")
         _file_handler.setLevel(logging.DEBUG)  # 文件始终记录 DEBUG
         _file_fmt = logging.Formatter(
             "%(asctime)s [%(levelname)-5s] %(name)s %(message)s",
