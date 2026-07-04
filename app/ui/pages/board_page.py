@@ -571,7 +571,22 @@ class BoardPage:
         """从侧边栏编辑按钮触发的编辑弹窗。"""
         self._dlg_edit(task)
 
-    # ═══════════════════════ 右键菜单（按列分发） ═══════════════════════
+    # ═══════════════════════ 右键菜单 — 已迁移到 context_menu_builder.py ═══════════════════════
+
+    def _on_card_context_menu(self, tid, x, y):
+        from app.ui.widgets.context_menu import ContextMenu
+        from app.ui.services.context_menu_builder import ContextMenuBuilder
+        t = state.get_task(tid)
+        if not t:
+            return
+        items = ContextMenuBuilder().build(t.status.value, t)
+        if not items:
+            return
+        cx, cy = self._get_cursor_pos(self._page)
+        ContextMenu(
+            items=items,
+            on_select=lambda a: self._card_action(tid, a),
+        ).show(self._page, cx, cy)
 
     @staticmethod
     def _get_cursor_pos(page) -> tuple[float, float]:
@@ -587,163 +602,6 @@ class BoardPage:
             return (float(pt.x), float(pt.y))
         except Exception:
             return (100.0, 100.0)
-
-    def _on_card_context_menu(self, tid, x, y):
-        from app.ui.widgets.context_menu import ContextMenu
-        # 用 Win32 API 实时获取鼠标位置（比事件坐标可靠）
-        cx, cy = self._get_cursor_pos(self._page)
-        t = state.get_task(tid)
-        if not t: return
-        col = t.status.value
-        builder = {
-            "backlog": self._menu_backlog,
-            "triage": self._menu_triage,
-            "scheduled": self._menu_scheduled,
-            "ready": self._menu_ready,
-            "in_progress": self._menu_in_progress,
-            "inspection": self._menu_inspection,
-            "parts_hold": self._menu_parts_hold,
-            "completed": self._menu_completed,
-            "archived": self._menu_archived,
-        }.get(col)
-        if not builder: return
-        items = builder(t)
-        ContextMenu(
-            items=items,
-            on_select=lambda a: self._card_action(tid, a),
-        ).show(self._page, cx, cy)
-
-    # ── 各列菜单构建器 ──
-
-    def _menu_edit_or_view(self, t):
-        """已锁定列显示"查看详情"，可编辑列显示"编辑"。"""
-        if t.status.value in ("inspection", "completed", "archived"):
-            return {"label": "查看详情", "icon": ft.Icons.VISIBILITY_OUTLINED, "action": "edit"}
-        return {"label": "编辑", "icon": ft.Icons.EDIT_OUTLINED, "action": "edit"}
-
-    def _menu_ai_items(self):
-        return [
-            {"divider": True},
-            {"label": "AI 解释任务", "icon": ft.Icons.PSYCHOLOGY_OUTLINED, "action": "ai_explain"},
-            {"label": "AI 查找相关文档", "icon": ft.Icons.SEARCH, "action": "search"},
-        ]
-
-    def _menu_delete_item(self):
-        return [
-            {"divider": True},
-            {"label": "删除", "icon": ft.Icons.DELETE_OUTLINE,
-             "color": theme.error, "action": "delete",
-             "confirm": "确定删除此任务？此操作不可撤销。"},
-        ]
-
-    def _menu_backlog(self, t):
-        return [
-            self._menu_edit_or_view(t),
-            {"label": "设置优先级并分类", "icon": ft.Icons.FLAG_OUTLINED,
-             "action": "set_priority"},
-            {"label": "AI 分类此任务", "icon": ft.Icons.AUTO_AWESOME_OUTLINED,
-             "action": "ai_classify", "color": theme.info},
-            {"label": "直接归档", "icon": ft.Icons.ARCHIVE_OUTLINED,
-             "action": "archive_now", "confirm": "确定跳过所有流程直接归档？"},
-            *self._menu_ai_items(),
-            *self._menu_delete_item(),
-        ]
-
-    def _menu_triage(self, t):
-        return [
-            self._menu_edit_or_view(t),
-            {"label": "更改优先级", "icon": ft.Icons.FLAG_OUTLINED,
-             "action": "change_priority"},
-            {"label": "排程", "icon": ft.Icons.CALENDAR_MONTH_OUTLINED,
-             "action": "schedule"},
-            {"label": "AI 排程此任务", "icon": ft.Icons.AUTO_AWESOME_OUTLINED,
-             "action": "ai_schedule", "color": theme.info},
-            {"label": "退回待处理", "icon": ft.Icons.UNDO_OUTLINED,
-             "action": "move_to:backlog"},
-            *self._menu_ai_items(),
-            *self._menu_delete_item(),
-        ]
-
-    def _menu_scheduled(self, t):
-        return [
-            self._menu_edit_or_view(t),
-            {"label": "标记就绪", "icon": ft.Icons.CHECK_CIRCLE_OUTLINE,
-             "action": "move_to:ready", "color": theme.success},
-            {"label": "退回已分类", "icon": ft.Icons.ARROW_BACK_OUTLINED,
-             "action": "move_to:triage"},
-            {"label": "退回待处理", "icon": ft.Icons.UNDO_OUTLINED,
-             "action": "move_to:backlog"},
-            *self._menu_ai_items(),
-            *self._menu_delete_item(),
-        ]
-
-    def _menu_ready(self, t):
-        return [
-            self._menu_edit_or_view(t),
-            {"label": "开始执行", "icon": ft.Icons.PLAY_ARROW_OUTLINED,
-             "action": "move_to:in_progress", "color": theme.success},
-            {"label": "重新排程", "icon": ft.Icons.CALENDAR_MONTH_OUTLINED,
-             "action": "reschedule"},
-            {"label": "阻塞...", "icon": ft.Icons.BLOCK_OUTLINED,
-             "action": "block", "color": theme.warning},
-            *self._menu_ai_items(),
-        ]
-
-    def _menu_in_progress(self, t):
-        return [
-            self._menu_edit_or_view(t),
-            {"label": "提交验收...", "icon": ft.Icons.ASSIGNMENT_TURNED_IN_OUTLINED,
-             "action": "submit", "color": theme.info},
-            {"label": "直接完成", "icon": ft.Icons.CHECK_CIRCLE_OUTLINE,
-             "action": "complete_direct", "color": theme.success,
-             "confirm": "跳过验收直接完成？建议先提交验收审核。"},
-            {"label": "阻塞...", "icon": ft.Icons.BLOCK_OUTLINED,
-             "action": "block", "color": theme.warning},
-            *self._menu_ai_items(),
-        ]
-
-    def _menu_inspection(self, t):
-        return [
-            self._menu_edit_or_view(t),
-            {"label": "验收通过", "icon": ft.Icons.VERIFIED_OUTLINED,
-             "action": "approve", "color": theme.success,
-             "confirm": "确认验收通过？任务将移至已完成。"},
-            {"label": "退回返工", "icon": ft.Icons.REPLAY_OUTLINED,
-             "action": "move_to:in_progress", "color": theme.warning},
-            {"label": "退回待处理", "icon": ft.Icons.UNDO_OUTLINED,
-             "action": "move_to:backlog"},
-            {"divider": True},
-            {"label": "AI 验收此任务", "icon": ft.Icons.FACT_CHECK_OUTLINED,
-             "action": "ai_review_single", "color": theme.info},
-            {"label": "AI 解释任务", "icon": ft.Icons.PSYCHOLOGY_OUTLINED,
-             "action": "ai_explain"},
-            {"label": "AI 查找相关文档", "icon": ft.Icons.SEARCH,
-             "action": "search"},
-        ]
-
-    def _menu_parts_hold(self, t):
-        return [
-            self._menu_edit_or_view(t),
-            {"label": "取消阻塞", "icon": ft.Icons.LOCK_OPEN_OUTLINED,
-             "action": "unblock", "color": theme.success},
-            {"label": "退回已排程", "icon": ft.Icons.ARROW_BACK_OUTLINED,
-             "action": "move_to:scheduled"},
-            *self._menu_ai_items(),
-        ]
-
-    def _menu_completed(self, t):
-        return [
-            self._menu_edit_or_view(t),
-            {"label": "归档", "icon": ft.Icons.ARCHIVE_OUTLINED,
-             "action": "move_to:archived"},
-            *self._menu_ai_items(),
-        ]
-
-    def _menu_archived(self, t):
-        return [
-            self._menu_edit_or_view(t),
-            *self._menu_ai_items(),
-        ]
 
     # ── 拖放内容补充 ──
 
