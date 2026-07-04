@@ -1339,6 +1339,7 @@ class BoardPage:
                 if cancel and cancel.is_set():
                     self._finish_task_card("自动分类", "已取消", theme.text_disabled)
                     return
+                self._page.run_task(self._rebuild_chat_ui)
                 self._refresh_board()
                 pending_after = {t.id for t in state.get_all_tasks() if t.ai_proposed}
                 pending = pending_after - pending_before
@@ -1392,6 +1393,7 @@ class BoardPage:
                 if cancel and cancel.is_set():
                     self._finish_task_card("自动排程", "已取消", theme.text_disabled)
                     return
+                self._page.run_task(self._rebuild_chat_ui)
                 self._refresh_board()
                 pending_after = {t.id for t in state.get_all_tasks() if t.ai_proposed}
                 pending = pending_after - pending_before
@@ -1458,7 +1460,7 @@ class BoardPage:
                     log.debug("acceptance", "cancelled after ask")
                     self._finish_task_card("自动验收", "已取消", theme.text_disabled)
                     return
-                log.debug("acceptance", "about to call _refresh_board()")
+                self._page.run_task(self._rebuild_chat_ui)
                 self._refresh_board()
                 log.debug("acceptance", "_refresh_board() done")
                 # 在聊天面板显示 Agent 审核报告
