@@ -481,7 +481,10 @@ class AgentService:
     @staticmethod
     def _run_single_task_ai(prompt_file: str, session_prefix: str,
                             task_info: dict, cancel_event=None) -> str:
-        """所有右键菜单 AI 工具的统一入口。"""
+        """所有右键菜单 AI 工具的统一入口。
+
+        LLM 未调工具时自动重试一次（带更强的指令）。
+        """
         from app.agent.llm_client import llm
         if not llm.is_available:
             return "[Error] LLM 不可用"
@@ -489,8 +492,25 @@ class AgentService:
             prompt = _load_prompt(prompt_file)
             user_msg = "\n".join(f"- {k}: {v}" for k, v in task_info.items())
             full = f"{prompt}\n\n## Task Details\n{user_msg}"
-            return agent.ask(full, session_id=f"{session_prefix}_{task_info.get('id','')}",
-                           strict=False, cancel_event=cancel_event, timeout=15.0)
+            sid = f"{session_prefix}_{task_info.get('id','')}"
+            result = agent.ask(full, session_id=sid,
+                             strict=False, cancel_event=cancel_event, timeout=30.0)
+
+            # 检查 LLM 是否实际调用了工具（通过检测对话历史）
+            conv = agent.get_conversation(sid)
+            history = conv.get_history_summary()
+            tool_called = any(kw in history.lower() for kw in
+                ("confirm_needed", "proposed", "幽灵卡", "ghost card", "tool"))
+
+            if not tool_called and result and not result.startswith("[Error]"):
+                log.warn("agent.retry", f"{session_prefix}: LLM未调工具，重试")
+                agent.clear_conversation(sid)
+                retry_prompt = (f"你的上一次回复没有包含必需的工具调用，任务失败。\n"
+                               f"现在请重新执行——不要跳过工具调用。\n\n{full}")
+                result = agent.ask(retry_prompt, session_id=sid,
+                                 strict=False, cancel_event=cancel_event, timeout=30.0)
+
+            return result
         except Exception as e:
             return f"[Error] {e}"
 
