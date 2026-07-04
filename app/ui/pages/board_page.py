@@ -1339,8 +1339,9 @@ class BoardPage:
                 if cancel and cancel.is_set():
                     self._finish_task_card("自动分类", "已取消", theme.text_disabled)
                     return
-                self._page.run_task(self._rebuild_chat_ui)
                 self._refresh_board()
+                # 刷新对话面板提案 UI（幽灵卡在 refresh_board 中已渲染到看板）
+                self._rebuild_chat_ui_sync()
                 pending_after = {t.id for t in state.get_all_tasks() if t.ai_proposed}
                 pending = pending_after - pending_before
                 if pending:
@@ -1393,8 +1394,8 @@ class BoardPage:
                 if cancel and cancel.is_set():
                     self._finish_task_card("自动排程", "已取消", theme.text_disabled)
                     return
-                self._page.run_task(self._rebuild_chat_ui)
                 self._refresh_board()
+                self._rebuild_chat_ui_sync()
                 pending_after = {t.id for t in state.get_all_tasks() if t.ai_proposed}
                 pending = pending_after - pending_before
                 if pending:
@@ -1460,7 +1461,6 @@ class BoardPage:
                     log.debug("acceptance", "cancelled after ask")
                     self._finish_task_card("自动验收", "已取消", theme.text_disabled)
                     return
-                self._page.run_task(self._rebuild_chat_ui)
                 self._refresh_board()
                 log.debug("acceptance", "_refresh_board() done")
                 # 在聊天面板显示 Agent 审核报告
@@ -2023,7 +2023,11 @@ class BoardPage:
         self._page.update()
 
     async def _rebuild_chat_ui(self):
-        """主线程调度：重建 AI 对话气泡 + 提案 UI。"""
+        """主线程调度：重建 AI 对话气泡 + 提案 UI（用于 run_task）。"""
+        self._rebuild_chat_ui_sync()
+
+    def _rebuild_chat_ui_sync(self):
+        """同步版本：后台线程直接调用（项目现有模式）。"""
         try:
             if self.ai_chat:
                 self.ai_chat._rebuild_bubbles()
