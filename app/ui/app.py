@@ -205,8 +205,20 @@ class TaskSenseApp:
             win_btn(ft.Icons.CLOSE, self._close_window, "关闭", hover_color=ft.Colors.RED_900),
         ]
 
-        # ── 内容区 ──
-        content_row = ft.Row([
+        # ── 拖拽 spacer：GestureDetector 只包裹空 Container ──
+        def _drag_spacer():
+            return ft.WindowDragArea(
+                ft.GestureDetector(
+                    content=ft.Container(expand=True),
+                    mouse_cursor=ft.MouseCursor.BASIC,
+                    on_double_tap=self._on_title_double_tap,
+                    on_hover=self._on_title_hover,
+                ),
+                expand=True,
+            )
+
+        # ── 左侧功能区 ──
+        left_group = ft.Row([
             ft.Container(width=s(8)),
             ft.Container(content=ft.Text("✈", size=s(15), font_family=ff),
                          padding=ft.padding.only(left=s(2), right=s(6)),
@@ -233,30 +245,19 @@ class TaskSenseApp:
             icon_btn(ft.Icons.FILTER_LIST, bp._on_filter_click, "筛选任务"),
             ft.Container(width=s(4)),
             self._build_ai_menu_button(bp),
-            ft.Container(expand=True),
-            search_box,
-            ft.Container(expand=True),
+        ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+        # ── 右侧功能区 ──
+        right_group = ft.Row([
             icon_btn(ft.Icons.PSYCHOLOGY_OUTLINED, lambda e: bp._open_ai_panel(),
                      "AI 助手", icon_color="#c498e8"),
             icon_btn(ft.Icons.SETTINGS_OUTLINED, bp._on_settings_click, "设置"),
             icon_btn(ft.Icons.PERSON_OUTLINE, lambda e: None, "用户账号"),
         ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-        # WindowDragArea 包裹 GestureDetector：拖拽优先，双击作为附加手势
-        # GestureDetector 必须在 WindowDragArea 内部（不能反过来），否则按钮点击失效
-        drag_area = ft.WindowDragArea(
-            ft.GestureDetector(
-                content=ft.Container(content=content_row, expand=True),
-                mouse_cursor=ft.MouseCursor.BASIC,
-                on_double_tap=self._on_title_double_tap,
-                on_hover=self._on_title_hover,
-            ),
-            expand=True,
-        )
-
-        # ── 最终标题栏 ──
+        # ── 最终标题栏：左组 | 拖拽区 | 搜索框 | 拖拽区 | 右组 | 窗口按钮 ──
         bar_row = ft.Row(
-            [drag_area] + window_btns,
+            [left_group, _drag_spacer(), search_box, _drag_spacer(), right_group] + window_btns,
             spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
 
@@ -351,18 +352,34 @@ class TaskSenseApp:
 
     def _build_ai_menu_button(self, bp):
         """AI 工具菜单按钮 + overlay 下拉。"""
-        return ft.IconButton(
+        H = s(34); btn_w = s(36)
+        btn = ft.IconButton(
             icon=ft.Icons.MENU, icon_size=s(16), icon_color=ft.Colors.GREY_400,
-            tooltip="AI 工具",
+            width=btn_w, height=H,
             style=ft.ButtonStyle(
                 bgcolor=ft.Colors.TRANSPARENT,
-                overlay_color="#22ffffff",
-                shape=ft.RoundedRectangleBorder(radius=s(4)),
+                overlay_color="#2a2a2a",
+                shape=ft.RoundedRectangleBorder(radius=0),
             ),
+            tooltip=ft.Tooltip(message="AI 工具", bgcolor="#202020",
+                               text_style=ft.TextStyle(color=ft.Colors.WHITE,
+                                                       font_family=theme.font_family),
+                               wait_duration=1500),
             on_click=lambda e: self._show_ai_menu(bp, e),
         )
+        self._ai_menu_btn = btn
+        return btn
 
     def _show_ai_menu(self, bp, e):
+        # 关闭已有菜单避免重叠
+        self._close_ai_menu(bp, None)
+
+        # 高亮按钮
+        if hasattr(self, '_ai_menu_btn') and self._ai_menu_btn:
+            self._ai_menu_btn.style.bgcolor = "#22ffffff"
+            try: self._ai_menu_btn.update()
+            except Exception: pass
+
         ff = theme.font_family
         cmds = [
             ("生成大纲", ft.Icons.ARTICLE_OUTLINED, "outline"),
@@ -382,15 +399,15 @@ class TaskSenseApp:
                 ], spacing=s(8)),
                 style=ft.ButtonStyle(
                     bgcolor=ft.Colors.TRANSPARENT,
-                    overlay_color=theme.card_hover,
+                    overlay_color="#22ffffff",
                     shape=ft.RoundedRectangleBorder(radius=s(4)),
                     padding=ft.padding.symmetric(horizontal=s(10), vertical=s(4)),
                 ),
                 on_click=lambda _, c=cmd: self._close_ai_menu(bp, c),
             ))
 
-        # 定位在 AI 工具按钮正下方（标题栏左侧，搜索框之前）
         menu_left = s(230)
+        TB_H = s(34)
         menu = ft.Container(
             content=ft.Column(items, spacing=s(2), tight=True),
             bgcolor=theme.surface,
@@ -398,12 +415,15 @@ class TaskSenseApp:
             border_radius=s(8),
             padding=ft.padding.all(s(6)),
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=16, color="#000000aa"),
-            left=menu_left, top=s(40),
+            left=menu_left, top=TB_H,
             width=180,
         )
 
         dimmer = ft.Container(
-            ft.GestureDetector(on_tap=lambda e: self._close_ai_menu(bp, None)),
+            ft.GestureDetector(
+                content=ft.Container(expand=True),
+                on_tap=lambda _: self._close_ai_menu(bp, None),
+            ),
             width=self.page.width, height=self.page.height,
         )
         overlay = ft.Stack([dimmer, menu], width=self.page.width, height=self.page.height)
@@ -412,13 +432,20 @@ class TaskSenseApp:
         self.page.update()
 
     def _close_ai_menu(self, bp, cmd):
-        if hasattr(self, '_ai_menu_overlay') and self._ai_menu_overlay:
+        # 取消按钮高亮
+        if hasattr(self, '_ai_menu_btn') and self._ai_menu_btn:
+            self._ai_menu_btn.style.bgcolor = ft.Colors.TRANSPARENT
+            try: self._ai_menu_btn.update()
+            except Exception: pass
+
+        overlay_ref = getattr(self, '_ai_menu_overlay', None)
+        if overlay_ref is not None:
+            self._ai_menu_overlay = None
             try:
-                self.page.overlay.remove(self._ai_menu_overlay)
+                self.page.overlay.remove(overlay_ref)
+                self.page.update()
             except Exception:
                 pass
-            self._ai_menu_overlay = None
-            self.page.update()
         if cmd:
             bp._run_agent_command(cmd)
 
