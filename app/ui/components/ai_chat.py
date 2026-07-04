@@ -366,62 +366,10 @@ class AIChatPanel(ft.Container):
         return ft.Column(items, spacing=s(6), tight=True)
 
     def _accept_proposal(self, tid):
-        from app.core.state import state as app_state
-        from app.core.services.task_service import task_service
-        from datetime import datetime as dt
-        t = app_state.get_task(tid)
-        title = t.title if t else ""
-        if not t:
-            return
-
-        # 验收任务：根据 AI 建议移动
-        acc_rec = getattr(t, 'ai_acceptance_recommendation', None)
-        if acc_rec:
-            target = "completed" if acc_rec == "approve" else "backlog"
-            task_service.move_task(tid, target, changed_by="ai_agent")
-            app_state.update_task(tid, ai_proposed=False,
-                                  ai_acceptance_recommendation=None,
-                                  ai_acceptance_reason=None)
-            self._update_proposal_row(tid, "accepted", title)
-            return
-
-        schedule_data = {}
-        for sug in (t.ai_suggestions or []):
-            if isinstance(sug, dict) and sug.get("proposal_type") == "schedule":
-                schedule_data = sug
-                break
-
-        if schedule_data:
-            if schedule_data.get("planned_start"):
-                try:
-                    app_state.update_task(tid,
-                        planned_start=dt.strptime(schedule_data["planned_start"], "%Y-%m-%d %H:%M"))
-                except ValueError: pass
-            if schedule_data.get("planned_end"):
-                try:
-                    app_state.update_task(tid,
-                        planned_end=dt.strptime(schedule_data["planned_end"], "%Y-%m-%d %H:%M"))
-                except ValueError: pass
-            if schedule_data.get("employee_id"):
-                app_state.update_task(tid, employee_id=schedule_data["employee_id"])
-            if schedule_data.get("employee_name"):
-                app_state.update_task(tid, employee_name=schedule_data["employee_name"],
-                                      assignee=schedule_data["employee_name"])
-            if schedule_data.get("estimated_hours"):
-                app_state.update_task(tid, estimated_hours=float(schedule_data["estimated_hours"]))
-            task_service.move_task(tid, "scheduled", changed_by="ai_agent")
-            ai_sug = [s for s in (t.ai_suggestions or [])
-                      if not (isinstance(s, dict) and s.get("proposal_type") == "schedule")]
-            app_state.update_task(tid, ai_proposed=False, ai_priority=None,
-                                  ai_suggestions=ai_sug)
-        elif t and t.ai_priority:
-            task_service.set_priority(tid, t.ai_priority.value)
-            task_service.move_task(tid, "triage", changed_by="ai_agent")
-            app_state.update_task(tid, ai_proposed=False, ai_priority=None)
-        else:
-            app_state.update_task(tid, ai_proposed=False)
-        self._update_proposal_row(tid, "accepted", title)
-        if self.page:
+        from app.ui.services.proposal_handler import ProposalHandler
+        t = ProposalHandler.accept(tid)
+        self._update_proposal_row(tid, "accepted", t.title)
+        if self.page and t.title:
             try:
                 from app.ui.widgets.toast import Toast
                 Toast.show(self.page, "任务已接受", "success")
@@ -429,33 +377,9 @@ class AIChatPanel(ft.Container):
                 pass
 
     def _reject_proposal(self, tid):
-        from app.core.state import state as app_state
-        t = app_state.get_task(tid)
-        title = t.title if t else ""
-        if not t:
-            return
-        # 验收任务：只清标记，不删除不移动
-        if getattr(t, 'ai_acceptance_recommendation', None):
-            print(f"[AI_CHAT] _reject_proposal: acceptance task {tid}, clearing flags only")
-            app_state.update_task(tid, ai_proposed=False,
-                                  ai_acceptance_recommendation=None,
-                                  ai_acceptance_reason=None)
-            self._update_proposal_row(tid, "rejected", title)
-            return
-        is_modify = (
-            t.ai_priority or
-            any(isinstance(s, dict) and s.get("proposal_type") == "schedule"
-                for s in (t.ai_suggestions or []))
-        )
-        if is_modify:
-            ai_sug = [s for s in (t.ai_suggestions or [])
-                      if not (isinstance(s, dict) and s.get("proposal_type") == "schedule")]
-            app_state.update_task(tid, ai_proposed=False, ai_priority=None,
-                                  ai_suggestions=ai_sug)
-        else:
-            print(f"[AI_CHAT] _reject_proposal: deleting task {tid}")
-            app_state.delete_task(tid)
-        self._update_proposal_row(tid, "rejected", title)
+        from app.ui.services.proposal_handler import ProposalHandler
+        t = ProposalHandler.reject(tid)
+        self._update_proposal_row(tid, "rejected", t.title)
 
     def _update_proposal_row(self, tid, result, title):
         """就地更新提案行：隐藏按钮，显示结果。"""
@@ -492,95 +416,24 @@ class AIChatPanel(ft.Container):
                 pass
 
     def _accept_all_proposals(self):
-        from app.core.state import state as app_state
-        from app.core.services.task_service import task_service
-        from datetime import datetime as dt
-        for t in list(app_state.get_all_tasks()):
-            if not t.ai_proposed:
-                continue
-
-            # 验收任务：根据 AI 建议移动
-            acc_rec = getattr(t, 'ai_acceptance_recommendation', None)
-            if acc_rec:
-                target = "completed" if acc_rec == "approve" else "backlog"
-                task_service.move_task(t.id, target, changed_by="ai_agent")
-                app_state.update_task(t.id, ai_proposed=False,
-                                      ai_acceptance_recommendation=None,
-                                      ai_acceptance_reason=None)
-                self._update_proposal_row(t.id, "accepted", t.title)
-                continue
-
-            schedule_data = {}
-            for sug in (t.ai_suggestions or []):
-                if isinstance(sug, dict) and sug.get("proposal_type") == "schedule":
-                    schedule_data = sug
-                    break
-
-            if schedule_data:
-                if schedule_data.get("planned_start"):
-                    try: app_state.update_task(t.id,
-                        planned_start=dt.strptime(schedule_data["planned_start"], "%Y-%m-%d %H:%M"))
-                    except ValueError: pass
-                if schedule_data.get("planned_end"):
-                    try: app_state.update_task(t.id,
-                        planned_end=dt.strptime(schedule_data["planned_end"], "%Y-%m-%d %H:%M"))
-                    except ValueError: pass
-                if schedule_data.get("employee_id"):
-                    app_state.update_task(t.id, employee_id=schedule_data["employee_id"])
-                if schedule_data.get("employee_name"):
-                    app_state.update_task(t.id, employee_name=schedule_data["employee_name"],
-                                          assignee=schedule_data["employee_name"])
-                if schedule_data.get("estimated_hours"):
-                    app_state.update_task(t.id, estimated_hours=float(schedule_data["estimated_hours"]))
-                task_service.move_task(t.id, "scheduled", changed_by="ai_agent")
-                ai_sug = [s for s in (t.ai_suggestions or [])
-                          if not (isinstance(s, dict) and s.get("proposal_type") == "schedule")]
-                app_state.update_task(t.id, ai_proposed=False, ai_priority=None,
-                                      ai_suggestions=ai_sug)
-            elif t.ai_priority:
-                task_service.set_priority(t.id, t.ai_priority.value)
-                task_service.move_task(t.id, "triage", changed_by="ai_agent")
-                app_state.update_task(t.id, ai_proposed=False, ai_priority=None)
-            else:
-                app_state.update_task(t.id, ai_proposed=False)
-            self._update_proposal_row(t.id, "accepted", t.title)
+        from app.ui.services.proposal_handler import ProposalHandler
+        results = ProposalHandler.accept_all()
+        for r in results:
+            self._update_proposal_row(r.task_id, "accepted", r.title)
         self._update_batch_buttons()
         if self.page:
             from app.ui.widgets.toast import Toast
             Toast.show(self.page, "全部任务已接受", "success")
 
     def _reject_all_proposals(self):
-        from app.core.state import state as app_state
-        for t in list(app_state.get_all_tasks()):
-            if not t.ai_proposed:
-                continue
-
-            # 验收任务：只清标记，不删除不移动
-            if getattr(t, 'ai_acceptance_recommendation', None):
-                app_state.update_task(t.id, ai_proposed=False,
-                                      ai_acceptance_recommendation=None,
-                                      ai_acceptance_reason=None)
-                self._update_proposal_row(t.id, "rejected", t.title)
-                continue
-
-            is_modify = (
-                t.ai_priority or
-                any(isinstance(s, dict) and s.get("proposal_type") == "schedule"
-                    for s in (t.ai_suggestions or []))
-            )
-            self._update_proposal_row(t.id, "rejected", t.title)
-            if is_modify:
-                ai_sug = [s for s in (t.ai_suggestions or [])
-                          if not (isinstance(s, dict) and s.get("proposal_type") == "schedule")]
-                app_state.update_task(t.id, ai_proposed=False, ai_priority=None,
-                                      ai_suggestions=ai_sug)
-            else:
-                app_state.delete_task(t.id)
+        from app.ui.services.proposal_handler import ProposalHandler
+        results = ProposalHandler.reject_all()
+        for r in results:
+            self._update_proposal_row(r.task_id, "rejected", r.title)
         self._update_batch_buttons()
         if self.page:
             from app.ui.widgets.toast import Toast
             Toast.show(self.page, "已取消全部验收建议", "info")
-
     def _refresh(self, e):
         if self._busy or not self._msg_pairs:
             return

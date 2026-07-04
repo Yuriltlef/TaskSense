@@ -237,75 +237,30 @@ class BoardPage:
                 pass
 
     def _accept_ai_task(self, tid):
-        """接受 AI 建议任务——业务变更由 AIGhostCard 执行，此处仅清理标记。"""
+        """接受 AI 建议任务——委托 ProposalHandler 执行业务变更。"""
         t = state.get_task(tid)
-        if not t:
-            return
-        title = t.title  # 在状态变更前保存
-        ai_suggestions = [s for s in (t.ai_suggestions or [])
-                          if not (isinstance(s, dict) and
-                                  s.get("proposal_type") in ("schedule",))]
-        state.update_task(tid, ai_proposed=False, ai_priority=None,
-                          ai_suggestions=ai_suggestions)
+        title = t.title if t else ""
+        from app.ui.services.proposal_handler import ProposalHandler
+        ProposalHandler.accept(tid)
         self._sync_chat_proposal(tid, "accepted", title)
-        from app.ui.widgets.toast import Toast
         Toast.show(self._page, "AI 建议已接受", "success")
         self._refresh_board()
 
     def _reject_ai_task(self, tid):
-        """拒绝 AI 建议任务——验收/分类/排程仅清除标记，新建提案则删除任务。"""
+        """拒绝 AI 建议任务——委托 ProposalHandler 执行业务变更。"""
         t = state.get_task(tid)
-        if not t:
-            log.debug("reject_ai_task", f"tid={tid} TASK NOT FOUND")
-            return
-        title = t.title  # 在状态变更/删除前保存
-        acc_rec = getattr(t, 'ai_acceptance_recommendation', None)
-        is_inspection = t.status.value == "inspection"
-        is_modify = t.ai_priority or any(
-            isinstance(s, dict) and s.get("proposal_type") in ("schedule",)
-            for s in (t.ai_suggestions or [])
-        )
-        log.debug("reject_ai_task", f"tid={tid} status={t.status.value} acc_rec={acc_rec} ai_proposed={t.ai_proposed} is_modify={is_modify} is_inspection={is_inspection}")
-
-        # 验收任务：只清标记，不删除
-        if acc_rec:
-            log.debug("reject_ai_task", f"-> clearing acceptance flags only")
-            state.update_task(tid, ai_proposed=False,
-                              ai_acceptance_recommendation=None,
-                              ai_acceptance_reason=None)
-            self._sync_chat_proposal(tid, "rejected", title)
-            from app.ui.widgets.toast import Toast
-            Toast.show(self._page, "已取消，任务保留在验收中", "info")
-            self._refresh_board()
-            return
-
-        if is_modify:
-            log.debug("reject_ai_task", f"-> modify proposal, clearing suggestion flags")
-            ai_suggestions = [s for s in (t.ai_suggestions or [])
-                              if not (isinstance(s, dict) and
-                                      s.get("proposal_type") in ("schedule",))]
-            state.update_task(tid, ai_proposed=False, ai_priority=None,
-                              ai_suggestions=ai_suggestions)
-        elif is_inspection:
-            log.debug("reject_ai_task", f"-> SAFETY NET: inspection task, clearing flags only")
-            state.update_task(tid, ai_proposed=False,
-                              ai_acceptance_recommendation=None,
-                              ai_acceptance_reason=None)
-        else:
-            log.debug("reject_ai_task", f"-> DELETING task {tid}")
-            state.delete_task(tid)
+        title = t.title if t else ""
+        from app.ui.services.proposal_handler import ProposalHandler
+        ProposalHandler.reject(tid)
         self._sync_chat_proposal(tid, "rejected", title)
-        from app.ui.widgets.toast import Toast
         Toast.show(self._page, "AI 建议已拒绝", "info")
         self._refresh_board()
 
     def _accept_acceptance(self, tid, recommendation):
-        """用户确认验收建议 → 业务变更由 AIGhostCard 执行，此处仅清理筛选并刷新。"""
+        """用户确认验收建议——ProposalHandler 已执行业务变更，此处刷新 UI。"""
         t = state.get_task(tid)
         title = t.title if t else ""
         self._sync_chat_proposal(tid, "accepted", title)
-        from app.ui.widgets.toast import Toast
-        from app.core.services.board_service import board_service
         board_service.set_filters(FilterState())
         if recommendation == "approve":
             Toast.show(self._page, "验收通过，任务已移至已完成", "success")
@@ -314,17 +269,13 @@ class BoardPage:
         self._refresh_board()
 
     def _reject_acceptance(self, tid):
-        """用户取消验收建议 → 幽灵卡片已清除标记，此处清理筛选并刷新。"""
-        log.debug("reject_acceptance", f"tid={tid} called")
+        """用户取消验收建议——ProposalHandler 已执行业务变更，此处刷新 UI。"""
         t = state.get_task(tid)
         title = t.title if t else ""
         self._sync_chat_proposal(tid, "rejected", title)
-        from app.ui.widgets.toast import Toast
-        from app.core.services.board_service import board_service
         board_service.set_filters(FilterState())
         Toast.show(self._page, "已取消，任务保留在验收中", "info")
         self._refresh_board()
-        log.debug("reject_acceptance", f"tid={tid} done")
 
     def _sync_chat_proposal(self, tid: str, result: str, title: str):
         """同步 AI 对话面板中的提案行状态。"""
