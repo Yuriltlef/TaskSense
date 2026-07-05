@@ -21,12 +21,14 @@ class OverlayDimmer:
     def __init__(self, page: ft.Page, content: ft.Control, *,
                  dim_opacity: float = 0.4,
                  on_dimmer_click=None,
-                 close_on_dimmer_click: bool = True):
+                 close_on_dimmer_click: bool = True,
+                 keep_position: bool = False):
         self._page = page
         self._content = content
         self._dim_opacity = max(0.0, min(1.0, dim_opacity))
         self._on_dimmer_click = on_dimmer_click
         self._close_on_dimmer = close_on_dimmer_click
+        self._keep_position = keep_position
         self._use_slot = OverlayDimmer._slot is not None
         self._old_on_resized = None
         self._open = False
@@ -107,9 +109,14 @@ class OverlayDimmer:
     def _build_inline(self) -> ft.Stack:
         """原生槽位模式：expand自动填满 + alignment.center自动居中。
 
-        Stack 行为：无 left/top 的子控件由 alignment 居中，
-        有 left/top 的保持显式定位——无需手动清除。
+        keep_position=True 时保留 left/top（拖拽面板专用），
+        否则清除让 Stack 居中（普通弹窗，响应式缩放）。
         """
+        if not self._keep_position:
+            if hasattr(self._content, 'left'):
+                self._content.left = None
+            if hasattr(self._content, 'top'):
+                self._content.top = None
         dimmer = ft.Container(
             expand=True,
             bgcolor=ft.Colors.BLACK,

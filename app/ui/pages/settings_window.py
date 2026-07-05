@@ -48,7 +48,8 @@ class SettingsOverlay:
         cls._open = True
         cls._dimmer = OverlayDimmer.open(
             page, cls._panel, dim_opacity=0.65,
-            on_dimmer_click=lambda: cls.close())
+            on_dimmer_click=lambda: cls.close(),
+            keep_position=True)  # 保留显式定位，支持拖拽
         cls._switch("llm")
         page.update()
 
