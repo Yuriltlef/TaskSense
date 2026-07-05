@@ -13,7 +13,7 @@ NAV_ITEMS = [
     ("agent", "Agent 行为",   ft.Icons.SMART_TOY_OUTLINED),
 ]
 
-PANEL_W, PANEL_H = 720, 520
+PANEL_W, PANEL_H = 720, 620
 
 
 class SettingsOverlay:
@@ -26,7 +26,11 @@ class SettingsOverlay:
     _active = ["llm"]
     _nav_ctrls: list = []
     _right: ft.Container | None = None
+    _right_header: ft.Text | None = None      # 固定标题（不随滚动移动）
+    _right_body: ft.Container | None = None    # 滚动内容区
     _drag_start = (0, 0)
+    _panel_x = 0                               # 缓存面板定位（OverlayDimmer 会清除 left/top）
+    _panel_y = 0
 
     # ── API ──
 
@@ -66,20 +70,24 @@ class SettingsOverlay:
         cx = (page.width - PANEL_W) // 2
         cy = (page.height - PANEL_H) // 2
 
+        # 缓存初始定位（OverlayDimmer 会清除面板 left/top，需自行保存）
+        cls._panel_x = cx
+        cls._panel_y = cy
+
         # ── 标题栏（可拖拽）──
         def on_bar_start(e: ft.DragStartEvent):
-            cls._drag_start = (cls._panel.left or 0, cls._panel.top or 0)
+            cls._drag_start = (cls._panel_x, cls._panel_y)
 
         def on_bar_update(e: ft.DragUpdateEvent):
             cls._drag_start = (
                 cls._drag_start[0] + int(e.delta_x),
                 cls._drag_start[1] + int(e.delta_y),
             )
-            nx = max(-PANEL_W // 3, min(
+            cls._panel_x = max(-PANEL_W // 3, min(
                 cls._page.width - PANEL_W * 2 // 3, cls._drag_start[0]))
-            ny = max(-40, min(cls._page.height - 40, cls._drag_start[1]))
-            cls._panel.left = nx
-            cls._panel.top = ny
+            cls._panel_y = max(-40, min(cls._page.height - 40, cls._drag_start[1]))
+            cls._panel.left = cls._panel_x
+            cls._panel.top = cls._panel_y
             cls._panel.update()
 
         header_bg = theme.surface   # #0e0e0e
@@ -145,10 +153,23 @@ class SettingsOverlay:
                 right=ft.BorderSide(1, theme.border)),
         )
 
-        # ── 右侧内容区 ──
+        # ── 右侧内容区（固定标题 + 可滚动内容）──
+        cls._right_header = cls._section_title("")
+        cls._right_body = ft.Container(
+            expand=True,
+            padding=ft.padding.only(
+                left=s(18), right=s(18), top=s(8), bottom=s(18)),
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS)
         cls._right = ft.Container(
-            bgcolor="#0c0c0c", expand=True,
-            padding=ft.padding.all(s(18)))
+            content=ft.Column([
+                ft.Container(
+                    content=cls._right_header,
+                    padding=ft.padding.only(
+                        left=s(18), right=s(18), top=s(18), bottom=s(4)),
+                ),
+                cls._right_body,
+            ], spacing=0, expand=True),
+            bgcolor="#0c0c0c", expand=True)
 
         # ── 底部按钮 ──
         btn_style = ft.ButtonStyle(
@@ -212,6 +233,7 @@ class SettingsOverlay:
     @classmethod
     def _switch(cls, key: str):
         cls._active[0] = key
+        # 更新导航高亮
         for ctrl in cls._nav_ctrls:
             is_sel = ctrl.data == key
             ctrl.bgcolor = (ft.Colors.with_opacity(0.12, theme.info)
@@ -222,7 +244,10 @@ class SettingsOverlay:
             tw.color = theme.text_primary if is_sel else theme.text_secondary
             tw.weight = (ft.FontWeight.W_500 if is_sel
                          else ft.FontWeight.W_400)
-        cls._right.content = cls._build_section(key)
+        # 更新标题和内容（分离：标题固定在上方，内容可滚动）
+        title, body = cls._build_section(key)
+        cls._right_header.value = title
+        cls._right_body.content = body
         if cls._page:
             cls._page.update()
 
@@ -284,100 +309,109 @@ class SettingsOverlay:
         return ft.Divider(height=s(12), color=ft.Colors.TRANSPARENT)
 
     @classmethod
-    def _build_section(cls, key):
-        ff = theme.font_family
+    def _build_section(cls, key) -> tuple[str, ft.Control]:
+        """返回 (标题, 内容控件)。标题固定在右面板上方，内容在下方可滚动。"""
         data = cls._mgr.get_section(key)
-        if key == "llm":
-            return ft.Column([
-                cls._section_title("LLM 模型配置"),
-                cls._spacer(),
-                cls._label("Provider"),
+        SECTIONS = {
+            "llm": ("LLM 模型配置", cls._make_llm_section, data),
+            "rag": ("RAG 知识库", cls._make_rag_section, data),
+            "ui": ("界面与主题", cls._make_ui_section, data),
+            "agent": ("Agent 自主权", cls._make_agent_section, data),
+        }
+        title, builder, section_data = SECTIONS.get(key, SECTIONS["llm"])
+        return title, builder(section_data)
+
+    # ── 各 Tab 内容构建 ──
+
+    @classmethod
+    def _make_llm_section(cls, data):
+        return ft.Column([
+            cls._label("Provider"),
             cls._dd("llm.provider", data.get("provider"),
                     ["anthropic", "openai", "local"], w=220),
-                cls._spacer(),
-                cls._label("Model"),
-                cls._tf("llm.model", data.get("model")),
-                cls._spacer(),
-                cls._label("API Key"),
-                cls._tf("llm.api_key", data.get("api_key"), "sk-...", pw=True),
-                cls._spacer(),
-                cls._label("Base URL"),
-                cls._tf("llm.base_url", data.get("base_url")),
-                cls._spacer(),
-                cls._label("Temperature / Max Tokens"),
-                ft.Row([
-                    cls._tf("llm.temperature", data.get("temperature"),
-                            "0.0~1.0", 120),
-                    cls._tf("llm.max_tokens", data.get("max_tokens"),
-                            "tokens", 120),
-                ], spacing=s(12)),
-            ], spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
-        elif key == "rag":
-            return ft.Column([
-                cls._section_title("RAG 知识库"),
-                cls._spacer(),
-                cls._label("Embedding Model"),
-                cls._tf("rag.embedding_model", data.get("embedding_model")),
-                cls._spacer(),
-                cls._label("Vector Store"),
-                cls._dd("rag.vector_store", data.get("vector_store"),
-                        ["chroma", "qdrant"], w=220),
-                cls._spacer(),
-                cls._label("Chunk Size / Overlap"),
-                ft.Row([
-                    cls._tf("rag.chunk_size", data.get("chunk_size"),
-                            "size", 120),
-                    cls._tf("rag.chunk_overlap", data.get("chunk_overlap"),
-                            "overlap", 120),
-                ], spacing=s(12)),
-                cls._spacer(),
-                cls._label("Retrieval Top-K"),
-                cls._tf("rag.retrieval_top_k", data.get("retrieval_top_k"),
-                        "", 120),
-            ], spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
-        elif key == "ui":
-            return ft.Column([
-                cls._section_title("界面与主题"),
-                cls._spacer(),
-                cls._label("Theme"),
-                cls._dd("ui.theme", data.get("theme"),
-                        ["dark", "light"], w=220),
-                cls._spacer(),
-                cls._label("Language"),
-                cls._dd("ui.language", data.get("language"),
-                        ["zh", "en"], w=220),
-                cls._spacer(),
-                cls._label("Scale"),
-                cls._tf("ui.scale", data.get("scale", SCALE), "", 120),
-                cls._spacer(),
-                cls._label("Card Preview Delay (ms)"),
-                cls._tf("ui.card_preview_delay_ms",
-                        data.get("card_preview_delay_ms"), "", 120),
-            ], spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
-        else:
-            al = {"low": "Low", "medium": "Medium", "high": "High"}
-            return ft.Column([
-                cls._section_title("Agent 自主权"),
-                cls._spacer(),
-                cls._label("Triage"),
-                cls._dd("agent.triage_autonomy",
-                        data.get("triage_autonomy"),
-                        ["low", "medium", "high"], al, w=220),
-                cls._spacer(),
-                cls._label("Suggest"),
-                cls._dd("agent.suggest_autonomy",
-                        data.get("suggest_autonomy"),
-                        ["low", "medium", "high"], al, w=220),
-                cls._spacer(),
-                cls._label("Compliance"),
-                cls._dd("agent.compliance_autonomy",
-                        data.get("compliance_autonomy"),
-                        ["low", "medium", "high"], al, w=220),
-                cls._spacer(),
-                cls._label("异常检测间隔 (分钟)"),
-                cls._tf("agent.anomaly_check_interval_minutes",
-                        data.get("anomaly_check_interval_minutes"), "", 120),
-            ], spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
+            cls._spacer(),
+            cls._label("Model"),
+            cls._tf("llm.model", data.get("model")),
+            cls._spacer(),
+            cls._label("API Key"),
+            cls._tf("llm.api_key", data.get("api_key"), "sk-...", pw=True),
+            cls._spacer(),
+            cls._label("Base URL"),
+            cls._tf("llm.base_url", data.get("base_url")),
+            cls._spacer(),
+            cls._label("Temperature / Max Tokens"),
+            ft.Row([
+                cls._tf("llm.temperature", data.get("temperature"),
+                        "0.0~1.0", 120),
+                cls._tf("llm.max_tokens", data.get("max_tokens"),
+                        "tokens", 120),
+            ], spacing=s(12)),
+        ], spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
+
+    @classmethod
+    def _make_rag_section(cls, data):
+        return ft.Column([
+            cls._label("Embedding Model"),
+            cls._tf("rag.embedding_model", data.get("embedding_model")),
+            cls._spacer(),
+            cls._label("Vector Store"),
+            cls._dd("rag.vector_store", data.get("vector_store"),
+                    ["chroma", "qdrant"], w=220),
+            cls._spacer(),
+            cls._label("Chunk Size / Overlap"),
+            ft.Row([
+                cls._tf("rag.chunk_size", data.get("chunk_size"), "size", 120),
+                cls._tf("rag.chunk_overlap", data.get("chunk_overlap"),
+                        "overlap", 120),
+            ], spacing=s(12)),
+            cls._spacer(),
+            cls._label("Retrieval Top-K"),
+            cls._tf("rag.retrieval_top_k", data.get("retrieval_top_k"),
+                    "", 120),
+        ], spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
+
+    @classmethod
+    def _make_ui_section(cls, data):
+        return ft.Column([
+            cls._label("Theme"),
+            cls._dd("ui.theme", data.get("theme"),
+                    ["dark", "light"], w=220),
+            cls._spacer(),
+            cls._label("Language"),
+            cls._dd("ui.language", data.get("language"),
+                    ["zh", "en"], w=220),
+            cls._spacer(),
+            cls._label("Scale"),
+            cls._tf("ui.scale", data.get("scale", SCALE), "", 120),
+            cls._spacer(),
+            cls._label("Card Preview Delay (ms)"),
+            cls._tf("ui.card_preview_delay_ms",
+                    data.get("card_preview_delay_ms"), "", 120),
+        ], spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
+
+    @classmethod
+    def _make_agent_section(cls, data):
+        al = {"low": "Low", "medium": "Medium", "high": "High"}
+        return ft.Column([
+            cls._label("Triage"),
+            cls._dd("agent.triage_autonomy",
+                    data.get("triage_autonomy"),
+                    ["low", "medium", "high"], al, w=220),
+            cls._spacer(),
+            cls._label("Suggest"),
+            cls._dd("agent.suggest_autonomy",
+                    data.get("suggest_autonomy"),
+                    ["low", "medium", "high"], al, w=220),
+            cls._spacer(),
+            cls._label("Compliance"),
+            cls._dd("agent.compliance_autonomy",
+                    data.get("compliance_autonomy"),
+                    ["low", "medium", "high"], al, w=220),
+            cls._spacer(),
+            cls._label("异常检测间隔 (分钟)"),
+            cls._tf("agent.anomaly_check_interval_minutes",
+                    data.get("anomaly_check_interval_minutes"), "", 120),
+        ], spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
 
     @classmethod
     def _save(cls, e):
