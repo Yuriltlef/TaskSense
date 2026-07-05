@@ -406,6 +406,7 @@ class BoardPage:
     def _on_status_task_cancel(self, task_id: str):
         """状态栏取消——立即清理幽灵卡片 + 更新 UI + 设取消事件。"""
         log.info("task.cancel", task_id=task_id[:20])
+        from app.ui.services.card_highlighter import CardHighlighter
         for t in self._task_registry.get_all():
             if t["id"] == task_id:
                 ttype = t.get("type", "")
@@ -415,6 +416,7 @@ class BoardPage:
                 elif ttype == "review":
                     self._cancel_review()
                 else:
+                    CardHighlighter.clear_ai_running()  # 橙色高亮
                     label = t.get("label", "")
                     if self.ai_chat:
                         ce = self._runner.get_cancel()
@@ -605,12 +607,12 @@ class BoardPage:
         items = ContextMenuBuilder().build(t.status.value, t)
         if not items:
             return
-        CardHighlighter.select(tid)  # 蓝色高亮
         cx, cy = self._get_cursor_pos(self._page)
         ContextMenu(
             items=items,
             on_select=lambda a: self._card_action(tid, a),
         ).show(self._page, cx, cy)
+        CardHighlighter.select(tid)  # 蓝色高亮（在 close_current_menu→deselect 之后）
 
     @staticmethod
     def _get_cursor_pos(page) -> tuple[float, float]:
