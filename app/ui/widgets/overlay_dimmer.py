@@ -105,12 +105,11 @@ class OverlayDimmer:
             except Exception: pass
 
     def _build_inline(self) -> ft.Stack:
-        """原生槽位模式：expand自动填满 + alignment.center自动居中。"""
-        # 清除内容面板的手动定位（让 alignment.center 自动居中）
-        if hasattr(self._content, 'left'):
-            self._content.left = None
-        if hasattr(self._content, 'top'):
-            self._content.top = None
+        """原生槽位模式：expand自动填满 + alignment.center自动居中。
+
+        Stack 行为：无 left/top 的子控件由 alignment 居中，
+        有 left/top 的保持显式定位——无需手动清除。
+        """
         dimmer = ft.Container(
             expand=True,
             bgcolor=ft.Colors.BLACK,

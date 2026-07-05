@@ -29,7 +29,7 @@ class SettingsOverlay:
     _right_header: ft.Text | None = None      # 固定标题（不随滚动移动）
     _right_body: ft.Container | None = None    # 滚动内容区
     _drag_start = (0, 0)
-    _panel_x = 0                               # 缓存面板定位（OverlayDimmer 会清除 left/top）
+    _panel_x = 0                               # 缓存面板定位（拖拽时使用）
     _panel_y = 0
 
     # ── API ──
@@ -49,11 +49,6 @@ class SettingsOverlay:
         cls._dimmer = OverlayDimmer.open(
             page, cls._panel, dim_opacity=0.65,
             on_dimmer_click=lambda: cls.close())
-        # OverlayDimmer 清除了 left/top 以使用 Stack 居中，
-        # 立即恢复为显式定位——否则第一次拖拽时 Flet 无法从
-        # "居中模式"切换到"显式模式"（需页面级 update），面板拖不动
-        cls._panel.left = cls._panel_x
-        cls._panel.top = cls._panel_y
         cls._switch("llm")
         page.update()
 
@@ -75,7 +70,7 @@ class SettingsOverlay:
         cx = (page.width - PANEL_W) // 2
         cy = (page.height - PANEL_H) // 2
 
-        # 缓存初始定位（OverlayDimmer 会清除面板 left/top，需自行保存）
+        # 缓存初始定位（拖拽 start 时以此为基准）
         cls._panel_x = cx
         cls._panel_y = cy
 
