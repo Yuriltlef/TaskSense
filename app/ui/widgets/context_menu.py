@@ -35,8 +35,11 @@ def _hover_item(e, ctrl, item_color):
         pass
 
 
+# 全局追踪所有已创建的菜单容器，用于防御性清理
+_menu_containers: set[int] = set()
+
 class ContextMenu:
-    """右键菜单，通过 page.overlay 在鼠标位置弹出（不再使用外层 Stack 包裹）。"""
+    """右键菜单，通过 page.overlay 在鼠标位置弹出。"""
 
     MENU_W = round(200 * 1.5)
 
@@ -84,9 +87,13 @@ class ContextMenu:
             animate_opacity=ft.Animation(120, ft.AnimationCurve.EASE_OUT),
             opacity=0,
         )
+        self._cid = id(self._container)  # 唯一标识，用于追踪和清理
+        _menu_containers.add(self._cid)
 
     def _close(self):
+        _menu_containers.discard(self._cid)
         if self._page and self._overlay:
+            self._overlay.visible = False  # 即时视觉隐藏
             try:
                 self._page.overlay.remove(self._overlay)
             except (ValueError, AssertionError):
@@ -159,6 +166,15 @@ class ContextMenu:
         """在 (x, y) 位置弹出菜单，下方空间不足时自动向上弹出。"""
         global _current_menu
         close_current_menu()
+
+        # 防御性清理：遍历 overlay 移除所有残留的菜单容器
+        # （启动卡顿期间事件排队可能导致 page.overlay.remove 未能生效）
+        for item in list(page.overlay):
+            if isinstance(item, ft.Container) and id(item) in _menu_containers:
+                try:
+                    page.overlay.remove(item)
+                except (ValueError, AssertionError):
+                    pass
 
         self._page = page
         pw, ph = page.width, page.height
