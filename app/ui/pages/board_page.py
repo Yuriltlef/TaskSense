@@ -48,6 +48,7 @@ class BoardPage:
         self._review_result: dict | None = None
         self._report_dlg = None               # OverlayDimmer ref
         self._review_dlg = None               # OverlayDimmer ref
+        self._empty_result_dlg = None         # OverlayDimmer ref
         self._report_thread = None            # threading.Thread ref
         self._review_thread = None            # threading.Thread ref
         self._selected_tid: str | None = None  # 右键选中高亮
@@ -551,8 +552,14 @@ class BoardPage:
             left=cx, top=cy,
         )
         from app.ui.widgets.overlay_dimmer import OverlayDimmer
+        # 关闭已有弹窗防止叠加
+        if self._empty_result_dlg:
+            try: self._empty_result_dlg.close()
+            except Exception: pass
         dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.4,
-                                  on_dimmer_click=lambda: dlg.close())
+                                  on_dimmer_click=lambda: dlg.close(),
+                                  on_close=lambda: setattr(self, '_empty_result_dlg', None))
+        self._empty_result_dlg = dlg
 
     # ── 报表弹窗最小化相关 ──
 
@@ -1068,7 +1075,12 @@ class BoardPage:
         )
 
         from app.ui.widgets.overlay_dimmer import OverlayDimmer
-        dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.55)
+        # 关闭已有报表弹窗防止叠加
+        if self._report_dlg:
+            try: self._report_dlg.close()
+            except Exception: pass
+        dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.55,
+                                  on_close=lambda: setattr(self, '_report_dlg', None))
         self._report_dlg = dlg
 
         # ── 异步生成（仅加载中且无运行中线程时）──
@@ -1245,7 +1257,8 @@ class BoardPage:
         )
 
         from app.ui.widgets.overlay_dimmer import OverlayDimmer
-        dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.55)
+        dlg = OverlayDimmer.open(self._page, panel, dim_opacity=0.55,
+                                  on_close=lambda: setattr(self, '_review_dlg', None))
         self._review_dlg = dlg
 
         # ── 异步审核 → Agent 深度分析 + 本地规则兜底 ──

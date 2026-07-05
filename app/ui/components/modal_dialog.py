@@ -25,6 +25,7 @@ class ModalDialog:
         self._on_close = on_close
         self._close_on_dimmer = close_on_dimmer_click
         self._dimmer: OverlayDimmer | None = None
+        self._open = False
         self._w, self._h = width, height
 
         panel_bg = bgcolor or theme.surface
@@ -38,13 +39,27 @@ class ModalDialog:
         )
 
     def open(self):
+        if self._open:
+            return
+        self._open = True
         self._dimmer = OverlayDimmer.open(
             self._page, self._panel, dim_opacity=0.55,
-            on_dimmer_click=(lambda: self.close()) if self._close_on_dimmer else None)
+            on_dimmer_click=(lambda: self.close()) if self._close_on_dimmer else None,
+            on_close=lambda: self._on_external_close())
 
     def close(self):
+        if not self._open:
+            return
+        self._open = False
         if self._dimmer:
             self._dimmer.close()
             self._dimmer = None
+        if self._on_close:
+            self._on_close()
+
+    def _on_external_close(self):
+        """被其他弹窗顶掉时重置状态（dimmer 已被 OverlayDimmer 关闭）。"""
+        self._open = False
+        self._dimmer = None
         if self._on_close:
             self._on_close()

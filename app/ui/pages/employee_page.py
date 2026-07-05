@@ -40,6 +40,7 @@ class EmployeeWorkbench:
             page, cls._panel,
             dim_opacity=0.65,
             on_dimmer_click=lambda: cls.close(),
+            on_close=lambda: cls._on_external_close(),
         )
         # 订阅状态变更——看板移动任务时自动刷新
         cls._state_listener = lambda: cls._on_state_changed()
@@ -59,6 +60,15 @@ class EmployeeWorkbench:
             cls._dimmer = None
         if cls._page:
             cls._page.update()
+
+    @classmethod
+    def _on_external_close(cls):
+        """被其他弹窗顶掉时重置 _open 状态（dimmer 已被 OverlayDimmer 关闭）。"""
+        cls._open = False
+        cls._dimmer = None
+        if cls._state_listener:
+            state.unsubscribe(cls._state_listener)
+            cls._state_listener = None
 
     @classmethod
     def _on_state_changed(cls):

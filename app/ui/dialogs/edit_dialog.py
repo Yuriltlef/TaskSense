@@ -506,9 +506,16 @@ def open(page: ft.Page, task):
     )
 
     _dimmer_ref: list = [None]
+    # 打开前先关闭已有编辑弹窗（防止叠加泄露）
+    if _dimmer_ref[0] is not None:
+        _dimmer_ref[0].close()
+        _dimmer_ref[0] = None
     def _close_dlg():
         if _dimmer_ref[0] is not None:
             _dimmer_ref[0].close()
+    def _on_ext_close():
+        _dimmer_ref[0] = None
     _dimmer_ref[0] = OverlayDimmer.open(page, panel, dim_opacity=0.55,
-                                         on_dimmer_click=_close_dlg)
+                                         on_dimmer_click=_close_dlg,
+                                         on_close=_on_ext_close)
 

@@ -22,13 +22,15 @@ class OverlayDimmer:
                  dim_opacity: float = 0.4,
                  on_dimmer_click=None,
                  close_on_dimmer_click: bool = True,
-                 keep_position: bool = False):
+                 keep_position: bool = False,
+                 on_close=None):
         self._page = page
         self._content = content
         self._dim_opacity = max(0.0, min(1.0, dim_opacity))
         self._on_dimmer_click = on_dimmer_click
         self._close_on_dimmer = close_on_dimmer_click
         self._keep_position = keep_position
+        self._on_close_callback = on_close
         self._use_slot = OverlayDimmer._slot is not None
         self._old_on_resized = None
         self._open = False
@@ -49,6 +51,9 @@ class OverlayDimmer:
     def show(self):
         if self._open:
             return
+        # 关闭前一个活跃的 overlay，防止共享槽位被覆盖导致状态死锁
+        if OverlayDimmer._active is not None:
+            OverlayDimmer._active.close()
         self._open = True
 
         if self._use_slot:
@@ -88,6 +93,13 @@ class OverlayDimmer:
             except (ValueError, AssertionError):
                 pass
             self._page.update()
+
+        # 通知调用方（无论触发源：用户关闭 / 程序关闭 / 被新弹窗顶掉）
+        if self._on_close_callback:
+            try:
+                self._on_close_callback()
+            except Exception:
+                pass
 
     @property
     def is_open(self) -> bool:

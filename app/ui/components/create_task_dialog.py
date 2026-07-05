@@ -20,13 +20,20 @@ class CreateTaskDialog:
         if cls._open: return
         cls._page = page; cls._open = True; cls._fields = {}
         cls._dimmer = OverlayDimmer.open(page, cls._build(), dim_opacity=0.55,
-                                         on_dimmer_click=lambda: cls.close())
+                                         on_dimmer_click=lambda: cls.close(),
+                                         on_close=lambda: cls._on_external_close())
 
     @classmethod
     def close(cls):
         if not cls._open: return
         cls._open = False
         if cls._dimmer: cls._dimmer.close(); cls._dimmer = None
+
+    @classmethod
+    def _on_external_close(cls):
+        """被其他弹窗顶掉时重置 _open 状态（dimmer 已被 OverlayDimmer 关闭）。"""
+        cls._open = False
+        cls._dimmer = None
 
     @classmethod
     def _build(cls):

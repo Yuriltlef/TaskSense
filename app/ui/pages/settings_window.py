@@ -49,6 +49,7 @@ class SettingsOverlay:
         cls._dimmer = OverlayDimmer.open(
             page, cls._panel, dim_opacity=0.65,
             on_dimmer_click=lambda: cls.close(),
+            on_close=lambda: cls._on_external_close(),
             keep_position=True)  # 保留显式定位，支持拖拽
         cls._switch("llm")
         page.update()
@@ -61,6 +62,12 @@ class SettingsOverlay:
         if cls._dimmer:
             cls._dimmer.close()
             cls._dimmer = None
+
+    @classmethod
+    def _on_external_close(cls):
+        """被其他弹窗顶掉时重置 _open 状态（dimmer 已被 OverlayDimmer 关闭）。"""
+        cls._open = False
+        cls._dimmer = None
 
     # ── Build ──
 
