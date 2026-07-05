@@ -36,14 +36,14 @@ def _hover_item(e, ctrl, item_color):
 
 
 class ContextMenu:
-    """右键菜单，通过 page.overlay 在鼠标位置弹出。"""
+    """右键菜单，通过 page.overlay 在鼠标位置弹出（不再使用外层 Stack 包裹）。"""
 
     MENU_W = round(200 * 1.5)
 
     def __init__(self, items: list[dict], on_select=None):
         self._on_select = on_select
         self._page = None
-        self._overlay = None
+        self._overlay = None   # _container 即 overlay 实体
 
         ff = theme.font_family
         menu_ctrls = []
@@ -64,12 +64,10 @@ class ContextMenu:
                 border_radius=6,
                 margin=ft.margin.symmetric(horizontal=4),
                 border=ft.border.all(1, ft.Colors.TRANSPARENT),
-                animate=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
                 ink=True,
                 on_click=lambda e, a=item["action"], cf=confirm_msg: (
                     self._confirm_then_pick(a, cf) if cf else self._pick(a)),
             )
-            # 闭包捕获当前 c 和 item_ctrl
             item_ctrl.on_hover = (
                 lambda e, ctrl=item_ctrl, clr=c: _hover_item(e, ctrl, clr))
             menu_ctrls.append(item_ctrl)
@@ -83,7 +81,7 @@ class ContextMenu:
             padding=ft.padding.symmetric(vertical=4),
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=16,
                                 color="#00000080", offset=ft.Offset(0, 6)),
-            animate_opacity=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
+            animate_opacity=ft.Animation(120, ft.AnimationCurve.EASE_OUT),
             opacity=0,
         )
 
@@ -166,26 +164,26 @@ class ContextMenu:
         pw, ph = page.width, page.height
 
         # 估算菜单高度：每项 ~36px + 分割线 ~12px + 内边距 8px
-        item_count = sum(1 for _ in self._menu_col.controls if not isinstance(_, ft.Divider))
-        divider_count = sum(1 for _ in self._menu_col.controls if isinstance(_, ft.Divider))
+        item_count = sum(1 for _ in self._menu_col.controls
+                         if not isinstance(_, ft.Divider))
+        divider_count = sum(1 for _ in self._menu_col.controls
+                           if isinstance(_, ft.Divider))
         est_h = item_count * 36 + divider_count * 12 + 8
 
         # 水平边缘钳制
         menu_x = min(max(x, 4), pw - self.MENU_W - 8)
         # 垂直方向：下方空间不足则向上弹出
-        if y + est_h > ph - 8:
-            menu_y = y - est_h - 4  # 光标上方
-        else:
-            menu_y = y - 10  # 光标略上方
-        menu_y = max(4, menu_y)  # 不超出顶部
+        menu_y = (y - est_h - 4) if (y + est_h > ph - 8) else (y - 10)
+        menu_y = max(4, menu_y)
 
         self._container.left = menu_x
         self._container.top = menu_y
+        self._container.opacity = 0  # 初始透明，下一帧渐入
 
-        self._overlay = ft.Stack([self._container], width=pw, height=ph)
-        page.overlay.append(self._overlay)
+        self._overlay = self._container
+        page.overlay.append(self._container)
         _current_menu = self
         page.update()
-        # 弹出动画：淡入
+        # 渐入动画
         self._container.opacity = 1
         page.update()
