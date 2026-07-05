@@ -9,8 +9,12 @@ keywords = ["aviation", "maintenance", "kanban", "rag", "agent", "langchain"]
 authors = [{ name = "YT_Minro" }]
 
 dependencies = [
+    # ── UI ──
     "flet==0.28.3",
     "flet-desktop==0.28.3",
+
+    # ── LLM / Agent ──
+    "openai==2.44.0",
     "langchain==1.3.11",
     "langchain-core==1.4.8",
     "langchain-protocol==0.0.18",
@@ -19,24 +23,63 @@ dependencies = [
     "langgraph-prebuilt==1.1.0",
     "langgraph-sdk==0.4.2",
     "langsmith==0.9.1",
+
+    # ── RAG / Embedding ──
+    "chromadb==1.5.9",
+    "sentence-transformers==4.1.0",
+    "transformers==4.57.6",
+    "tokenizers==0.22.2",
+    "huggingface_hub==0.36.2",
+    "pypdf==6.14.2",
+
+    # ── 数值计算 ──
+    "numpy==2.5.0",
+    "scipy==1.18.0",
+    "scikit-learn==1.9.0",
+
+    # ── HTTP / 网络 ──
+    "httpx==0.28.1",
+    "httpcore==1.0.9",
+    "aiohttp==3.14.1",
+    "requests==2.34.2",
+
+    # ── 序列化 / 数据 ──
     "pydantic==2.13.4",
     "pydantic-core==2.46.4",
+    "pydantic-settings==2.14.2",
+    "orjson==3.11.9",
+    "PyYAML==6.0.3",
+    "packaging==26.2",
+    "uuid-utils==0.16.2",
+    "python-dotenv==1.2.2",
+
+    # ── CLI / 输出 ──
+    "typer==0.26.8",
+    "rich==15.0.0",
+
+    # ── 服务 / 运行时 ──
+    "uvicorn==0.49.0",
+    "websockets==15.0.1",
+
+    # ── 基础设施（关键传递依赖，锁定版本）──
     "anyio==4.14.1",
     "certifi==2026.6.17",
-    "httpcore==1.0.9",
-    "httpx==0.28.1",
-    "orjson==3.11.9",
-    "packaging==26.2",
-    "PyYAML==6.0.3",
-    "requests==2.34.2",
     "tenacity==9.1.4",
-    "uuid-utils==0.16.2",
-    "websockets==16.0",
+    "grpcio==1.81.1",
+    "protobuf==7.35.1",
+    "onnxruntime==1.27.0",
+    "jinja2==3.1.6",
+    "safetensors==0.8.0",
+    "tqdm==4.68.3",
+    "filelock==3.29.4",
+    "fsspec==2026.6.0",
+    "networkx==3.6.1",
+    "pillow==12.2.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=9.0",
+    "pytest==9.1.1",
 ]
 
 [tool.pytest.ini_options]
