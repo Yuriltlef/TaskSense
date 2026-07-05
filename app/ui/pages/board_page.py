@@ -50,6 +50,8 @@ class BoardPage:
         self._review_dlg = None               # OverlayDimmer ref
         self._report_thread = None            # threading.Thread ref
         self._review_thread = None            # threading.Thread ref
+        self._selected_tid: str | None = None  # 右键选中高亮
+        self._ai_active_tid: str | None = None # AI 运行高亮
         state.subscribe(self._on_state_changed)
 
     def build(self, page: ft.Page) -> ft.Container:
@@ -62,6 +64,8 @@ class BoardPage:
             on_drop=self._on_drop,
             on_column_menu=self._on_column_menu,
         )
+        from app.ui.services.card_highlighter import CardHighlighter
+        CardHighlighter.init(self.kanban_board)
         self.side_panel = SidePanel(on_close=self._on_side_panel_close,
                                      on_edit=self._on_edit_task)
         self.ai_chat = AIChatPanel(on_close=self._on_side_panel_close)
@@ -322,7 +326,9 @@ class BoardPage:
     def _finish_task_card(self, label: str, status: str, color: str):
         """统一的任务卡片结束处理：停动画 + 显示结果气泡（保留在聊天历史）+ 延迟关闭卡片。"""
         import time, threading
+        from app.ui.services.card_highlighter import CardHighlighter
         active_task_registry.clear()
+        CardHighlighter.clear_ai_running()  # 橙色高亮
         self.ai_chat.update_task_card(status, border_color=color)
         self.ai_chat.show_status_bubble(f"{label} {status}", color)
         # 更新状态栏
@@ -592,12 +598,14 @@ class BoardPage:
     def _on_card_context_menu(self, tid, x, y):
         from app.ui.widgets.context_menu import ContextMenu
         from app.ui.services.context_menu_builder import ContextMenuBuilder
+        from app.ui.services.card_highlighter import CardHighlighter
         t = state.get_task(tid)
         if not t:
             return
         items = ContextMenuBuilder().build(t.status.value, t)
         if not items:
             return
+        CardHighlighter.select(tid)  # 蓝色高亮
         cx, cy = self._get_cursor_pos(self._page)
         ContextMenu(
             items=items,
@@ -1498,9 +1506,16 @@ class BoardPage:
 
     def _card_action(self, tid, action):
         """右键菜单动作分发（注册表模式）。"""
+        from app.ui.services.card_highlighter import CardHighlighter
         t = state.get_task(tid)
         if not t:
             return
+        # 清除右键选中高亮（菜单已执行动作）
+        CardHighlighter.deselect()
+        # 单任务 AI 动作 → 橙色运行高亮
+        if action in ("ai_explain", "ai_classify", "ai_schedule",
+                       "ai_review_single", "search"):
+            CardHighlighter.set_ai_running(tid)
         # 懒初始化
         if self._ACTION_HANDLERS is None:
             self._init_action_handlers()

@@ -12,6 +12,9 @@ def close_current_menu():
     if _current_menu:
         _current_menu._close()
         _current_menu = None
+        # 菜单关闭 → 清除卡片蓝色选中高亮
+        from app.ui.services.card_highlighter import CardHighlighter
+        CardHighlighter.deselect()
 
 
 def is_menu_open() -> bool:

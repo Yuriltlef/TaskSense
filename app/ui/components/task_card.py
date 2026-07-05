@@ -8,12 +8,18 @@ from app.ui.widgets.badge import ATABadge, PriorityBadge, TaskTypeBadge
 
 
 class TaskCard(ft.Container):
+
     def __init__(self, task: Task, on_click=None, ghost: bool = False, **_kw):
         self.task = task
         self._on_click = on_click
         self._ghost = ghost
         pc = theme.priority_color(task.priority.value)
         pd = theme.pad_md
+
+        # 高亮状态委托给 CardHighlighter（类级别单例，卡片重建时自动保持）
+        from app.ui.services.card_highlighter import CardHighlighter
+        self._highlight: str | None = CardHighlighter.get_highlight(task.id) \
+            if not ghost else None
 
         super().__init__(
             content=self._build(pc, pd),
@@ -28,7 +34,9 @@ class TaskCard(ft.Container):
             on_click=lambda e: self._on_click and self._on_click(task.id),
             on_hover=self._handle_hover,
         )
-        if ghost:
+        if self._highlight:
+            self.border = ft.border.all(2, self._highlight)
+        elif ghost:
             self.border = ft.border.all(1.5, theme.border)
             self.opacity = 0.45
 
@@ -113,8 +121,8 @@ class TaskCard(ft.Container):
         return ft.Column(ctrls, spacing=theme.spacing_sm)
 
     def _handle_hover(self, e):
-        if self._ghost:
-            return
+        if self._ghost or self._highlight:
+            return  # 幽灵卡和高亮卡不响应悬停
         if e.data == "true":
             self.border = ft.border.all(1, theme.info)
             self.bgcolor = theme.card_hover
