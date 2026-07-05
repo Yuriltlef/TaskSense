@@ -65,6 +65,12 @@ class AppTheme:
     error: str = "#c62828"
     info: str = "#1976d2"
 
+    # ── 高亮 / 交互 ──
+    highlight_border_width: int = 2
+    card_shadow_color: str = "#00000030"
+    card_hover_shadow_color: str = "#00000050"
+    menu_shadow_color: str = "#00000080"
+
     # ── 列头色 ──
     column_header: str = "#808080"
 

@@ -83,7 +83,8 @@ class ContextMenu:
             border=ft.border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.WHITE)),
             padding=ft.padding.symmetric(vertical=4),
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=16,
-                                color="#00000080", offset=ft.Offset(0, 6)),
+                                color=theme.menu_shadow_color,
+                                offset=ft.Offset(0, 6)),
             animate_opacity=ft.Animation(120, ft.AnimationCurve.EASE_OUT),
             opacity=0,
         )

@@ -29,7 +29,8 @@ class TaskCard(ft.Container):
             padding=ft.padding.all(pd),
             animate=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
             shadow=(ft.BoxShadow(spread_radius=0, blur_radius=4,
-                     color="#00000030", offset=ft.Offset(0, 1))
+                     color=theme.card_shadow_color,
+                     offset=ft.Offset(0, 1))
                     if not ghost else None),
             on_click=lambda e: self._on_click and self._on_click(task.id),
             on_hover=self._handle_hover,
@@ -127,13 +128,15 @@ class TaskCard(ft.Container):
             self.border = ft.border.all(1, theme.info)
             self.bgcolor = theme.card_hover
             self.shadow = ft.BoxShadow(spread_radius=1, blur_radius=8,
-                                       color="#00000050", offset=ft.Offset(0, 2))
+                                       color=theme.card_hover_shadow_color,
+                                       offset=ft.Offset(0, 2))
             self.scale = 1.01
         else:
             self.border = None
             self.bgcolor = theme.card
             self.shadow = ft.BoxShadow(spread_radius=0, blur_radius=4,
-                                       color="#00000030", offset=ft.Offset(0, 1))
+                                       color=theme.card_shadow_color,
+                                       offset=ft.Offset(0, 1))
             self.scale = 1.0
         try:
             self.update()
