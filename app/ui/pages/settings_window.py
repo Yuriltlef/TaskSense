@@ -49,6 +49,11 @@ class SettingsOverlay:
         cls._dimmer = OverlayDimmer.open(
             page, cls._panel, dim_opacity=0.65,
             on_dimmer_click=lambda: cls.close())
+        # OverlayDimmer 清除了 left/top 以使用 Stack 居中，
+        # 立即恢复为显式定位——否则第一次拖拽时 Flet 无法从
+        # "居中模式"切换到"显式模式"（需页面级 update），面板拖不动
+        cls._panel.left = cls._panel_x
+        cls._panel.top = cls._panel_y
         cls._switch("llm")
         page.update()
 
