@@ -50,7 +50,7 @@ class ChatInput(ft.Container):
         )
 
         self._send_btn = ft.IconButton(
-            ft.Icons.ARROW_UPWARD, icon_size=18, icon_color="#ffffff",
+            ft.Icons.ARROW_UPWARD, icon_size=18, icon_color=ft.Colors.WHITE,
             on_click=self._on_btn_click, splash_radius=18,
             style=ft.ButtonStyle(
                 shape=ft.CircleBorder(),
@@ -67,8 +67,8 @@ class ChatInput(ft.Container):
             spacing=8,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
-        self.bgcolor = "#1a1a1a"
-        self.border = ft.border.all(1, "#2a2a2a")
+        self.bgcolor = theme.card_hover
+        self.border = ft.border.all(1, theme.border_active)
         self.padding = ft.padding.only(left=14, top=4, right=6, bottom=4)
 
     @property
@@ -92,7 +92,7 @@ class ChatInput(ft.Container):
         self._busy = busy
         if busy:
             self._send_btn.icon = ft.Icons.STOP
-            self._send_btn.icon_color = "#ffffff"
+            self._send_btn.icon_color = ft.Colors.WHITE
             self._send_btn.style = ft.ButtonStyle(
                 shape=ft.CircleBorder(),
                 bgcolor=theme.error,
@@ -100,7 +100,7 @@ class ChatInput(ft.Container):
             )
         else:
             self._send_btn.icon = ft.Icons.ARROW_UPWARD
-            self._send_btn.icon_color = "#ffffff"
+            self._send_btn.icon_color = ft.Colors.WHITE
             self._send_btn.style = ft.ButtonStyle(
                 shape=ft.CircleBorder(),
                 bgcolor=theme.info,
@@ -128,5 +128,5 @@ class ChatInput(ft.Container):
                 self._on_send(txt)
 
     def _set_border(self, focused: bool):
-        self.border = ft.border.all(1, theme.info if focused else "#2a2a2a")
+        self.border = ft.border.all(1, theme.info if focused else theme.border_active)
         self.update()

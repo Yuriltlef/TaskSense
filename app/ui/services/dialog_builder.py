@@ -20,7 +20,7 @@ def button_style() -> ft.ButtonStyle:
 def header(icon: str, title: str, on_close, progress=None) -> ft.Container:
     """弹窗统一 header：图标 + 标题 + 可选进度圈 + 关闭按钮。"""
     row_controls = [
-        ft.Icon(icon, size=s(15), color="#5294e2"),
+        ft.Icon(icon, size=s(15), color=theme.accent),
         ft.Text(title, size=s(14), weight=ft.FontWeight.W_600,
                 color=theme.text_primary, font_family=theme.font_family),
     ]
@@ -45,7 +45,7 @@ def header(icon: str, title: str, on_close, progress=None) -> ft.Container:
 
 def footer(cancel_text: str, confirm_text: str, on_confirm,
            on_cancel=None, extra_buttons=None,
-           confirm_color: str = "#5294e2") -> ft.Container:
+           confirm_color: str = theme.accent) -> ft.Container:
     """弹窗统一 footer：左侧额外按钮 + 右侧取消/确认。"""
     bt_st = button_style()
     btns: list = extra_buttons or []
@@ -83,7 +83,7 @@ def make_field(hint="", width=None, readonly=False, value="", **kw) -> ft.TextFi
         hint_text=hint, value=str(value or ""),
         border_color=theme.border, focused_border_color=theme.info,
         cursor_color=theme.info,
-        text_style=ft.TextStyle(color="#e0e0e0", size=s(13), font_family=ff),
+        text_style=ft.TextStyle(color=theme.form_text, size=s(13), font_family=ff),
         hint_style=ft.TextStyle(color=theme.text_secondary, size=s(12), font_family=ff),
         bgcolor=theme.card, dense=True, border_radius=s(6),
         content_padding=ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8)),
@@ -155,7 +155,7 @@ def make_date_picker(page, initial_date=None, locked: bool = False,
 
     if initial_date:
         display = ft.Text(initial_date.strftime("%Y-%m-%d"), size=s(12),
-                          color="#e0e0e0", font_family=ff)
+                          color=theme.form_text, font_family=ff)
     elif locked:
         display = ft.Text("—", size=s(12), color=theme.text_secondary,
                           font_family=ff)
@@ -180,7 +180,7 @@ def make_date_picker(page, initial_date=None, locked: bool = False,
         if e.control.value:
             state["date"] = e.control.value
             display.value = state["date"].strftime("%Y-%m-%d")
-            display.color = "#e0e0e0"
+            display.color = theme.form_text
             ctrl.update()
             if on_pick_callback:
                 on_pick_callback()
@@ -194,7 +194,7 @@ def make_date_picker(page, initial_date=None, locked: bool = False,
     def _clear_err():
         if state["date"]:
             display.value = state["date"].strftime("%Y-%m-%d")
-            display.color = "#e0e0e0"
+            display.color = theme.form_text
         else:
             display.value = "点击选择日期"
             display.color = theme.text_secondary

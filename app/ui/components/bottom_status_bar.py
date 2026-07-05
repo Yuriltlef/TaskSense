@@ -24,7 +24,7 @@ class BottomStatusBar(ft.Container):
 
     # 悬浮高亮色
     HOVER_BG = "#222222"
-    TAG_BG = "#111111"
+    TAG_BG = theme.panel_dark
     CANCEL_BG = "#cc3333"
     CANCEL_HOVER = "#e04444"
 
@@ -146,7 +146,7 @@ class BottomStatusBar(ft.Container):
                 value=progress,
                 color=theme.info if progress is None else (
                     theme.success if (progress or 0) >= 1.0 else theme.info),
-                bgcolor="#1a1a1a",
+                bgcolor=theme.card_hover,
             )
 
             # ── 状态文字颜色 ──

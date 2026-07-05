@@ -23,7 +23,7 @@ _ff = theme.font_family
 _fm = theme.font_mono
 
 USER_BG = "#1565c0"
-USER_TEXT_COLOR = "#ffffff"
+USER_TEXT_COLOR = ft.Colors.WHITE
 AI_BG = theme.card
 AI_BORDER = theme.border
 ERROR_BG = "#1a0d0d"

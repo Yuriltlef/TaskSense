@@ -111,7 +111,7 @@ class SidePanel(ft.Container):
                     ft.Container(height=s(6)),
                     ft.Column(children, spacing=s(6), tight=True),
                 ], spacing=0, tight=True),
-                bgcolor="#111111",
+                bgcolor=theme.panel_dark,
                 border_radius=s(8),
                 padding=ft.padding.all(s(12)),
             )
@@ -207,9 +207,9 @@ class SidePanel(ft.Container):
                             color=theme.text_primary, font_family=ff),
                     ft.Container(height=s(6)),
                     ft.Text(t.description, size=s(12),
-                            color="#c0c0c0", font_family=ff),
+                            color=theme.text_content, font_family=ff),
                 ], spacing=0, tight=True),
-                bgcolor="#111111",
+                bgcolor=theme.panel_dark,
                 border_radius=s(8),
                 padding=ft.padding.all(s(12)),
             ))
@@ -227,7 +227,7 @@ class SidePanel(ft.Container):
                         value=pct, color=theme.success,
                         bgcolor=theme.border, height=s(4)),
                 ], spacing=0, tight=True),
-                bgcolor="#111111",
+                bgcolor=theme.panel_dark,
                 border_radius=s(8),
                 padding=ft.padding.all(s(12)),
             ))
@@ -292,7 +292,7 @@ class SidePanel(ft.Container):
         # ── 交接班日志 ──
         if t.shift_handover_log:
             sections.append(_section("交接班日志", [
-                ft.Text(t.shift_handover_log, size=s(12), color="#c0c0c0", font_family=ff),
+                ft.Text(t.shift_handover_log, size=s(12), color=theme.text_content, font_family=ff),
             ]))
 
         # ── AI 审核区域（仅 inspection 状态）──
@@ -343,7 +343,7 @@ class SidePanel(ft.Container):
                     ft.Container(height=s__(4)),
                     ft.Column(items, spacing=s__(4), tight=True),
                 ], spacing=0, tight=True),
-                bgcolor="#0a0a0a",
+                bgcolor=theme.section_bg,
                 border_radius=s__(6),
                 padding=ft.padding.all(s__(8)),
             )
@@ -409,7 +409,7 @@ class SidePanel(ft.Container):
             # 摘要
             if summary:
                 result_col.controls.append(
-                    ft.Text(summary, size=s_(11), color="#c0c0c0", font_family=ff))
+                    ft.Text(summary, size=s_(11), color=theme.text_content, font_family=ff))
 
             # 原因
             if reasons:
@@ -417,7 +417,7 @@ class SidePanel(ft.Container):
                 for r in reasons:
                     items.append(ft.Row([
                         ft.Text("•", size=s_(11), color=theme.text_secondary, font_family=ff),
-                        ft.Text(r, size=s_(11), color="#c0c0c0", font_family=ff),
+                        ft.Text(r, size=s_(11), color=theme.text_content, font_family=ff),
                     ], spacing=s_(6)))
                 result_col.controls.append(_mini_section("驳回原因" if rec == "reject" else "审核要点", items, ff, s_))
 
@@ -443,7 +443,7 @@ class SidePanel(ft.Container):
                 for i, a in enumerate(actions, 1):
                     items.append(ft.Row([
                         ft.Text(f"{i}.", size=s_(11), color=theme.info, font_family=ff),
-                        ft.Text(a, size=s_(11), color="#c0c0c0", font_family=ff),
+                        ft.Text(a, size=s_(11), color=theme.text_content, font_family=ff),
                     ], spacing=s_(6)))
                 result_col.controls.append(_mini_section("建议操作", items, ff, s_))
 
@@ -468,7 +468,7 @@ class SidePanel(ft.Container):
             """纯文本回退渲染。"""
             result_col.controls.clear()
             result_col.controls.append(
-                ft.Text(raw, size=s_(11), color="#c0c0c0", font_family=ff))
+                ft.Text(raw, size=s_(11), color=theme.text_content, font_family=ff))
 
         def _ai_suggest(e):
             progress.visible = True; status_text.value = "正在分析提交材料..."; status_text.visible = True
@@ -553,7 +553,7 @@ class SidePanel(ft.Container):
                             text_style=ft.TextStyle(size=s_(11), font_family=ff))),
                 ], spacing=s_(8)),
             ], spacing=0, tight=True),
-            bgcolor="#111111",
+            bgcolor=theme.panel_dark,
             border_radius=s_(8),
             padding=ft.padding.all(s_(12)),
         )

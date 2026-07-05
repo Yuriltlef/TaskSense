@@ -36,6 +36,17 @@ class AppTheme:
     text_secondary: str = "#6a6a6a"
     text_disabled: str = "#404040"
     text_link: str = "#5294e2"
+    text_content: str = "#c0c0c0"     # 侧栏/报告等次级内容文字
+    form_text: str = "#e0e0e0"        # 表单输入框文字
+    accent: str = "#5294e2"           # 主色调蓝（图标/按钮/高亮）
+    dialog_shadow: str = "#000000aa"  # 弹窗阴影
+    panel_dark: str = "#111111"       # 深色面板背景
+    border_active: str = "#2a2a2a"    # 输入框激活态边框
+    nav_bg: str = "#101010"           # 设置左侧导航背景
+    tooltip_bg: str = "#202020"       # 工具提示背景
+    ai_icon: str = "#c498e8"          # AI 助手图标紫色
+    notification_shadow: str = "#00000066"
+    section_bg: str = "#0a0a0a"        # 侧栏深色区块背景
 
     # ── 优先级 ──
     priority_aog: str = "#f44747"

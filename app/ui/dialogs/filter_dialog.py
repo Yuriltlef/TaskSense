@@ -17,14 +17,14 @@ def open(page: ft.Page):
             ("49", "49 - APU"), ("72", "72 - 发动机"), ("79", "79 - 滑油")]],
         border_color=theme.border, focused_border_color=theme.info,
         bgcolor=theme.card, border_radius=s(6),
-        text_style=ft.TextStyle(color="#e0e0e0", size=s(12), font_family=ff))
+        text_style=ft.TextStyle(color=theme.form_text, size=s(12), font_family=ff))
     pri_dd = ft.Dropdown(dense=True,
         options=[ft.dropdown.Option(k, v) for k, v in [
             ("", "全部优先级"), ("aog", "AOG"), ("cat_a", "Cat A"),
             ("cat_b", "Cat B"), ("cat_c", "Cat C")]],
         border_color=theme.border, focused_border_color=theme.info,
         bgcolor=theme.card, border_radius=s(6),
-        text_style=ft.TextStyle(color="#e0e0e0", size=s(12), font_family=ff))
+        text_style=ft.TextStyle(color=theme.form_text, size=s(12), font_family=ff))
 
     def _apply(_):
         f = FilterState()

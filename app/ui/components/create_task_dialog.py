@@ -37,7 +37,7 @@ class CreateTaskDialog:
             return ft.TextField(
                 hint_text=hint, border_color=theme.border,
                 focused_border_color=theme.info, cursor_color=theme.info,
-                text_style=ft.TextStyle(color="#e0e0e0", size=s(13), font_family=ff),
+                text_style=ft.TextStyle(color=theme.form_text, size=s(13), font_family=ff),
                 hint_style=ft.TextStyle(color=theme.text_secondary, size=s(12), font_family=ff),
                 bgcolor=theme.card, dense=True,
                 content_padding=ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8)),
@@ -174,14 +174,14 @@ class CreateTaskDialog:
                 if e.control.value:
                     state["date"] = e.control.value
                     display.value = state["date"].strftime("%Y-%m-%d")
-                    display.color = "#e0e0e0"
+                    display.color = theme.form_text
                     ctrl.update(); _recalc_hours()
             def _set_err(msg):
                 display.value = msg; display.color = theme.error
                 ctrl.border = ft.border.all(1, theme.error); ctrl.update()
             def _clear_err():
                 if state["date"]:
-                    display.value = state["date"].strftime("%Y-%m-%d"); display.color = "#e0e0e0"
+                    display.value = state["date"].strftime("%Y-%m-%d"); display.color = theme.form_text
                 else:
                     display.value = "点击选择日期"; display.color = theme.text_secondary
                 ctrl.border = ft.border.all(1, theme.border); ctrl.update()
@@ -249,7 +249,7 @@ class CreateTaskDialog:
             options=[ft.dropdown.Option(k,v) for k,v in [("troubleshoot","排故"),("inspection","检查"),
                 ("servicing","勤务"),("removal_install","拆装"),("test","测试"),("repair","修复")]],
             border_color=theme.border,focused_border_color=theme.info,bgcolor=theme.card,
-            text_style=ft.TextStyle(color="#e0e0e0",size=s(12),font_family=ff),border_radius=s(6))
+            text_style=ft.TextStyle(color=theme.form_text,size=s(12),font_family=ff),border_radius=s(6))
         cls._fields["task_type"] = type_dd
 
         # ── validation ──
@@ -299,7 +299,7 @@ class CreateTaskDialog:
         # ── assembly ──
         sep=ft.Divider(height=s(10),color=ft.Colors.TRANSPARENT)
         header=ft.Container(ft.Row([
-            ft.Icon(ft.Icons.BUILD_OUTLINED,size=s(15),color="#5294e2"),
+            ft.Icon(ft.Icons.BUILD_OUTLINED,size=s(15),color=theme.accent),
             ft.Text("新建维护任务",size=s(14),weight=ft.FontWeight.W_600,color=theme.text_primary,font_family=ff),
             ft.Container(expand=True),
             ft.IconButton(ft.Icons.CLOSE,icon_size=s(16),icon_color=theme.text_secondary,
@@ -335,7 +335,7 @@ class CreateTaskDialog:
                 text_style=btn_st.text_style,side=ft.BorderSide(1,theme.border),color=theme.text_secondary)),
             ft.ElevatedButton("创建任务",on_click=_create,
                 style=ft.ButtonStyle(shape=btn_st.shape,padding=btn_st.padding,
-                text_style=btn_st.text_style,bgcolor="#5294e2",color=ft.Colors.WHITE,elevation=0)),
+                text_style=btn_st.text_style,bgcolor=theme.accent,color=ft.Colors.WHITE,elevation=0)),
         ],spacing=s(8)),padding=ft.padding.only(left=s(14),top=s(8),right=s(14),bottom=s(10)),
             border=ft.border.only(top=ft.BorderSide(1,theme.border)))
 
@@ -348,4 +348,4 @@ class CreateTaskDialog:
             ], spacing=0, tight=True),
             width=PW,height=PH,bgcolor=theme.surface,border_radius=s(10),
             border=ft.border.all(1,theme.border),
-            shadow=ft.BoxShadow(spread_radius=1,blur_radius=20,color="#000000aa"),left=cx,top=cy)
+            shadow=ft.BoxShadow(spread_radius=1,blur_radius=20,color=theme.dialog_shadow),left=cx,top=cy)

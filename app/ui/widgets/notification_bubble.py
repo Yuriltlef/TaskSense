@@ -103,7 +103,7 @@ class NotificationBubble:
             width=min(420, cls._page.width - s(40)) if cls._page else 420,
             right=s(20),
             top=s(20),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=12, color="#00000066"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=12, color=theme.notification_shadow),
             animate_opacity=ft.Animation(300, "easeOut"),
             animate_offset=ft.Animation(300, "easeOut"),
             opacity=1.0,

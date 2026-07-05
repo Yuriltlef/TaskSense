@@ -536,7 +536,7 @@ class AIChatPanel(ft.Container):
                 ft.Container(height=s(4)),
                 ft.Row([self._task_spinner, self._status_text], spacing=s(8)),
             ], spacing=0, tight=True),
-            bgcolor="#111111", border_radius=s(8),
+            bgcolor=theme.panel_dark, border_radius=s(8),
             border=ft.border.all(1, theme.info),
             padding=ft.padding.all(s(10)),
         )
@@ -594,7 +594,7 @@ class AIChatPanel(ft.Container):
             except Exception: pass
         self._scroll_to_bottom()
 
-    def show_status_bubble(self, text: str, color: str = "#5294e2"):
+    def show_status_bubble(self, text: str, color: str = theme.accent):
         """显示彩色状态气泡（完成/取消等）。始终追加到最末尾。"""
         self._status_bubbles.append((text, color))
         if self._chat is not None:
@@ -607,7 +607,7 @@ class AIChatPanel(ft.Container):
         """取消当前任务——设置取消信号 + 通知回调（回调负责清理幽灵卡片和状态栏）。"""
         if self._cancel_event:
             self._cancel_event.set()
-        self.update_task_card("已取消", border_color="#666666")
+        self.update_task_card("已取消", border_color=theme.text_secondary)
         if on_cancel:
             on_cancel()
 

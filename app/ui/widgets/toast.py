@@ -39,7 +39,7 @@ class Toast:
             border=ft.border.all(1, c),
             border_radius=s(8),
             padding=ft.padding.symmetric(horizontal=s(14), vertical=s(10)),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=12, color="#00000066"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=12, color=theme.notification_shadow),
             animate_opacity=ft.Animation(300, ft.AnimationCurve.EASE_OUT),
             opacity=0,
         )

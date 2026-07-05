@@ -39,7 +39,7 @@ def open(page: ft.Page, task):
             hint_text=hint, value=str(value or ""),
             border_color=theme.border, focused_border_color=theme.info,
             cursor_color=theme.info,
-            text_style=ft.TextStyle(color="#e0e0e0", size=s(13), font_family=ff),
+            text_style=ft.TextStyle(color=theme.form_text, size=s(13), font_family=ff),
             hint_style=ft.TextStyle(color=theme.text_secondary, size=s(12), font_family=ff),
             bgcolor=theme.card, dense=True,
             content_padding=ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8)),
@@ -189,7 +189,7 @@ def open(page: ft.Page, task):
             ("removal_install","拆装"),("test","测试"),("repair","修复")]],
         border_color=theme.border,
         focused_border_color=theme.info, bgcolor=theme.card,
-        text_style=ft.TextStyle(color="#e0e0e0", size=s(12), font_family=ff),
+        text_style=ft.TextStyle(color=theme.form_text, size=s(12), font_family=ff),
         border_radius=s(6))
     _fields["task_type"] = type_dd
 
@@ -247,7 +247,7 @@ def open(page: ft.Page, task):
         dp = ft.DatePicker(first_date=dt(2024, 1, 1), last_date=dt(2030, 12, 31),
                            on_change=lambda e: _on_pick(e))
         if initial_date:
-            display = ft.Text(initial_date.strftime("%Y-%m-%d"), size=s(12), color="#e0e0e0", font_family=ff)
+            display = ft.Text(initial_date.strftime("%Y-%m-%d"), size=s(12), color=theme.form_text, font_family=ff)
         elif _TIME_LOCKED:
             display = ft.Text("—", size=s(12), color=theme.text_secondary, font_family=ff)
         else:
@@ -268,14 +268,14 @@ def open(page: ft.Page, task):
             if e.control.value:
                 state["date"] = e.control.value
                 display.value = state["date"].strftime("%Y-%m-%d")
-                display.color = "#e0e0e0"
+                display.color = theme.form_text
                 ctrl.update(); _recalc_hours()
         def _set_err(msg):
             display.value = msg; display.color = theme.error
             ctrl.border = ft.border.all(1, theme.error); ctrl.update()
         def _clear_err():
             if state["date"]:
-                display.value = state["date"].strftime("%Y-%m-%d"); display.color = "#e0e0e0"
+                display.value = state["date"].strftime("%Y-%m-%d"); display.color = theme.form_text
             else:
                 display.value = "点击选择日期"; display.color = theme.text_secondary
             ctrl.border = ft.border.all(1, theme.border); ctrl.update()
@@ -351,7 +351,7 @@ def open(page: ft.Page, task):
         log_f = ft.TextField(
             label="交接班日志", value=task.shift_handover_log or "",
             border_color=theme.border, focused_border_color=theme.info,
-            text_style=ft.TextStyle(color="#e0e0e0", size=s(13), font_family=ff),
+            text_style=ft.TextStyle(color=theme.form_text, size=s(13), font_family=ff),
             bgcolor=theme.card, multiline=True, min_lines=2, max_lines=5,
             border_radius=s(6), dense=True,
         )
@@ -408,7 +408,7 @@ def open(page: ft.Page, task):
     sep = ft.Divider(height=s(10), color=ft.Colors.TRANSPARENT)
     header = ft.Container(
         ft.Row([
-            ft.Icon(ft.Icons.EDIT_OUTLINED, size=s(15), color="#5294e2"),
+            ft.Icon(ft.Icons.EDIT_OUTLINED, size=s(15), color=theme.accent),
             ft.Text("编辑任务", size=s(14), weight=ft.FontWeight.W_600,
                     color=theme.text_primary, font_family=ff),
             ft.Container(expand=True),
@@ -479,7 +479,7 @@ def open(page: ft.Page, task):
                     color=theme.text_secondary)),
             ft.ElevatedButton("保存", on_click=save,
                 style=ft.ButtonStyle(shape=btn_st.shape, padding=btn_st.padding,
-                    text_style=btn_st.text_style, bgcolor="#5294e2",
+                    text_style=btn_st.text_style, bgcolor=theme.accent,
                     color=ft.Colors.WHITE, elevation=0)),
         ], spacing=s(8)),
         padding=ft.padding.only(left=s(14), top=s(8), right=s(14), bottom=s(10)),
@@ -501,7 +501,7 @@ def open(page: ft.Page, task):
         width=PW, height=PH,
         bgcolor=theme.surface, border_radius=s(10),
         border=ft.border.all(1, theme.border),
-        shadow=ft.BoxShadow(spread_radius=1, blur_radius=20, color="#000000aa"),
+        shadow=ft.BoxShadow(spread_radius=1, blur_radius=20, color=theme.dialog_shadow),
         left=cx, top=cy,
     )
 

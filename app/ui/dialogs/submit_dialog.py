@@ -17,18 +17,18 @@ def open(page: ft.Page, tid: str):
         label="交接班日志", hint_text="描述完成情况、发现的问题、遗留事项...",
         multiline=True, min_lines=4, max_lines=8,
         border_color=theme.border, focused_border_color=theme.info,
-        text_style=ft.TextStyle(color="#e0e0e0", size=s(12), font_family=ff),
+        text_style=ft.TextStyle(color=theme.form_text, size=s(12), font_family=ff),
         bgcolor=theme.card)
     hours_f = ft.TextField(
         label="实际工时 (h)", hint_text="如 3.5", width=150,
         border_color=theme.border, focused_border_color=theme.info,
-        text_style=ft.TextStyle(color="#e0e0e0", size=s(12), font_family=ff),
+        text_style=ft.TextStyle(color=theme.form_text, size=s(12), font_family=ff),
         bgcolor=theme.card)
     if t.shift_handover_log: result_f.value = t.shift_handover_log
     if t.actual_hours: hours_f.value = str(t.actual_hours)
 
     for fld in [result_f, hours_f]:
-        fld.text_style = ft.TextStyle(color="#e0e0e0", size=s(12), font_family=ff)
+        fld.text_style = ft.TextStyle(color=theme.form_text, size=s(12), font_family=ff)
         fld.hint_style = ft.TextStyle(color=theme.text_secondary, size=s(11), font_family=ff)
         fld.border_radius = s(6)
         fld.content_padding = ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8))

@@ -17,7 +17,7 @@ def open(page: ft.Page, tid: str):
         hint_text="如：等待航材、缺工具、等待排故方案...",
         multiline=True, min_lines=3, max_lines=6,
         border_color=theme.border, focused_border_color=theme.warning,
-        text_style=ft.TextStyle(color="#e0e0e0", size=s(12), font_family=ff),
+        text_style=ft.TextStyle(color=theme.form_text, size=s(12), font_family=ff),
         hint_style=ft.TextStyle(color=theme.text_secondary, size=s(11), font_family=ff),
         bgcolor=theme.card, dense=True, border_radius=s(6),
         content_padding=ft.padding.only(left=s(10), top=s(8), right=s(10), bottom=s(8)))

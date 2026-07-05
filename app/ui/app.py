@@ -133,10 +133,10 @@ class TaskSenseApp:
                 width=btn_w, height=H,
                 style=ft.ButtonStyle(
                     bgcolor=ft.Colors.TRANSPARENT,
-                    overlay_color="#2a2a2a",
+                    overlay_color=theme.border_active,
                     shape=ft.RoundedRectangleBorder(radius=0),
                 ),
-                tooltip=ft.Tooltip(message=tooltip, bgcolor="#202020",
+                tooltip=ft.Tooltip(message=tooltip, bgcolor=theme.tooltip_bg,
                                    text_style=_tt_style,
                                    wait_duration=1500),
                 on_click=on_click,
@@ -153,7 +153,7 @@ class TaskSenseApp:
                     shape=ft.RoundedRectangleBorder(radius=0),
                 ),
                 mouse_cursor=ft.MouseCursor.BASIC,
-                tooltip=ft.Tooltip(message=tooltip, bgcolor="#202020",
+                tooltip=ft.Tooltip(message=tooltip, bgcolor=theme.tooltip_bg,
                                    text_style=_tt_style,
                                    wait_duration=1500),
                 on_click=on_click,
@@ -183,14 +183,14 @@ class TaskSenseApp:
         bp._search_clear_btn = clear_btn
         search_box = ft.Container(
             content=ft.Row([
-                ft.Icon(ft.Icons.SEARCH, size=s(14), color="#5294e2"),
+                ft.Icon(ft.Icons.SEARCH, size=s(14), color=theme.accent),
                 sf,
                 clear_btn,
             ], spacing=s(6)),
             width=max(320, self.page.width // 3),
             height=s(28),
-            bgcolor="#1a1a1a",
-            border=ft.border.all(1, "#2a2a2a"),
+            bgcolor=theme.card_hover,
+            border=ft.border.all(1, theme.border_active),
             border_radius=s(6),
             padding=ft.padding.symmetric(horizontal=s(10)),
             alignment=ft.alignment.center_left,
@@ -230,8 +230,8 @@ class TaskSenseApp:
                     ft.Text("新建任务", size=s(12), font_family=ff, color=ft.Colors.WHITE),
                 ], spacing=s(2)),
                 blur=(10, 10),
-                bgcolor=ft.Colors.with_opacity(0.18, "#5294e2"),
-                border=ft.border.all(1, ft.Colors.with_opacity(0.35, "#5294e2")),
+                bgcolor=ft.Colors.with_opacity(0.18, theme.accent),
+                border=ft.border.all(1, ft.Colors.with_opacity(0.35, theme.accent)),
                 border_radius=s(6),
                 padding=ft.padding.only(left=s(12), top=s(3), right=s(12), bottom=s(3)),
                 height=s(26),
@@ -250,7 +250,7 @@ class TaskSenseApp:
         # ── 右侧功能区 ──
         right_group = ft.Row([
             icon_btn(ft.Icons.PSYCHOLOGY_OUTLINED, lambda e: bp._open_ai_panel(),
-                     "AI 助手", icon_color="#c498e8"),
+                     "AI 助手", icon_color=theme.ai_icon),
             icon_btn(ft.Icons.SETTINGS_OUTLINED, bp._on_settings_click, "设置"),
             icon_btn(ft.Icons.PERSON_OUTLINE, lambda e: None, "用户账号"),
         ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -320,7 +320,7 @@ class TaskSenseApp:
                 shape=ft.RoundedRectangleBorder(radius=0),
             ),
             mouse_cursor=ft.MouseCursor.BASIC,
-            tooltip=ft.Tooltip(message=tooltip, bgcolor="#202020",
+            tooltip=ft.Tooltip(message=tooltip, bgcolor=theme.tooltip_bg,
                                text_style=ft.TextStyle(color=ft.Colors.WHITE)),
             on_click=on_click,
         )
@@ -358,10 +358,10 @@ class TaskSenseApp:
             width=btn_w, height=H,
             style=ft.ButtonStyle(
                 bgcolor=ft.Colors.TRANSPARENT,
-                overlay_color="#2a2a2a",
+                overlay_color=theme.border_active,
                 shape=ft.RoundedRectangleBorder(radius=0),
             ),
-            tooltip=ft.Tooltip(message="AI 工具", bgcolor="#202020",
+            tooltip=ft.Tooltip(message="AI 工具", bgcolor=theme.tooltip_bg,
                                text_style=ft.TextStyle(color=ft.Colors.WHITE,
                                                        font_family=theme.font_family),
                                wait_duration=1500),
@@ -414,7 +414,7 @@ class TaskSenseApp:
             border=ft.border.all(1, theme.border),
             border_radius=s(8),
             padding=ft.padding.all(s(6)),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=16, color="#000000aa"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=16, color=theme.dialog_shadow),
             left=menu_left, top=TB_H,
             width=180,
         )

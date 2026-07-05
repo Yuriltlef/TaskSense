@@ -93,7 +93,7 @@ class BoardPage:
             border_color=ft.Colors.TRANSPARENT,
             focused_border_color=ft.Colors.TRANSPARENT,
             filled=False,
-            cursor_color="#5294e2",
+            cursor_color=theme.accent,
             cursor_height=s(14),
             text_style=ft.TextStyle(color=theme.text_primary, size=s(13), font_family=ff),
             hint_style=ft.TextStyle(color=theme.text_secondary, size=s(12), font_family=ff),
@@ -533,7 +533,7 @@ class BoardPage:
                             shape=ft.RoundedRectangleBorder(radius=s(6)),
                             padding=ft.padding.only(left=s(18), top=s(7), right=s(18), bottom=s(7)),
                             text_style=ft.TextStyle(size=s(12), font_family=ff),
-                            bgcolor="#5294e2", color=ft.Colors.WHITE, elevation=0)),
+                            bgcolor=theme.accent, color=ft.Colors.WHITE, elevation=0)),
                     ft.Container(width=s(8)),
                     ft.OutlinedButton("关闭", on_click=lambda e: dlg.close(),
                         style=ft.ButtonStyle(
@@ -547,7 +547,7 @@ class BoardPage:
             ], spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             width=PW, height=PH, bgcolor=theme.surface, border_radius=s(10),
             border=ft.border.all(1, theme.border),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=20, color="#000000aa"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=20, color=theme.dialog_shadow),
             left=cx, top=cy,
         )
         from app.ui.widgets.overlay_dimmer import OverlayDimmer
@@ -683,12 +683,12 @@ class BoardPage:
 
     def _on_search_focus(self):
         if self._search_box:
-            self._search_box.border = ft.border.all(1, "#5294e2")
+            self._search_box.border = ft.border.all(1, theme.accent)
             self._search_box.update()
 
     def _on_search_blur(self):
         if self._search_box:
-            self._search_box.border = ft.border.all(1, "#2a2a2a")
+            self._search_box.border = ft.border.all(1, theme.border_active)
             self._search_box.update()
 
     def _on_search_clear(self, e):
@@ -955,7 +955,7 @@ class BoardPage:
             value=display, read_only=True, multiline=True,
             expand=True,
             border_color=theme.border,
-            text_style=ft.TextStyle(color="#c0c0c0", size=s(11), font_family=ff),
+            text_style=ft.TextStyle(color=theme.text_content, size=s(11), font_family=ff),
             bgcolor=theme.card, border_radius=s(6),
         )
 
@@ -972,7 +972,7 @@ class BoardPage:
         # ── header ──
         header = ft.Container(
             ft.Row([
-                ft.Icon(ft.Icons.ASSESSMENT_OUTLINED, size=s(15), color="#5294e2"),
+                ft.Icon(ft.Icons.ASSESSMENT_OUTLINED, size=s(15), color=theme.accent),
                 ft.Text("生成维护报表", size=s(14), weight=ft.FontWeight.W_600,
                         color=theme.text_primary, font_family=ff),
                 progress,
@@ -982,7 +982,7 @@ class BoardPage:
                               tooltip="最小化后台运行",
                               style=ft.ButtonStyle(
                                   bgcolor=ft.Colors.TRANSPARENT,
-                                  overlay_color="#1a1a1a",
+                                  overlay_color=theme.card_hover,
                                   shape=ft.RoundedRectangleBorder(radius=s(4))),
                               on_click=lambda e: _minimize(e)),
             ], spacing=s(8)),
@@ -1027,7 +1027,7 @@ class BoardPage:
                     style=ft.ButtonStyle(
                         shape=btn_st.shape, padding=btn_st.padding,
                         text_style=btn_st.text_style,
-                        bgcolor="#5294e2", color=ft.Colors.WHITE, elevation=0)),
+                        bgcolor=theme.accent, color=ft.Colors.WHITE, elevation=0)),
             ]
         else:
             footer_btns = [
@@ -1036,7 +1036,7 @@ class BoardPage:
                     style=ft.ButtonStyle(
                         shape=btn_st.shape, padding=btn_st.padding,
                         text_style=btn_st.text_style,
-                        bgcolor="#5294e2", color=ft.Colors.WHITE, elevation=0)),
+                        bgcolor=theme.accent, color=ft.Colors.WHITE, elevation=0)),
             ]
 
         footer = ft.Container(
@@ -1059,7 +1059,7 @@ class BoardPage:
             ], spacing=0, expand=True, tight=True),
             width=PW, height=PH, bgcolor=theme.surface, border_radius=s(10),
             border=ft.border.all(1, theme.border),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=20, color="#000000aa"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=20, color=theme.dialog_shadow),
             left=cx, top=cy,
         )
 
@@ -1152,7 +1152,7 @@ class BoardPage:
 
         header = ft.Container(
             ft.Row([
-                ft.Icon(ft.Icons.FACT_CHECK_OUTLINED, size=s(15), color="#5294e2"),
+                ft.Icon(ft.Icons.FACT_CHECK_OUTLINED, size=s(15), color=theme.accent),
                 ft.Text("任务合规审核", size=s(14), weight=ft.FontWeight.W_600,
                         color=theme.text_primary, font_family=ff),
                 review_summary_container,
@@ -1162,7 +1162,7 @@ class BoardPage:
                               tooltip="最小化后台运行",
                               style=ft.ButtonStyle(
                                   bgcolor=ft.Colors.TRANSPARENT,
-                                  overlay_color="#1a1a1a",
+                                  overlay_color=theme.card_hover,
                                   shape=ft.RoundedRectangleBorder(radius=s(4))),
                               on_click=lambda e: _minimize_review(dlg)),
             ], spacing=s(8)),
@@ -1214,7 +1214,7 @@ class BoardPage:
                     style=ft.ButtonStyle(
                         shape=btn_st.shape, padding=btn_st.padding,
                         text_style=btn_st.text_style,
-                        bgcolor="#5294e2", color=ft.Colors.WHITE, elevation=0)),
+                        bgcolor=theme.accent, color=ft.Colors.WHITE, elevation=0)),
             ]
         footer = ft.Container(
             ft.Row(footer_btns, spacing=s(8)),
@@ -1236,7 +1236,7 @@ class BoardPage:
             ], spacing=0, expand=True, tight=True),
             width=PW, height=PH, bgcolor=theme.surface, border_radius=s(10),
             border=ft.border.all(1, theme.border),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=20, color="#000000aa"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=20, color=theme.dialog_shadow),
             left=cx, top=cy,
         )
 

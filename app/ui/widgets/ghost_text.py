@@ -85,7 +85,7 @@ class GhostTextField(ft.Column):
             border=ft.InputBorder.NONE,   # 无边线——外层 Container 画
             cursor_color=theme.info,
             cursor_width=1.5,
-            text_style=ft.TextStyle(color="#e0e0e0", size=s(13), font_family=ff),
+            text_style=ft.TextStyle(color=theme.form_text, size=s(13), font_family=ff),
             hint_style=ft.TextStyle(color=theme.text_secondary, size=s(12), font_family=ff),
             bgcolor=ft.Colors.TRANSPARENT,
             dense=True,

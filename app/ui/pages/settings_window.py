@@ -95,7 +95,7 @@ class SettingsOverlay:
         header = ft.Container(
             content=ft.GestureDetector(
                 content=ft.Row([
-                    ft.Icon(ft.Icons.SETTINGS_OUTLINED, size=s(15), color="#5294e2"),
+                    ft.Icon(ft.Icons.SETTINGS_OUTLINED, size=s(15), color=theme.accent),
                     ft.Text("TaskSense", size=s(14),
                             weight=ft.FontWeight.W_600,
                             color=theme.text_primary, font_family=ff),
@@ -122,7 +122,7 @@ class SettingsOverlay:
         )
 
         # ── 左侧导航 ──
-        nav_bg = "#101010"   # 比 surface 稍亮，区分可交互区域
+        nav_bg = theme.nav_bg   # 比 surface 稍亮，区分可交互区域
         for key, label, icon in NAV_ITEMS:
             sel = key == cls._active[0]
             c = ft.Container(
@@ -170,7 +170,7 @@ class SettingsOverlay:
                 ),
                 cls._right_body,
             ], spacing=0, expand=True),
-            bgcolor="#0c0c0c", expand=True)
+            bgcolor=theme.surface, expand=True)
 
         # ── 底部按钮 ──
         btn_style = ft.ButtonStyle(
@@ -195,7 +195,7 @@ class SettingsOverlay:
                         shape=btn_style.shape,
                         padding=btn_style.padding,
                         text_style=btn_style.text_style,
-                        bgcolor="#5294e2", color=ft.Colors.WHITE, elevation=0,
+                        bgcolor=theme.accent, color=ft.Colors.WHITE, elevation=0,
                     )),
             ], spacing=s(8)),
             padding=ft.padding.only(
@@ -223,7 +223,7 @@ class SettingsOverlay:
                 border_radius=s(10),
                 border=ft.border.all(1, theme.border),
                 shadow=ft.BoxShadow(
-                    spread_radius=1, blur_radius=20, color="#000000aa"),
+                    spread_radius=1, blur_radius=20, color=theme.dialog_shadow),
                 bgcolor=ft.Colors.TRANSPARENT,
             ),
             left=cx, top=cy,
@@ -269,7 +269,7 @@ class SettingsOverlay:
             focused_border_color=theme.info,
             cursor_color=theme.info,
             text_style=ft.TextStyle(
-                color="#e0e0e0", size=s(12), font_family=theme.font_family),
+                color=theme.form_text, size=s(12), font_family=theme.font_family),
             hint_style=ft.TextStyle(
                 color=theme.text_secondary, size=s(11),
                 font_family=theme.font_family),
@@ -291,7 +291,7 @@ class SettingsOverlay:
             focused_border_color=theme.info,
             bgcolor=theme.card, dense=True, width=w,
             text_style=ft.TextStyle(
-                color="#e0e0e0", size=s(12), font_family=theme.font_family),
+                color=theme.form_text, size=s(12), font_family=theme.font_family),
             border_radius=s(6),
             content_padding=ft.padding.only(
                 left=s(10), top=s(8), right=s(10), bottom=s(8)),

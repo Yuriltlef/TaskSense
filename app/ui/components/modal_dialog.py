@@ -34,7 +34,7 @@ class ModalDialog:
             border_radius=s(10),
             border=ft.border.all(1, theme.border),
             shadow=ft.BoxShadow(
-                spread_radius=1, blur_radius=16, color="#000000aa"),
+                spread_radius=1, blur_radius=16, color=theme.dialog_shadow),
         )
 
     def open(self):
