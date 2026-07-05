@@ -68,11 +68,30 @@ class CardHighlighter:
 
     @classmethod
     def _apply(cls, tid: str, color: str | None):
-        """对指定卡片设置 border 并 update。color=None 则清除。"""
+        """对指定卡片设置 border 并 update。color=None 则清除。
+
+        同时重置 bgcolor/scale/shadow——高亮期间 hover 事件被抑制，
+        leave 事件不会触发，必须手动清理冻结的 hover 状态。
+        """
+        from app.config.theme import theme
         card = cls._find_card(tid)
         if card:
             card._highlight = color
-            card.border = ft.border.all(2, color) if color else None
+            if color:
+                # 清理冻结的 hover 状态后应用高亮
+                card.bgcolor = theme.card
+                card.scale = 1.0
+                card.shadow = ft.BoxShadow(
+                    spread_radius=0, blur_radius=4,
+                    color="#00000030", offset=ft.Offset(0, 1))
+                card.border = ft.border.all(2, color)
+            else:
+                card.border = None
+                card.bgcolor = theme.card
+                card.scale = 1.0
+                card.shadow = ft.BoxShadow(
+                    spread_radius=0, blur_radius=4,
+                    color="#00000030", offset=ft.Offset(0, 1))
             try:
                 card.update()
             except Exception:
