@@ -8,7 +8,7 @@ from app.ui.components.modal_dialog import ModalDialog
 from app.ui.services.dialog_builder import header as dlg_header, footer as dlg_footer
 
 
-def open(page: ft.Page, tid: str):
+def open(page: ft.Page, tid: str, changed_by: str = "user"):
     t = state.get_task(tid)
     if not t: return
     ff = theme.font_family
@@ -41,12 +41,12 @@ def open(page: ft.Page, tid: str):
         except ValueError: actual_hours = 0
         try:
             task_service.update_task(tid, shift_handover_log=result, actual_hours=actual_hours)
-            task_service.move_task(tid, "inspection", changed_by="user")
+            task_service.move_task(tid, "inspection", changed_by=changed_by)
             dlg.close()
             from app.core.models.log_entry import LogType
             from app.core.services.log_service import log_service
             log_service.log(LogType.SUBMISSION, task_id=tid, task_title=t.title,
-                           user="user", description=f"提交验收: {result[:60]}...")
+                           user=changed_by, description=f"提交验收: {result[:60]}...")
             Toast.show(page, "已提交验收，等待审核", "success")
         except Exception as e: Toast.show(page, str(e), "warning")
 

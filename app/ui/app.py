@@ -252,7 +252,7 @@ class TaskSenseApp:
             icon_btn(ft.Icons.PSYCHOLOGY_OUTLINED, lambda e: bp._open_ai_panel(),
                      "AI 助手", icon_color=theme.ai_icon),
             icon_btn(ft.Icons.SETTINGS_OUTLINED, bp._on_settings_click, "设置"),
-            icon_btn(ft.Icons.PERSON_OUTLINE, lambda e: None, "用户账号"),
+            icon_btn(ft.Icons.PERSON_OUTLINE, lambda e: bp._open_employee_page(), "员工工作台"),
         ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
         # ── 最终标题栏：左组 | 拖拽区 | 搜索框 | 拖拽区 | 右组 | 窗口按钮 ──

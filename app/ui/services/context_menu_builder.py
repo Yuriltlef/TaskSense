@@ -121,11 +121,6 @@ class ContextMenuBuilder:
     def _in_progress(self, t) -> list:
         return [
             self._edit_or_view(t),
-            {"label": "提交验收...", "icon": ft.Icons.ASSIGNMENT_TURNED_IN_OUTLINED,
-             "action": "submit", "color": theme.info},
-            {"label": "直接完成", "icon": ft.Icons.CHECK_CIRCLE_OUTLINE,
-             "action": "complete_direct", "color": theme.success,
-             "confirm": "跳过验收直接完成？建议先提交验收审核。"},
             {"label": "阻塞...", "icon": ft.Icons.BLOCK_OUTLINED,
              "action": "block", "color": theme.warning},
             *self._ai_items(),

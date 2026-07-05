@@ -30,6 +30,10 @@ class AppState:
         self._filters = FilterState()
         self._swimlane_by: Optional[str] = None
 
+        # ── 当前登录员工（会话级，不持久化）──
+        self.current_employee_id: str = ""
+        self.current_employee_name: str = ""
+
         # ── 飞机 ──
         self._aircraft: dict[str, Aircraft] = {}
 

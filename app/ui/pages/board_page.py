@@ -671,6 +671,10 @@ class BoardPage:
         from app.ui.pages.settings_window import SettingsOverlay
         SettingsOverlay.open(self._page)
 
+    def _open_employee_page(self):
+        from app.ui.pages.employee_page import EmployeeWorkbench
+        EmployeeWorkbench.open(self._page)
+
     def _on_filter_click(self, e):
         f = board_service.get_board().filters
         if f.is_active:
@@ -1490,7 +1494,6 @@ class BoardPage:
             "delete":           self._act_delete,
             "search":           self._act_search,
             "ai_explain":       self._act_ai_explain,
-            "submit":           self._act_submit,
             "ai_review":        self._act_ai_review,
             "ai_classify":      self._act_ai_classify,
             "ai_schedule":      self._act_ai_schedule,
@@ -1502,7 +1505,6 @@ class BoardPage:
             "schedule":         self._act_schedule,
             "reschedule":       self._act_reschedule,
             "archive_now":      self._act_archive_now,
-            "complete_direct":  self._act_complete_direct,
             "approve":          self._act_approve,
         }
 
@@ -1534,7 +1536,6 @@ class BoardPage:
 
     def _act_edit(self, tid, t):       self._dlg_edit(t)
     def _act_delete(self, tid, t):     task_service.delete_task(tid); self.side_panel and self.side_panel.close(); Toast.show(self._page, "已删除", "info")
-    def _act_submit(self, tid, t):     self._dlg_submit(tid)
     def _act_ai_review(self, tid, t):  self._cmd_acceptance()
     def _act_block(self, tid, t):      self._dlg_block(tid)
     def _act_set_priority(self, tid, t):    self._dlg_priority(tid, "triage", -1)
@@ -1602,10 +1603,6 @@ class BoardPage:
         try: task_service.move_task(tid, "archived", changed_by="user"); Toast.show(self._page, "已归档", "success")
         except Exception as e: Toast.show(self._page, str(e), "warning")
 
-    def _act_complete_direct(self, tid, t):
-        try: task_service.move_task(tid, "completed", changed_by="user"); Toast.show(self._page, "已完成", "success")
-        except Exception as e: Toast.show(self._page, str(e), "warning")
-
     def _act_approve(self, tid, t):
         try: task_service.move_task(tid, "completed", changed_by="user"); Toast.show(self._page, "验收通过", "success")
         except Exception as e: Toast.show(self._page, str(e), "warning")
@@ -1664,10 +1661,6 @@ class BoardPage:
             e.handled = True
 
     # ═══════════════════════ 对话框 ═══════════════════════
-
-    def _dlg_submit(self, tid):
-        from app.ui.dialogs.submit_dialog import open as dlg_submit
-        dlg_submit(self._page, tid)
 
     def _dlg_block(self, tid):
         from app.ui.dialogs.block_dialog import open as dlg_block

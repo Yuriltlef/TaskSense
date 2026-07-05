@@ -15,7 +15,6 @@ class BoardScheduler:
 
     定期检查条件并自动推进任务：
     - scheduled → ready：计划开始时间已到且已分配人员
-    - ready → in_progress：已分配且就绪
     """
 
     _instance: Optional["BoardScheduler"] = None
@@ -65,7 +64,6 @@ class BoardScheduler:
         now = datetime.now()
         summary = {
             "scheduled_to_ready": 0,
-            "ready_to_in_progress": 0,
             "checked": 0,
         }
 
@@ -84,19 +82,6 @@ class BoardScheduler:
                             summary["scheduled_to_ready"] += 1
                         except Exception as e:
                             log.warn("scheduler", f"scheduled→ready failed: {e}")
-
-            # 2. ready → in_progress：已分配 + 已就绪超过 5 分钟
-            elif task.status == TaskStatus.READY:
-                if task.employee_id or task.employee_name:
-                    # 给用户留出时间窗口（5 分钟），避免刚变成 ready 就自动开工
-                    if task.updated_at and (now - task.updated_at).total_seconds() > 300:
-                        try:
-                            task_service.move_task(
-                                task.id, "in_progress", changed_by="system"
-                            )
-                            summary["ready_to_in_progress"] += 1
-                        except Exception as e:
-                            log.warn("scheduler", f"ready→in_progress failed: {e}")
 
         return summary
 
