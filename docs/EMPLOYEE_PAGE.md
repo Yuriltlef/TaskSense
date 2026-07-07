@@ -8,251 +8,282 @@
 就绪(Ready) ──[接单]──▶ 执行中(In Progress) ──[提交验收]──▶ 验收中(Inspection)
 ```
 
-通过 OverlayDimmer 以模态遮罩层方式打开，700×740 固定面板居中显示。
+以**独立子进程窗口**方式运行，与主应用通过文件 IPC 通信，支持多窗口并存。
 
-## 入口
+## 架构
 
-- **标题栏**：点击 👤 用户图标（`PERSON_OUTLINE`），调用 `board_page._open_employee_page()`
-- **文件**：`app/ui/app.py` 第 255 行，`app/ui/pages/board_page.py` 第 675 行
+```
+┌─────────────────────┐                      ┌─────────────────────┐
+│   主应用 (main.py)   │                      │  员工窗口子进程       │
+│                     │  pending_commands.json │                     │
+│  轮询处理命令        │ ◀────────────────── │  发送操作命令         │
+│                     │                      │                     │
+│  写入状态快照        │ ─── employee_state.json ──▶ │  轮询 mtime 刷新 UI  │
+│                     │                      │                     │
+│  写入关闭信号        │ ─── shutdown.signal ──▶ │  检测信号 → 自行关闭  │
+└─────────────────────┘                      └─────────────────────┘
+```
+
+### IPC 三条通道
+
+| 通道 | 方向 | 文件 | 主应用侧 | 员工侧 |
+|------|------|------|---------|--------|
+| 命令 | 员工→主应用 | `data/pending_commands.json` | 轮询(0.5s) → 执行 + 保存 | `send_command()` 写入 |
+| 状态 | 主应用→员工 | `data/employee_state.json` | `PersistenceService.save()` 同步写入 | `StateSync` 轮询(1s) mtime |
+| 关闭 | 主应用→员工 | `data/shutdown.signal` | `shutdown_employee_processes()` 写入 | `StateSync` 轮询(0.25s) 检测 → `_do_close()` |
+
+## 启动方式
+
+### 主应用侧 (`board_page.py`)
+
+```python
+def _open_employee_page(self):
+    """启动员工工作台为独立子进程窗口。失败时回退 overlay。"""
+    import subprocess, sys, os
+
+    project_root = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..")
+    )
+    entry_point = os.path.join(project_root, "employee_app.py")
+
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, entry_point],
+            cwd=project_root,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        _employee_processes.append(proc)  # 跟踪子进程
+    except Exception:
+        # 回退到 overlay 模式
+        from app.ui.pages.employee_page import EmployeeWorkbench
+        EmployeeWorkbench.open(self._page)
+```
+
+### 入口脚本 (`employee_app.py`)
+
+```python
+if __name__ == "__main__":
+    import flet as ft
+    from app.employee.app import EmployeeWindowApp
+    ft.app(target=EmployeeWindowApp().main)
+```
+
+每次启动打开一个独立 Flet 窗口，不加载 Agent/LLM 模块，内存轻量。
+
+## 窗口结构
+
+### 整体布局
+
+```
+┌────────────────── 1000px ──────────────────┐
+│ ✈ 👤 员工工作台 - 张工     [─] [□] [✕]    │  自定义标题栏
+├─────────────────────────────────────────────┤
+│ Body                                         │
+│  ┌─ 状态 A：登录选身份 ───────────────────┐  │
+│  │  搜索框 + 员工列表 + 确认按钮           │  │
+│  └────────────────────────────────────────┘  │
+│  ┌─ 状态 B：任务工作台 ───────────────────┐  │
+│  │  身份信息行 + [切换登录]               │  │
+│  │  📋 待接单 [N]                          │  │
+│  │    ┌─ 任务卡片 [接单] ──────────────┐  │  │
+│  │  🔧 进行中 [N]                          │  │
+│  │    ┌─ 任务卡片 [阻塞] [提交验收] ───┐  │  │
+│  │  待接单 N 项 · 进行中 M 项              │  │
+│  └────────────────────────────────────────┘  │
+└─────────────────────────────────────────────┘
+```
+
+### 窗口设置
+
+```python
+# 与主应用一致的样式
+self.page.window.frameless = False
+self.page.window.title_bar_hidden = True
+self.page.window.title_bar_buttons_hidden = True
+self.page.window.bgcolor = ft.Colors.TRANSPARENT
+# 注意：不设 prevent_close=True，走 Flet 原生快速关闭
+```
+
+## 状态同步
+
+### 员工侧 (`state_sync.py`)
+
+```python
+class StateSync:
+    def __init__(self, filepath: str = "data/employee_state.json"):
+        self._path = _resolve_path(filepath)
+        self._shutdown_path = _resolve_path("data/shutdown.signal")
+        self._last_mtime: float = 0.0
+        self._listeners: list[Callable] = []
+        self._on_shutdown: Optional[Callable] = None
+        self._polling: bool = False
+
+    def read_state(self) -> bool:
+        """从 employee_state.json 加载状态到 AppState。"""
+        with open(self._path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        state.load_from_dict(data)
+        self._last_mtime = os.path.getmtime(self._path)
+
+    def start_polling(self, interval=1.0, on_change=None, on_shutdown=None):
+        """启动后台轮询线程。启动时自动清理上次残留的信号文件。"""
+        if os.path.exists(self._shutdown_path):
+            os.unlink(self._shutdown_path)
+        self._poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
+        self._poll_thread.start()
+
+    def _poll_loop(self, interval: float):
+        tick = 0.25  # 关闭信号检查粒度
+        while self._polling:
+            # 优先检测关闭信号
+            if os.path.exists(self._shutdown_path):
+                self._polling = False
+                if self._on_shutdown:
+                    self._on_shutdown()  # → _do_close()
+                return
+
+            # 检测状态变更
+            if self.has_external_changes():
+                self.read_state()
+                for listener in self._listeners:
+                    listener()  # → WorkbenchPage.refresh()
+
+            time.sleep(tick)
+```
+
+### 主应用侧 (`persistence_service.py`)
+
+```python
+def save(self) -> bool:
+    """保存状态时同步写入 employee_state.json 供员工读取。"""
+    # ... filelock 保护写入 board_state.json ...
+    from app.core.services.command_queue import write_employee_state
+    write_employee_state()  # shutil.copy2(board_state.json → employee_state.json)
+```
+
+### 命令处理 (`command_queue.py`)
+
+```
+员工操作 → send_command() → pending_commands.json
+                                │
+主应用轮询(0.5s) → process_pending_commands()
+  ├─ _execute_command(cmd)
+  │    ├─ accept_task: validate → move_task("in_progress")
+  │    ├─ block_task: validate → update_task(is_blocked=True) → move_task("parts_hold")
+  │    └─ submit_task: validate → update_task(log, hours) → move_task("inspection")
+  └─ 失败命令 _retries ≤ 3 保留重试，超过丢弃
+```
+
+## 联动关闭
+
+### 设计原则
+
+- **不杀进程**：不用 taskkill/os._exit/WM_CLOSE
+- **不找窗口句柄**：PID 找不到 Flet 窗口（属于 fletd.exe）
+- **不拦截关闭**：`prevent_close` 全部移除，走 Flet 原生快速通道
+- **信号文件即 API**：员工提供 "关闭 API"——轮询检测到信号后自行 `close()`
+
+### 关闭链路
+
+```
+主应用点 X
+  │
+  ├─ _close_window() / _on_window_close()
+  │    └─ kill_employee_processes()
+  │         └─ shutdown_employee_processes()
+  │              ├─ write_shutdown_signal()          ← 写信号文件
+  │              ├─ process_pending_commands()        ← flush 最后命令
+  │              └─ return（不等员工响应）
+  │
+  └─ page.window.close()                             ← 主窗口原生关闭
+                                                       
+员工 StateSync [0.25s 轮询]
+  │
+  └─ 检测到 shutdown.signal
+       └─ _do_close()
+            ├─ stop_polling()                         ← 停后台轮询
+            └─ page.window.close()                    ← 原生关闭自己
+```
+
+### 为什么 `close()` 在后台线程安全
+
+`page.window.close()`（无 `prevent_close`）底层是 Windows 的 `PostMessage(hwnd, WM_CLOSE, 0, 0)`，这是 Windows API 保证的线程安全操作。StateSync 后台线程直接调不会导致 UI 异常。
+
+### 信号残留清理
+
+`StateSync.start_polling()` 启动时会自动删除上次残留的 `shutdown.signal`，防止下次启动误触发关闭。
+
+## 乐观更新
+
+员工操作后不等主应用响应，立即更新本地 state 并刷新 UI：
+
+```python
+def do_block(e):
+    send_command("block_task", task.id, {"reason": reason})
+    # 乐观更新：立即移动任务到阻塞列
+    state.update_task(task.id, is_blocked=True, block_reason=reason)
+    state.move_task(task.id, "parts_hold", changed_by=employee_name)
+    close_ref.close()
+    self.refresh()  # UI 即时响应
+```
+
+| 操作 | 乐观更新动作 |
+|------|-------------|
+| 接单 | `move_task("in_progress")` + 设 `planned_start` |
+| 阻塞 | `update_task(is_blocked=True)` + `move_task("parts_hold")` |
+| 提交验收 | `update_task(log, hours)` + `move_task("inspection")` |
+
+若命令被主应用拒绝（校验失败），后台 `StateSync` 轮询(1s) 从权威数据源 `employee_state.json` 重新加载，自动纠正 UI。
 
 ## 身份系统
 
-### 数据来源
-
-`app/core/services/employee_service.py` 加载 `data/employees.json`（20 人，18 人可用）。
-
 ### 会话级身份
 
-在 `app/core/state.py` 中新增两个字段：
+`app/core/state.py` 中两个字段：
 
 ```python
 self.current_employee_id: str = ""    # 如 "ZH001"
 self.current_employee_name: str = ""  # 如 "张工"
 ```
 
-会话级别有效，不写入 `to_dict()` / `load_from_dict()`（自动不持久化）。
-
-## 页面结构
-
-### 整体布局（`_build`）
-
-```
-┌────────────────── 700px ──────────────────┐
-│ Header  │ 👤 员工工作台              [✕]  │
-├───────────────────────────────────────────┤
-│ Body                                       │
-│  ┌─ 状态 A：身份选择 ──────────────────┐  │
-│  │  🪪 图标                              │  │
-│  │  提示文字                              │  │
-│  │  [搜索框 ──────────────────── 580px]  │  │
-│  │  ┌─ 员工列表 ─────────────────────┐  │  │
-│  │  │ 张工  ZH001  mechanical  ...   │  │  │
-│  │  │ 李工  ZH002  avionics  ...     │  │  │
-│  │  │ ...                            │  │  │
-│  │  └────────────────────────────────┘  │  │
-│  │  [ ✓ 确认身份 ]                       │  │
-│  └──────────────────────────────────────┘  │
-│                                             │
-│  ┌─ 状态 B：任务列表 ──────────────────┐  │
-│  │  张工 (ZH001) · mechanical · ... 切换 │  │
-│  │  ─────────────────────────────────── │  │
-│  │  📋 待接单            [2]             │  │
-│  │  ┌────────────────────────────────┐  │  │
-│  │  │ ▌ 任务卡片...        [接单]    │  │  │
-│  │  └────────────────────────────────┘  │  │
-│  │  🔧 进行中            [1]             │  │
-│  │  ┌────────────────────────────────┐  │  │
-│  │  │ ▌ 任务卡片...     [提交验收]   │  │  │
-│  │  └────────────────────────────────┘  │  │
-│  │           待接单 2 · 进行中 1         │  │
-│  └──────────────────────────────────────┘  │
-├───────────────────────────────────────────┤
-│ Footer                               [关闭]│
-└───────────────────────────────────────────┘
-```
-
-### 关键尺寸
-
-| 元素 | 值 |
-|------|-----|
-| 面板 | 700×740 |
-| 搜索框/列表宽度 | 580px |
-| body 内边距 | s(16) ≈ 19px 水平, s(12) ≈ 14px 垂直 |
+- 会话级有效，不持久化到 `to_dict()` / `load_from_dict()`
+- 登录页选择员工 → 写入 → 切换状态 B
+- "切换登录"按钮 → 清空 → 切回状态 A
 
 ## 双状态设计
 
 ### 状态 A：选择身份
 
-当 `state.current_employee_id` 为空时显示。
-
-**组件**：
-- 搜索框（`TextField`）：实时过滤员工列表，支持按姓名、ID、工种搜索
-- 员工列表（`Column` 内嵌 `Container` 列表）：可滚动，点击选中高亮
-- 确认按钮（`ElevatedButton`）：选中员工后点击确认
-
-**交互**：
-1. 搜索框输入 → `_on_emp_search` → 实时过滤 `_populate_emp_list`
-2. 点击列表项 → `_on_emp_select` → 设置 `cls._selected_emp_id`，重新渲染高亮
-3. 点击"确认身份" → `_on_confirm_identity` → 写入 `state.current_employee_id/name` → 切换到状态 B
-
-**关键方法**：
-
-| 方法 | 作用 |
-|------|------|
-| `_rebuild_body_state_a()` | 构建身份选择界面 |
-| `_populate_emp_list(results_list, employees, ff, filter_text)` | 填充/刷新员工列表，支持搜索过滤 |
-| `_on_emp_select(eid, ...)` | 选中员工，高亮当前项 |
-| `_on_emp_search(e, ...)` | 搜索过滤回调 |
-| `_on_confirm_identity()` | 确认身份，切换到状态 B |
+- 搜索框实时过滤员工列表（姓名、ID、工种）
+- 点击列表项选中高亮
+- "确认身份"按钮写入 state，切换到状态 B
 
 ### 状态 B：任务列表
 
-当 `state.current_employee_id` 非空时显示。
-
-**数据获取**：
-
-```python
-# 待接单
-ready_tasks = [t for t in state.get_tasks_by_column("ready")
-               if t.employee_id == state.current_employee_id]
-
-# 进行中
-in_progress_tasks = [t for t in state.get_tasks_by_column("in_progress")
-                     if t.employee_id == state.current_employee_id]
-```
-
-**组件**：
-- 身份信息行：姓名、ID、工种、机型认证、班次 + "切换身份"按钮
-- 待接单区域：section header + 任务卡片列表 + 空状态占位
-- 进行中区域：section header + 任务卡片列表 + 空状态占位
+- 只显示归属当前员工的任务
+- Ready 列：绿色"接单"按钮 → 确认弹窗 → send_command
+- In Progress 列：黄色"阻塞" + 蓝色"提交验收"按钮
 - 底部统计：待接单 N 项 · 进行中 M 项
 
-**任务卡片**（`_make_task_card`）：
+## 文件清单
 
-```
-┌─────────────────────────────────────────────────┐
-│ ▌ WO-xxx  ·  任务标题...              [接单]    │
-│    B-5823 · ATA 32-41-03                        │
-└─────────────────────────────────────────────────┘
-```
-
-- 左色带：优先级颜色（AOG=红, CatA=橙, CatB=黄, CatC=蓝, CatD=灰）
-- 标题截断 46 字符
-- 信息行：工卡号 + 飞机注册号 + ATA 章节
-- Ready 列任务显示绿色"接单"按钮
-- In Progress 列任务显示蓝色"提交验收"按钮 + checklist 进度
-- 悬停高亮（`on_hover` → `_on_card_hover`）
-
-**空状态**：无任务时显示斜体灰色文字"暂无待接单任务"/"暂无进行中的任务"
-
-**关键方法**：
-
-| 方法 | 作用 |
+| 文件 | 说明 |
 |------|------|
-| `_rebuild_body_state_b()` | 构建任务列表界面 |
-| `_build_task_section(title, tasks, section_type, empty_text)` | 构建任务区域（header + 卡片列表） |
-| `_make_task_card(task, section_type)` | 构建单个任务卡片 |
-| `_on_card_hover(e)` | 卡片悬停高亮 |
-| `_on_switch_identity()` | 清除身份，切回状态 A |
+| `employee_app.py` | 子进程入口脚本 |
+| `app/employee/app.py` | 窗口应用：登录/工作台视图切换、窗口设置、关闭逻辑 |
+| `app/employee/state_sync.py` | 状态同步器：employee_state.json 轮询 + 信号检测 |
+| `app/employee/pages/login_page.py` | 登录页：员工搜索/选择 |
+| `app/employee/pages/workbench_page.py` | 工作台页：任务列表 + 接单/阻塞/提交 + 乐观更新 |
+| `app/core/services/command_queue.py` | IPC：命令队列 + employee_state 同步 + 信号文件 |
+| `app/core/services/persistence_service.py` | 主应用持久化：filelock + write_employee_state() |
+| `app/ui/pages/board_page.py` | 主应用：subprocess.Popen 启动 + 信号通知关闭 |
+| `app/ui/app.py` | 主应用：轮询线程 + 关闭时联动清理 |
 
-## 接单流程（Ready → In Progress）
+## 关键设计决策
 
-### 触发
-
-任务卡片上的"接单"按钮 → `_act_accept(task)`
-
-### 校验链（逐条检查，任一失败即 Toast 报错并中断）
-
-| 步骤 | 校验内容 | 失败提示 |
-|------|---------|---------|
-| 1 | 任务存在 | "任务不存在" |
-| 2 | 员工可用 (`employee_service.validate`) | "当前员工不可用" |
-| 3 | 任务仍在 Ready 列 | "任务状态已变化，请刷新" |
-| 4 | 任务归属当前员工 (`t.employee_id == state.current_employee_id`) | "该任务未指派给您" |
-| 5 | WIP 限制 (`in_progress` 列当前任务数 < 15) | "执行中列已达上限(15)" |
-
-### 确认界面（`_show_confirm_dialog`）
-
-不使用 `AlertDialog`（会被 OverlayDimmer 遮挡），而是**替换 `cls._body.content`** 为确认界面：
-
-```
-┌──────────────────────────────┐
-│          ❓ 图标              │
-│        确认接单               │
-│                              │
-│  任务: 前起落架转向异响排查    │
-│  B-5823 · ATA 32-41-03       │
-│                              │
-│  确认接单后将开始计时         │
-│                              │
-│    [取消]    [✓ 确认接单]     │
-└──────────────────────────────┘
-```
-
-- "取消" → 恢复保存的 `_prev_body` 内容
-- "确认接单" → `do_accept`
-  - 若 `planned_start` 为空，设为当前时间
-  - `task_service.move_task(task.id, "in_progress", changed_by=当前员工姓名)`
-  - 调用 `_rebuild_body_state_b()` 刷新列表
-  - Toast "已接单，任务进入执行中"
-  - 异常时恢复原 body 内容
-
-## 提交验收流程（In Progress → Inspection）
-
-### 触发
-
-任务卡片上的"提交验收"按钮 → `_act_submit(task)`
-
-### 校验
-
-| 步骤 | 校验内容 | 失败提示 |
-|------|---------|---------|
-| 1 | 任务存在 | "任务不存在" |
-| 2 | 任务仍在 In Progress 列 | "任务状态已变化，请刷新" |
-| 3 | 任务归属当前员工 | "该任务未指派给您" |
-| 4 | checklist 进度（仅警告，不阻断） | "检查清单未完成 (4/8)" |
-
-### 弹窗
-
-复用 `app/ui/dialogs/submit_dialog.py`，传入 `changed_by=state.current_employee_name`：
-
-- 交接班日志（必填）
-- 实际工时（选填）
-- 确认后：`task_service.move_task(tid, "inspection", changed_by=...)`
-- 状态同步自动刷新员工页面（通过 `state.subscribe` 监听器）
-
-## 状态同步
-
-员工页面通过 `state.subscribe()` 注册监听器，在看板状态变更时自动刷新任务列表：
-
-```
-move_task → state._notify() → _on_state_changed → _rebuild_body_state_b → page.update
-```
-
-关键设计：`_on_state_changed` 检查 `cls._open` 和 `state.current_employee_id`，两个条件都满足才刷新。
-
-## 关联变更（本功能涉及的其他文件）
-
-| 文件 | 改动 |
-|------|------|
-| `app/core/state.py` | `current_employee_id` / `current_employee_name` 字段 |
-| `app/ui/app.py` | 标题栏 PERSON_OUTLINE 按钮绑定 |
-| `app/ui/pages/board_page.py` | `_open_employee_page()` 入口方法 |
-| `app/ui/services/context_menu_builder.py` | Ready 列保留"开始执行"，In Progress 列删除"提交验收""直接完成" |
-| `app/core/services/board_scheduler.py` | 删除 Ready→InProgress 自动流转分支 |
-| `app/ui/dialogs/submit_dialog.py` | `changed_by` 参数化（默认 `"user"`） |
-
-## 两条 Ready→InProgress 路径对比
-
-| 路径 | 触发 | 校验 | 确认 |
-|------|------|------|------|
-| 员工工作台"接单" | 选身份后点按钮 | 归属 + 可用 + WIP | 内联确认 |
-| 右键"开始执行" | Ready 列右键菜单 | 无 | 无 |
-
-## 注意事项
-
-1. **Flet 0.28.3 兼容性**：`ElevatedButton` 只能使用 `text`+`icon` 参数，不支持 `content`；`Container.on_click` 在 scrollable Column 内不可靠
-2. **确认弹窗**：不能用 `page.dialog`（会被 OverlayDimmer 遮挡），改用替换 body 内容的方式
-3. **员工列表字体**：Flet 0.28.3 的 `Dropdown` 菜单项不支持自定义字体，因此改用搜索框+自绘列表
-4. **`changed_by`**：员工页面操作时传入员工姓名（如"张工"），便于审计日志追溯
-5. **身份不持久化**：关闭应用后需要重新选择员工身份
+1. **子进程而非线程**：员工窗口完全独立的 Python 进程，崩溃不影响主应用
+2. **文件 IPC 而非 socket**：无需端口管理、防火墙配置，部署简单
+3. **信号文件关闭而非杀进程**：避免 Flet 子进程(fletd.exe) 变孤儿，窗口残留
+4. **乐观更新而非等待确认**：0ms 感知延迟，后台自动纠正
+5. **移除 `prevent_close`**：走 Flet 原生快速关闭通道，`close()` 可在任意线程调用

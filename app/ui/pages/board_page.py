@@ -730,8 +730,8 @@ class BoardPage:
             )
             # 跟踪子进程，主应用关闭时联动关闭
             _employee_processes.append(proc)
-        except Exception as ex:
-            print(f"[BoardPage] 员工子进程启动失败: {ex}")
+        except Exception:
+            log.warn("employee", "子进程启动失败，回退到 overlay 模式")
             # 回退到 overlay 模式
             from app.ui.pages.employee_page import EmployeeWorkbench
             EmployeeWorkbench.open(self._page)
