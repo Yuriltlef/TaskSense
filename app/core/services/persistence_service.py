@@ -1,12 +1,15 @@
 """状态持久化服务。
 
 将 AppState 序列化为 JSON 文件，支持启动加载和自动保存。
+支持 filelock 跨进程安全读写 + mtime 外部变更检测。
 """
 
 import json
 import os
 import threading
 from typing import Optional
+
+from filelock import FileLock, Timeout as FileLockTimeout
 
 from app.core.events import event_bus, EventType
 
@@ -34,6 +37,8 @@ class PersistenceService:
         self._auto_save_enabled: bool = True
         self._running: bool = False
         self._watch_thread: Optional[threading.Thread] = None
+        self._file_lock: Optional[FileLock] = None
+        self._last_file_mtime: float = 0.0
 
     # ── 公开 API ──
 
@@ -46,35 +51,71 @@ class PersistenceService:
             )
             path = os.path.join(project_root, path)
         self._path = path
+        # 创建跨进程文件锁
+        self._file_lock = FileLock(path + ".lock", timeout=5.0)
 
     def save(self) -> bool:
-        """立即保存当前状态到文件。"""
+        """立即保存当前状态到文件（跨进程 filelock 保护）。
+
+        同时写入 employee_state.json 供员工窗口读取。
+        """
         if not self._path:
             return False
         try:
             from app.core.state import state
             data = state.to_dict()
             with self._lock:
-                os.makedirs(os.path.dirname(self._path), exist_ok=True)
-                with open(self._path, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-                self._dirty = False
+                if self._file_lock:
+                    self._file_lock.acquire(poll_interval=0.1)
+                try:
+                    os.makedirs(os.path.dirname(self._path), exist_ok=True)
+                    with open(self._path, "w", encoding="utf-8") as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+                    self._dirty = False
+                finally:
+                    if self._file_lock:
+                        self._file_lock.release()
+            try:
+                self._last_file_mtime = os.path.getmtime(self._path)
+            except OSError:
+                pass
+            # 同步写入员工状态 API
+            from app.core.services.command_queue import write_employee_state
+            write_employee_state()
             return True
+        except FileLockTimeout:
+            print("[PersistenceService] 保存超时：无法获取文件锁")
+            return False
         except Exception as e:
             print(f"[PersistenceService] 保存失败: {e}")
             return False
 
     def load(self) -> bool:
-        """从文件加载状态到 AppState。"""
+        """从文件加载状态到 AppState（跨进程 filelock 保护）。"""
         if not self._path or not os.path.exists(self._path):
             return False
         try:
-            with open(self._path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            from app.core.state import state
-            state.load_from_dict(data)
-            self._dirty = False
+            # 跨进程锁
+            if self._file_lock:
+                self._file_lock.acquire(poll_interval=0.1)
+            try:
+                with open(self._path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                from app.core.state import state
+                state.load_from_dict(data)
+                self._dirty = False
+            finally:
+                if self._file_lock:
+                    self._file_lock.release()
+            # 记录 mtime
+            try:
+                self._last_file_mtime = os.path.getmtime(self._path)
+            except OSError:
+                pass
             return True
+        except FileLockTimeout:
+            print("[PersistenceService] 加载超时：无法获取文件锁")
+            return False
         except Exception as e:
             print(f"[PersistenceService] 加载失败: {e}")
             return False
@@ -113,6 +154,22 @@ class PersistenceService:
         """如果有未保存的变更，立即保存。"""
         if self._dirty:
             return self.save()
+        return False
+
+    # ── 外部变更检测 ──
+
+    def has_external_changes(self) -> bool:
+        """检测文件是否被外部进程修改。"""
+        try:
+            current = os.path.getmtime(self._path)
+        except OSError:
+            return False
+        return current != self._last_file_mtime
+
+    def reload_if_changed(self) -> bool:
+        """如果检测到外部变更，自动重新加载。返回 True 表示已重新加载。"""
+        if self.has_external_changes():
+            return self.load()
         return False
 
     # ── 内部 ──

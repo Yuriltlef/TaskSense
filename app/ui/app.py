@@ -58,6 +58,9 @@ class TaskSenseApp:
         from app.core.services.board_scheduler import board_scheduler
         board_scheduler.start(interval=10.0)
 
+        # ── 启动外部变更轮询（员工窗口修改后的自动刷新）──
+        self._start_sync_polling()
+
         self.main_content.content = self.board_page.build(page)
         self._build_unified_title_bar()
         self._setup_keyboard(page)
@@ -77,6 +80,7 @@ class TaskSenseApp:
         self.page.window.title_bar_hidden = True
         self.page.window.title_bar_buttons_hidden = True
         self.page.window.bgcolor = ft.Colors.TRANSPARENT
+        self.page.window.on_close = lambda e: self._on_window_close()
 
         self.page.window.width = round(1400 * SCALE)
         self.page.window.height = round(900 * SCALE)
@@ -340,7 +344,52 @@ class TaskSenseApp:
         self._update_maximize_button()
 
     def _close_window(self, e):
+        """自定义标题栏关闭按钮：清理员工进程后关闭窗口。"""
+        from app.ui.pages.board_page import kill_employee_processes
+        kill_employee_processes()
         self.page.window.close()
+
+    def _on_window_close(self):
+        """系统关闭按钮回调：清理员工进程。"""
+        from app.ui.pages.board_page import kill_employee_processes
+        kill_employee_processes()
+
+    # ═══════════════════════════════
+    # 外部变更轮询
+    # ═══════════════════════════════
+
+    def _start_sync_polling(self):
+        """后台线程：处理员工窗口命令 + 检测外部状态变更。"""
+        import threading, time
+
+        self._polling_active = True
+
+        def poll():
+            while self._polling_active:
+                time.sleep(0.5)
+                if not self._polling_active:
+                    return
+                try:
+                    # 1. 处理员工窗口发来的命令队列
+                    from app.core.services.command_queue import process_pending_commands
+                    processed = process_pending_commands()
+                    if processed > 0:
+                        # 命令处理后保存状态
+                        from app.core.services.persistence_service import persistence_service
+                        persistence_service.save()
+                        if self.board_page:
+                            self.board_page._refresh_board()
+
+                    # 2. 检测外部直接修改（兼容旧逻辑）
+                    from app.core.services.persistence_service import persistence_service
+                    if persistence_service.reload_if_changed():
+                        if self.board_page and self.page:
+                            self.board_page._refresh_board()
+                except Exception:
+                    pass
+
+        t = threading.Thread(target=poll, daemon=True)
+        t.start()
 
     # ═══════════════════════════════
     # 键盘

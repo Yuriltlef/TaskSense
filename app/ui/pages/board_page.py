@@ -25,6 +25,40 @@ from app.ui.services.task_registry import TaskRegistry
 from app.ui.widgets.toast import Toast
 
 
+# ── 员工子进程跟踪 ──
+_employee_processes: list = []
+
+
+def shutdown_employee_processes():
+    """通知所有员工子进程自行关闭。
+
+    写入关闭信号文件，员工 StateSync 轮询检测到后自行调用 close()。
+    """
+    from app.core.services.command_queue import (
+        write_shutdown_signal, process_pending_commands,
+    )
+    from app.core.services.persistence_service import persistence_service
+
+    if not _employee_processes:
+        return
+
+    write_shutdown_signal()
+
+    try:
+        processed = process_pending_commands()
+        if processed > 0:
+            persistence_service.save()
+    except Exception:
+        pass
+
+    _employee_processes.clear()
+
+
+def kill_employee_processes():
+    """兼容旧接口。"""
+    shutdown_employee_processes()
+
+
 class BoardPage:
     def __init__(self, api_ready: bool = False):
         self.api_ready = api_ready
@@ -679,8 +713,28 @@ class BoardPage:
         SettingsOverlay.open(self._page)
 
     def _open_employee_page(self):
-        from app.ui.pages.employee_page import EmployeeWorkbench
-        EmployeeWorkbench.open(self._page)
+        """启动员工工作台为独立子进程窗口。失败时回退 overlay。"""
+        import subprocess, sys, os
+
+        project_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        )
+        entry_point = os.path.join(project_root, "employee_app.py")
+
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, entry_point],
+                cwd=project_root,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            # 跟踪子进程，主应用关闭时联动关闭
+            _employee_processes.append(proc)
+        except Exception as ex:
+            print(f"[BoardPage] 员工子进程启动失败: {ex}")
+            # 回退到 overlay 模式
+            from app.ui.pages.employee_page import EmployeeWorkbench
+            EmployeeWorkbench.open(self._page)
 
     def _on_filter_click(self, e):
         f = board_service.get_board().filters

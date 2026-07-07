@@ -150,9 +150,15 @@ class OverlayDimmer:
             opacity=self._dim_opacity,
             on_click=self._on_dim_click,
         )
+        if not self._keep_position:
+            if hasattr(self._content, 'left'):
+                self._content.left = None
+            if hasattr(self._content, 'top'):
+                self._content.top = None
         return ft.Stack(
             [dimmer, self._content],
             width=pw, height=ph,
+            alignment=ft.alignment.center,
         )
 
     def _on_dim_click(self, e):
