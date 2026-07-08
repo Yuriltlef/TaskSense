@@ -249,6 +249,10 @@ class TaskSenseApp:
             icon_btn(ft.Icons.FILTER_LIST, bp._on_filter_click, "筛选任务"),
             ft.Container(width=s(4)),
             self._build_ai_menu_button(bp),
+            ft.Container(width=s(4)),
+            icon_btn(ft.Icons.CALENDAR_VIEW_WEEK, lambda e: bp._open_gantt_page(), "甘特图"),
+            ft.Container(width=s(4)),
+            icon_btn(ft.Icons.VIEW_COLUMN, lambda e: bp._open_taskboard_page(), "任务看板"),
         ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
         # ── 右侧功能区 ──

@@ -728,13 +728,47 @@ class BoardPage:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            # 跟踪子进程，主应用关闭时联动关闭
             _employee_processes.append(proc)
         except Exception:
             log.warn("employee", "子进程启动失败，回退到 overlay 模式")
-            # 回退到 overlay 模式
             from app.ui.pages.employee_page import EmployeeWorkbench
             EmployeeWorkbench.open(self._page)
+
+    def _open_gantt_page(self):
+        """启动甘特图为独立子进程窗口。"""
+        import subprocess, sys, os
+        project_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        )
+        entry_point = os.path.join(project_root, "gantt_app.py")
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, entry_point],
+                cwd=project_root,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            _employee_processes.append(proc)
+        except Exception:
+            log.warn("gantt", "甘特图子进程启动失败")
+
+    def _open_taskboard_page(self):
+        """启动任务看板为独立子进程窗口。"""
+        import subprocess, sys, os
+        project_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        )
+        entry_point = os.path.join(project_root, "taskboard_app.py")
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, entry_point],
+                cwd=project_root,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            _employee_processes.append(proc)
+        except Exception:
+            log.warn("taskboard", "任务看板子进程启动失败")
 
     def _on_filter_click(self, e):
         f = board_service.get_board().filters
