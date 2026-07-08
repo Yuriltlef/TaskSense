@@ -19,6 +19,7 @@ class TaskSenseApp:
         self.page = page
         self._setup_window()
         self._setup_fonts()
+        self._setup_icon()
         self._create_ui()
 
         # ── 加载设置、检查 API ──
@@ -95,11 +96,16 @@ class TaskSenseApp:
 
     def _setup_fonts(self):
         fonts_dir = os.path.abspath(os.path.join(
-            os.path.dirname(__file__), "..", "..", "sources"))
+            os.path.dirname(__file__), "..", "..", "resources"))
         self.page.fonts = {
             theme.font_family: os.path.join(fonts_dir, "HarmonyOS_Sans_SC_Medium.ttf"),
             theme.font_family_bold: os.path.join(fonts_dir, "HarmonyOS_Sans_SC_Bold.ttf"),
         }
+
+    def _setup_icon(self):
+        icon_path = os.path.abspath(os.path.join(
+            os.path.dirname(__file__), "..", "..", "resources", "concept_paperplane.ico"))
+        self.page.window.icon = icon_path
 
     # ═══════════════════════════════
     # 整体布局
@@ -225,9 +231,11 @@ class TaskSenseApp:
         # ── 左侧功能区 ──
         left_group = ft.Row([
             ft.Container(width=s(8)),
-            ft.Container(content=ft.Text("✈", size=s(15), font_family=ff),
-                         padding=ft.padding.only(left=s(2), right=s(6)),
-                         height=H, alignment=ft.alignment.center),
+            ft.Container(content=ft.Image(
+                src=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "resources", "concept_paperplane.ico")),
+                width=s(18), height=s(18), fit=ft.ImageFit.CONTAIN),
+                padding=ft.padding.only(left=s(4), right=s(8)),
+                height=H, alignment=ft.alignment.center),
             ft.Container(width=s(6)),
             ft.Container(
                 content=ft.Row([

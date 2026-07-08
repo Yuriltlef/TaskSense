@@ -44,6 +44,7 @@ class EmployeeWindowApp:
         self.page = page
         self._setup_window()
         self._setup_fonts()
+        self._setup_icon()
         self._create_ui()          # ① 先渲染 UI（标题栏 + body 槽位）
         self._show_connecting()    # ② 显示"正在连接"
         page.on_resized = self._on_window_resized
@@ -80,13 +81,18 @@ class EmployeeWindowApp:
 
     def _setup_fonts(self):
         fonts_dir = os.path.abspath(os.path.join(
-            os.path.dirname(__file__), "..", "..", "sources"))
+            os.path.dirname(__file__), "..", "..", "resources"))
         self.page.fonts = {
             theme.font_family: os.path.join(
                 fonts_dir, "HarmonyOS_Sans_SC_Medium.ttf"),
             theme.font_family_bold: os.path.join(
                 fonts_dir, "HarmonyOS_Sans_SC_Bold.ttf"),
         }
+
+    def _setup_icon(self):
+        icon_path = os.path.abspath(os.path.join(
+            os.path.dirname(__file__), "..", "..", "resources", "concept_paperplane.ico"))
+        self.page.window.icon = icon_path
 
     # ── 连接（后台线程）──
 
@@ -219,8 +225,8 @@ class EmployeeWindowApp:
         # ── 组装标题栏 ──
         bar_row = ft.Row([
             ft.Container(width=s(8)),
-            ft.Text("✈", size=s(15), font_family=ff),
-            ft.Container(width=s(6)),
+            ft.Image(src=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "resources", "concept_paperplane.ico")), width=s(18), height=s(18), fit=ft.ImageFit.CONTAIN),
+            ft.Container(width=s(10)),
             ft.Icon(ft.Icons.PERSON_OUTLINE, size=s(15), color=theme.info),
             ft.Container(width=s(6)),
             ft.Container(content=self._title_text),

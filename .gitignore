@@ -226,3 +226,4 @@ data/server_port.txt
 .model_cache/
 *.db
 /data/reports/
+/data/server_port.txt

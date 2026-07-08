@@ -31,6 +31,7 @@ class GanttWindowApp:
         self.page = page
         self._setup_window()
         self._setup_fonts()
+        self._setup_icon()
         self._create_ui()          # 先渲染 UI
         self._show_connecting()    # 显示"正在连接"
         page.on_resized = self._on_window_resized
@@ -54,11 +55,16 @@ class GanttWindowApp:
 
     def _setup_fonts(self):
         fonts_dir = os.path.abspath(os.path.join(
-            os.path.dirname(__file__), "..", "..", "sources"))
+            os.path.dirname(__file__), "..", "..", "resources"))
         self.page.fonts = {
             theme.font_family: os.path.join(fonts_dir, "HarmonyOS_Sans_SC_Medium.ttf"),
             theme.font_family_bold: os.path.join(fonts_dir, "HarmonyOS_Sans_SC_Bold.ttf"),
         }
+
+    def _setup_icon(self):
+        icon_path = os.path.abspath(os.path.join(
+            os.path.dirname(__file__), "..", "..", "resources", "concept_paperplane.ico"))
+        self.page.window.icon = icon_path
 
     # ── 连接（后台线程）──
 
@@ -164,8 +170,8 @@ class GanttWindowApp:
 
         bar_row = ft.Row([
             ft.Container(width=s(8)),
-            ft.Text("✈", size=s(15), font_family=ff),
-            ft.Container(width=s(6)),
+            ft.Image(src=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "resources", "concept_paperplane.ico")), width=s(18), height=s(18), fit=ft.ImageFit.CONTAIN),
+            ft.Container(width=s(10)),
             ft.Icon(ft.Icons.CALENDAR_VIEW_WEEK, size=s(15), color=theme.info),
             ft.Container(width=s(6)),
             ft.Container(content=self._title_text),
@@ -190,6 +196,7 @@ class GanttWindowApp:
     # ── 数据刷新 ──
 
     def _refresh(self, pull: bool = True):
+        from app.config.theme import s
         if pull and self._client:
             try:
                 state_dict = self._client.get_state()
@@ -231,6 +238,7 @@ class GanttWindowApp:
         header_row = ft.Row(header_cells, spacing=0)
 
         # 任务行
+
         task_rows = []
         for t in sorted(scheduled, key=lambda x: (x.planned_start or datetime.max)):
             cells = [ft.Container(
