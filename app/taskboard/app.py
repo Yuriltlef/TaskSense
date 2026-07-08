@@ -123,7 +123,7 @@ class TaskBoardWindowApp:
 
     async def _on_connected(self):
         self._body.content = self._board
-        self._refresh()
+        self._refresh(pull=False)  # state 已由 connect_async 加载
         self._body.update()
 
     async def _on_connect_failed(self, error: str):
@@ -191,7 +191,13 @@ class TaskBoardWindowApp:
 
     # ── 数据刷新 ──
 
-    def _refresh(self):
+    def _refresh(self, pull: bool = True):
+        if pull and self._client:
+            try:
+                state_dict = self._client.get_state()
+                state.load_from_dict(state_dict)
+            except Exception:
+                return
         ff = theme.font_family
 
         col_width = max(s(160), (self.page.width - s(40)) // len(_COLUMN_IDS))

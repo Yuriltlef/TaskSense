@@ -167,7 +167,8 @@ class SocketServer:
                     try:
                         msg = json.loads(line.decode("utf-8"))
                         action = msg.get("action", "?")
-                        log.info("srv.req", f"#{cid} {action}")
+                        if action != "hash":  # hash 每秒一次，不刷屏
+                            log.info("srv.req", f"#{cid} {action}")
                         resp = self._dispatch(msg, cid)
                         resp_bytes = (json.dumps(resp, ensure_ascii=False) + "\n").encode("utf-8")
                         client.sendall(resp_bytes)

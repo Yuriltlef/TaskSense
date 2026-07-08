@@ -120,7 +120,7 @@ class GanttWindowApp:
         threading.Thread(target=_do_connect, daemon=True).start()
 
     async def _on_connected(self):
-        self._refresh()
+        self._refresh(pull=False)
         self._body.update()
 
     async def _on_connect_failed(self, error: str):
@@ -189,7 +189,13 @@ class GanttWindowApp:
 
     # ── 数据刷新 ──
 
-    def _refresh(self):
+    def _refresh(self, pull: bool = True):
+        if pull and self._client:
+            try:
+                state_dict = self._client.get_state()
+                state.load_from_dict(state_dict)
+            except Exception:
+                return
         ff = theme.font_family
         scheduled = [t for t in state.get_all_tasks() if t.status.value == "scheduled"]
         if not scheduled:

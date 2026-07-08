@@ -298,7 +298,14 @@ class EmployeeWindowApp:
     # ── 外部变更回调 ──
 
     def _on_external_change(self):
-        """board_state.json 被外部进程修改 → 刷新工作台。"""
+        """状态变更 → 拉取最新数据 → 刷新工作台。"""
+        if not self._client:
+            return
+        try:
+            state_dict = self._client.get_state()
+            state.load_from_dict(state_dict)
+        except Exception:
+            return
         if self._current_employee_id and self._workbench_page:
             self._workbench_page.refresh()
 
