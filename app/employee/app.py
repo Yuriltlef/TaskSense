@@ -1,24 +1,27 @@
 """员工子进程窗口应用 — Flet 窗口 + 登录/工作台视图切换."""
 
+import sys
 import os
+import threading
 import flet as ft
 
 from app.config.theme import theme, SCALE, s
 from app.core.services.employee_service import employee_service
-from app.core.services.persistence_service import persistence_service
+from app.core.state import state
+from app.core.services.socket_client import SocketClient
 from app.employee.pages.login_page import LoginPage
 from app.employee.pages.workbench_page import WorkbenchPage
-from app.employee.state_sync import StateSync
 
 
 class EmployeeWindowApp:
     """员工独立窗口应用。
 
-    管理两个视图：
+    管理三个视图：
+    - ConnectingView（正在连接主应用）
     - LoginPage（登录/选择员工）
     - WorkbenchPage（任务列表 + 接单/提交）
 
-    通过 body.content 替换实现视图切换。
+    连接在后台线程执行，UI 先渲染避免空白窗口。
     """
 
     def __init__(self):
@@ -29,7 +32,7 @@ class EmployeeWindowApp:
         self._inner: ft.Container | None = None
         self._login_page: LoginPage | None = None
         self._workbench_page: WorkbenchPage | None = None
-        self._state_sync: StateSync | None = None
+        self._client: SocketClient | None = None
         self._title_text: ft.Text | None = None
         self._title_bar: ft.Container | None = None
         self._max_btn: ft.IconButton | None = None
@@ -41,11 +44,12 @@ class EmployeeWindowApp:
         self.page = page
         self._setup_window()
         self._setup_fonts()
-        self._init_services()
-        self._create_ui()
-        self.show_login()
+        self._create_ui()          # ① 先渲染 UI（标题栏 + body 槽位）
+        self._show_connecting()    # ② 显示"正在连接"
         page.on_resized = self._on_window_resized
         page.update()
+        self._connect_async()      # ③ 后台连接，连上后切到登录页
+        employee_service.load()
 
     # ── 窗口设置 ──
 
@@ -70,8 +74,9 @@ class EmployeeWindowApp:
         self.page.bgcolor = ft.Colors.TRANSPARENT
 
     def _on_window_close(self):
-        if self._state_sync:
-            self._state_sync.stop_polling()
+        if self._client:
+            self._client.stop_polling()
+            self._client.close()
 
     def _setup_fonts(self):
         fonts_dir = os.path.abspath(os.path.join(
@@ -83,20 +88,83 @@ class EmployeeWindowApp:
                 fonts_dir, "HarmonyOS_Sans_SC_Bold.ttf"),
         }
 
-    # ── 服务初始化 ──
+    # ── 连接（后台线程）──
 
-    def _init_services(self):
-        employee_service.load()
-        # 初始化：从 board_state.json 加载初始数据
-        persistence_service.set_path("data/board_state.json")
-        persistence_service.load()
-        # 轮询：监听 employee_state.json + 关闭信号
-        self._state_sync = StateSync("data/employee_state.json")
-        self._state_sync.start_polling(
-            interval=1.0,
-            on_change=self._on_external_change,
-            on_shutdown=lambda: self._do_close(),
+    def _show_connecting(self):
+        """显示"正在连接"状态——UI 先渲染，不等网络。"""
+        ff = theme.font_family
+        self._body.content = ft.Container(
+            ft.Column([
+                ft.Container(height=s(60)),
+                ft.ProgressRing(width=s(32), height=s(32), color=theme.info),
+                ft.Container(height=s(16)),
+                ft.Text("正在连接主应用...", size=s(14),
+                        color=theme.text_primary, font_family=ff),
+                ft.Container(height=s(4)),
+                ft.Text("如果持续无法连接，请确保主应用已启动",
+                        size=s(11), color=theme.text_secondary, font_family=ff),
+            ], spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            expand=True, alignment=ft.alignment.center, bgcolor=theme.bg,
         )
+
+    def _show_connect_error(self, error: str):
+        """显示连接失败状态。"""
+        ff = theme.font_family
+        self._body.content = ft.Container(
+            ft.Column([
+                ft.Container(height=s(60)),
+                ft.Icon(ft.Icons.CLOUD_OFF, size=s(36), color=theme.error),
+                ft.Container(height=s(12)),
+                ft.Text("无法连接主应用", size=s(14), weight=ft.FontWeight.W_600,
+                        color=theme.error, font_family=ff),
+                ft.Container(height=s(6)),
+                ft.Text(error, size=s(11), color=theme.text_secondary, font_family=ff),
+                ft.Container(height=s(16)),
+                ft.ElevatedButton("重试", icon=ft.Icons.REFRESH,
+                    style=ft.ButtonStyle(
+                        bgcolor=theme.info, color=ft.Colors.WHITE,
+                        shape=ft.RoundedRectangleBorder(radius=s(6))),
+                    on_click=lambda e: self._retry_connect()),
+            ], spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            expand=True, alignment=ft.alignment.center, bgcolor=theme.bg,
+        )
+
+    def _retry_connect(self):
+        """重试连接。"""
+        self._show_connecting()
+        self._body.update()
+        self._connect_async()
+
+    def _connect_async(self):
+        """后台线程：连接主进程 socket → 获取状态 → 切换到登录页。"""
+
+        def _do_connect():
+            try:
+                client = SocketClient(tag="employee")
+                state_dict = client.get_state()
+                state.load_from_dict(state_dict)
+                client.start_polling(
+                    interval=1.0,
+                    on_change=self._on_external_change,
+                    on_disconnect=lambda: self._do_close(),
+                )
+                self._client = client
+                # 切回主线程更新 UI
+                self.page.run_task(self._on_connected)
+            except Exception as e:
+                self.page.run_task(self._on_connect_failed, str(e))
+
+        threading.Thread(target=_do_connect, daemon=True).start()
+
+    async def _on_connected(self):
+        """连接成功回调（主线程）——切换到登录页。"""
+        self.show_login()
+        self._body.update()
+
+    async def _on_connect_failed(self, error: str):
+        """连接失败回调（主线程）——显示错误页。"""
+        self._show_connect_error(error)
+        self._body.update()
 
     # ── UI 结构 ──
 
@@ -220,7 +288,7 @@ class EmployeeWindowApp:
             self.page,
             employee_id,
             employee_name,
-            self._state_sync,
+            self._client,
             on_switch=lambda: self.show_login(),
         )
         self._body.content = self._workbench_page.build()
@@ -303,7 +371,6 @@ class EmployeeWindowApp:
         self._update_maximize_button()
 
     def _do_close(self):
-        """关闭窗口：停止轮询 + 走原生关闭路径。"""
-        if self._state_sync:
-            self._state_sync.stop_polling()
+        """关闭窗口（由 socket 断开触发，在 poll 线程内调用）。"""
+        self._client = None
         self.page.window.close()

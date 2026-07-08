@@ -1,7 +1,7 @@
 """工作台页 — 任务列表 + 接单 / 提交验收 / 阻塞.
 
-所有写操作通过 command_queue 发送给主应用处理，
-本页面只读取状态并显示，通过 mtime 轮询检测变更后刷新。
+所有写操作通过 SocketClient 发送给主应用处理，
+主应用执行后立即保存并返回最新状态，本页面读取状态并刷新。
 """
 
 import flet as ft
@@ -9,7 +9,7 @@ import flet as ft
 from app.config.theme import theme, s
 from app.core.state import state
 from app.core.services.employee_service import employee_service
-from app.core.services.command_queue import send_command
+from app.core.services.socket_client import SocketClient
 from app.core.models.task import TaskStatus
 from app.ui.widgets.toast import Toast
 from app.ui.widgets.overlay_dimmer import OverlayDimmer
@@ -19,17 +19,17 @@ class WorkbenchPage:
     """员工任务工作台页面（独立窗口内的状态 B）。
 
     用法:
-        wb = WorkbenchPage(page, eid, ename, state_sync, on_switch)
+        wb = WorkbenchPage(page, eid, ename, client, on_switch)
         container = wb.build()
     """
 
     def __init__(self, page: ft.Page, employee_id: str, employee_name: str,
-                 state_sync, on_switch):
+                 client: SocketClient, on_switch):
         self._page = page
         self._employee_id = employee_id
         self._employee_name = employee_name
-        self._state_sync = state_sync  # StateSync 实例
-        self._on_switch = on_switch    # 切换登录回调
+        self._client = client        # SocketClient 实例
+        self._on_switch = on_switch  # 切换登录回调
         self._body: ft.Column | None = None
         self._body_container: ft.Container | None = None
 
@@ -312,20 +312,21 @@ class WorkbenchPage:
             return False
         return True
 
-    def _send_and_wait(self, action: str, task_id: str, params: dict | None = None):
-        """发送命令到主应用。UI 由调用方乐观更新，后台轮询做最终纠正。"""
+    def _send_and_wait(self, action: str, task_id: str, params: dict | None = None) -> dict | None:
+        """通过 socket 发送命令到主应用。
+        返回最新状态字典，失败返回 None。
+        """
         try:
-            send_command(
+            return self._client.send_command(
                 action=action,
                 task_id=task_id,
                 employee_id=self._employee_id,
                 employee_name=self._employee_name,
                 params=params,
             )
-            return True
         except Exception as e:
             Toast.show(self._page, f"发送命令失败: {e}", "warning")
-            return False
+            return None
 
     # ── 接单 ──
 
@@ -352,18 +353,15 @@ class WorkbenchPage:
         btn_st = ft.TextStyle(size=s(12), font_family=ff)
 
         def do_accept(e):
-            self._send_and_wait("accept_task", task.id)
-            # 乐观更新：立即移动任务到执行中列
-            from datetime import datetime
-            from app.core.state import state as app_state
-            if not task.planned_start:
-                app_state.update_task(task.id, planned_start=datetime.now())
-            app_state.move_task(task.id, "in_progress", changed_by=self._employee_name)
-            if close_ref[0]:
-                close_ref[0].close()
-                close_ref[0] = None
-            self.refresh()
-            Toast.show(self._page, "已接单，任务进入执行中", "success")
+            state_dict = self._send_and_wait("accept_task", task.id)
+            if state_dict is not None:
+                from app.core.state import state as app_state
+                app_state.load_from_dict(state_dict)
+                if close_ref[0]:
+                    close_ref[0].close()
+                    close_ref[0] = None
+                self.refresh()
+                Toast.show(self._page, "已接单，任务进入执行中", "success")
 
         def cancel(e):
             if close_ref[0]:
@@ -475,19 +473,18 @@ class WorkbenchPage:
             except ValueError:
                 actual_hours = 0
 
-            self._send_and_wait("submit_task", task.id, {
+            state_dict = self._send_and_wait("submit_task", task.id, {
                 "handover_log": log,
                 "actual_hours": actual_hours,
             })
-            # 乐观更新：立即移动任务到验收列
-            from app.core.state import state as app_state
-            app_state.update_task(task.id, shift_handover_log=log, actual_hours=actual_hours)
-            app_state.move_task(task.id, "inspection", changed_by=self._employee_name)
-            if close_ref[0]:
-                close_ref[0].close()
-                close_ref[0] = None
-            self.refresh()
-            Toast.show(self._page, "已提交验收请求", "success")
+            if state_dict is not None:
+                from app.core.state import state as app_state
+                app_state.load_from_dict(state_dict)
+                if close_ref[0]:
+                    close_ref[0].close()
+                    close_ref[0] = None
+                self.refresh()
+                Toast.show(self._page, "已提交验收请求", "success")
 
         def cancel(e):
             if close_ref[0]:
@@ -567,16 +564,15 @@ class WorkbenchPage:
             if not reason:
                 Toast.show(self._page, "请输入阻塞原因", "warning")
                 return
-            self._send_and_wait("block_task", task.id, {"reason": reason})
-            # 乐观更新：立即移动任务到阻塞列
-            from app.core.state import state as app_state
-            app_state.update_task(task.id, is_blocked=True, block_reason=reason)
-            app_state.move_task(task.id, "parts_hold", changed_by=self._employee_name)
-            if close_ref[0]:
-                close_ref[0].close()
-                close_ref[0] = None
-            self.refresh()
-            Toast.show(self._page, "已发送阻塞请求", "success")
+            state_dict = self._send_and_wait("block_task", task.id, {"reason": reason})
+            if state_dict is not None:
+                from app.core.state import state as app_state
+                app_state.load_from_dict(state_dict)
+                if close_ref[0]:
+                    close_ref[0].close()
+                    close_ref[0] = None
+                self.refresh()
+                Toast.show(self._page, "已发送阻塞请求", "success")
 
         def cancel(e):
             if close_ref[0]:

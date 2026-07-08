@@ -25,38 +25,80 @@ from app.ui.services.task_registry import TaskRegistry
 from app.ui.widgets.toast import Toast
 
 
-# ── 员工子进程跟踪 ──
-_employee_processes: list = []
-
-
-def shutdown_employee_processes():
-    """通知所有员工子进程自行关闭。
-
-    写入关闭信号文件，员工 StateSync 轮询检测到后自行调用 close()。
-    """
-    from app.core.services.command_queue import (
-        write_shutdown_signal, process_pending_commands,
+def _read_server_port() -> str:
+    """读取主进程 socket 服务端口。"""
+    import os
+    project_root = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..")
     )
-    from app.core.services.persistence_service import persistence_service
-
-    if not _employee_processes:
-        return
-
-    write_shutdown_signal()
-
-    try:
-        processed = process_pending_commands()
-        if processed > 0:
-            persistence_service.save()
-    except Exception:
-        pass
-
-    _employee_processes.clear()
+    port_path = os.path.join(project_root, "data", "server_port.txt")
+    with open(port_path, "r") as f:
+        return f.read().strip()
 
 
-def kill_employee_processes():
-    """兼容旧接口。"""
-    shutdown_employee_processes()
+# ── 子进程串行 spawn 队列（防止 Flet 多引擎同时初始化卡死）──
+import queue as _queue
+_spawn_queue: _queue.Queue = _queue.Queue()
+_spawn_ready = None
+
+
+def _on_subprocess_connected():
+    """socket 服务端接受新连接时回调——通知 worker 可以发下一个。"""
+    if _spawn_ready is not None:
+        log.info("spawn.signal", "connect received → ready for next")
+        _spawn_ready.set()
+
+
+def _spawn_worker():
+    """后台线程：串行处理 spawn 请求，每个子进程连接成功后才发下一个。"""
+    import subprocess, sys, os
+    global _spawn_ready
+    _spawn_ready = _spawn_ready or threading.Event()
+    _spawn_ready.set()
+
+    from app.core.services.socket_server import socket_server
+    socket_server.on_connect = _on_subprocess_connected
+
+    project_root = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..")
+    )
+    os.makedirs(os.path.join(project_root, "data", "logs"), exist_ok=True)
+    log.info("spawn.worker", "started")
+
+    while True:
+        kind, entry_name = _spawn_queue.get()
+        log.info("spawn.dequeue", f"{kind} queue_size={_spawn_queue.qsize()}")
+        if not _spawn_ready.wait(timeout=10.0):
+            log.warn("spawn.timeout", f"{kind} previous connect not received in 10s, spawning anyway")
+        _spawn_ready.clear()
+
+        entry_point = os.path.join(project_root, entry_name)
+        log_path = os.path.join(project_root, "data", "logs",
+                                f"{kind}_stderr.log")
+        try:
+            err_log = open(log_path, "a")
+            subprocess.Popen(
+                [sys.executable, entry_point, _read_server_port()],
+                cwd=project_root,
+                stdout=err_log,
+                stderr=err_log,
+            )
+            log.info("spawn.done", f"{kind} pid=started awaiting connect")
+        except Exception as e:
+            log.warn("spawn.fail", f"{kind}: {e}")
+            _spawn_ready.set()
+
+
+_spawn_thread = None
+
+
+def _ensure_spawn_worker():
+    """启动 spawn worker（仅一次）。"""
+    global _spawn_thread
+    if _spawn_thread is None:
+        _spawn_thread = threading.Thread(target=_spawn_worker, daemon=True)
+        _spawn_thread.start()
+        log.info("spawn.worker", "thread started")
 
 
 class BoardPage:
@@ -713,62 +755,19 @@ class BoardPage:
         SettingsOverlay.open(self._page)
 
     def _open_employee_page(self):
-        """启动员工工作台为独立子进程窗口。失败时回退 overlay。"""
-        import subprocess, sys, os
-
-        project_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "..")
-        )
-        entry_point = os.path.join(project_root, "employee_app.py")
-
-        try:
-            proc = subprocess.Popen(
-                [sys.executable, entry_point],
-                cwd=project_root,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            _employee_processes.append(proc)
-        except Exception:
-            log.warn("employee", "子进程启动失败，回退到 overlay 模式")
-            from app.ui.pages.employee_page import EmployeeWorkbench
-            EmployeeWorkbench.open(self._page)
+        """启动员工工作台为独立子进程窗口。推入串行队列。"""
+        _ensure_spawn_worker()
+        _spawn_queue.put(("employee", "employee_app.py"))
 
     def _open_gantt_page(self):
-        """启动甘特图为独立子进程窗口。"""
-        import subprocess, sys, os
-        project_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "..")
-        )
-        entry_point = os.path.join(project_root, "gantt_app.py")
-        try:
-            proc = subprocess.Popen(
-                [sys.executable, entry_point],
-                cwd=project_root,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            _employee_processes.append(proc)
-        except Exception:
-            log.warn("gantt", "甘特图子进程启动失败")
+        """启动甘特图为独立子进程窗口。推入串行队列。"""
+        _ensure_spawn_worker()
+        _spawn_queue.put(("gantt", "gantt_app.py"))
 
     def _open_taskboard_page(self):
-        """启动任务看板为独立子进程窗口。"""
-        import subprocess, sys, os
-        project_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "..")
-        )
-        entry_point = os.path.join(project_root, "taskboard_app.py")
-        try:
-            proc = subprocess.Popen(
-                [sys.executable, entry_point],
-                cwd=project_root,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            _employee_processes.append(proc)
-        except Exception:
-            log.warn("taskboard", "任务看板子进程启动失败")
+        """启动任务看板为独立子进程窗口。推入串行队列。"""
+        _ensure_spawn_worker()
+        _spawn_queue.put(("taskboard", "taskboard_app.py"))
 
     def _on_filter_click(self, e):
         f = board_service.get_board().filters

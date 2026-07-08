@@ -57,7 +57,6 @@ class PersistenceService:
     def save(self) -> bool:
         """立即保存当前状态到文件（跨进程 filelock 保护）。
 
-        同时写入 employee_state.json 供员工窗口读取。
         """
         if not self._path:
             return False
@@ -79,9 +78,6 @@ class PersistenceService:
                 self._last_file_mtime = os.path.getmtime(self._path)
             except OSError:
                 pass
-            # 同步写入员工状态 API
-            from app.core.services.command_queue import write_employee_state
-            write_employee_state()
             return True
         except FileLockTimeout:
             print("[PersistenceService] 保存超时：无法获取文件锁")

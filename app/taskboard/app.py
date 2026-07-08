@@ -1,11 +1,12 @@
 """任务看板独立窗口应用 — 只读看板视图."""
 
 import os
+import threading
 import flet as ft
 
 from app.config.theme import theme, SCALE, s
-from app.core.services.persistence_service import persistence_service
-from app.employee.state_sync import StateSync
+from app.core.state import state
+from app.core.services.socket_client import SocketClient
 
 _PRI_COLORS = {
     "aog": "#f44747", "cat_a": "#e88400", "cat_b": "#e0b800",
@@ -21,7 +22,7 @@ class TaskBoardWindowApp:
     def __init__(self):
         self.page: ft.Page | None = None
         self._body: ft.Container | None = None
-        self._state_sync: StateSync | None = None
+        self._client: SocketClient | None = None
         self._title_bar: ft.Container | None = None
         self._max_btn: ft.IconButton | None = None
         self._last_maximized: bool | None = None
@@ -32,11 +33,11 @@ class TaskBoardWindowApp:
         self.page = page
         self._setup_window()
         self._setup_fonts()
-        self._init_services()
-        self._create_ui()
-        self._refresh()
+        self._create_ui()          # 先渲染 UI
+        self._show_connecting()    # 显示"正在连接"
         page.on_resized = self._on_window_resized
         page.update()
+        self._connect_async()      # 后台连接
 
     def _setup_window(self):
         self.page.title = "TaskSense - 任务看板"
@@ -61,19 +62,78 @@ class TaskBoardWindowApp:
             theme.font_family_bold: os.path.join(fonts_dir, "HarmonyOS_Sans_SC_Bold.ttf"),
         }
 
-    def _init_services(self):
-        persistence_service.set_path("data/board_state.json")
-        persistence_service.load()
-        self._state_sync = StateSync("data/employee_state.json")
-        self._state_sync.start_polling(
-            interval=1.0,
-            on_change=self._refresh,
-            on_shutdown=lambda: self._do_close(),
+    # ── 连接（后台线程）──
+
+    def _show_connecting(self):
+        ff = theme.font_family
+        self._body.content = ft.Container(
+            ft.Column([
+                ft.Container(height=s(60)),
+                ft.ProgressRing(width=s(32), height=s(32), color=theme.info),
+                ft.Container(height=s(16)),
+                ft.Text("正在连接主应用...", size=s(14),
+                        color=theme.text_primary, font_family=ff),
+            ], spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            expand=True, alignment=ft.alignment.center, bgcolor=theme.bg,
         )
 
+    def _show_connect_error(self, error: str):
+        ff = theme.font_family
+        self._body.content = ft.Container(
+            ft.Column([
+                ft.Container(height=s(60)),
+                ft.Icon(ft.Icons.CLOUD_OFF, size=s(36), color=theme.error),
+                ft.Container(height=s(12)),
+                ft.Text("无法连接主应用", size=s(14), weight=ft.FontWeight.W_600,
+                        color=theme.error, font_family=ff),
+                ft.Container(height=s(6)),
+                ft.Text(error, size=s(11), color=theme.text_secondary, font_family=ff),
+                ft.Container(height=s(16)),
+                ft.ElevatedButton("重试", icon=ft.Icons.REFRESH,
+                    style=ft.ButtonStyle(
+                        bgcolor=theme.info, color=ft.Colors.WHITE,
+                        shape=ft.RoundedRectangleBorder(radius=s(6))),
+                    on_click=lambda e: self._retry_connect()),
+            ], spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            expand=True, alignment=ft.alignment.center, bgcolor=theme.bg,
+        )
+
+    def _retry_connect(self):
+        self._show_connecting()
+        self._body.update()
+        self._connect_async()
+
+    def _connect_async(self):
+        def _do_connect():
+            try:
+                client = SocketClient(tag="taskboard")
+                state_dict = client.get_state()
+                state.load_from_dict(state_dict)
+                client.start_polling(
+                    interval=1.0,
+                    on_change=self._refresh,
+                    on_disconnect=lambda: self._do_close(),
+                )
+                self._client = client
+                self.page.run_task(self._on_connected)
+            except Exception as e:
+                self.page.run_task(self._on_connect_failed, str(e))
+
+        threading.Thread(target=_do_connect, daemon=True).start()
+
+    async def _on_connected(self):
+        self._body.content = self._board
+        self._refresh()
+        self._body.update()
+
+    async def _on_connect_failed(self, error: str):
+        self._show_connect_error(error)
+        self._body.update()
+
     def _on_window_close(self):
-        if self._state_sync:
-            self._state_sync.stop_polling()
+        if self._client:
+            self._client.stop_polling()
+            self._client.close()
 
     # ── UI ──
 
@@ -122,7 +182,7 @@ class TaskBoardWindowApp:
         self._board = ft.Row([], spacing=s(8), expand=True,
             scroll=ft.ScrollMode.HIDDEN, vertical_alignment=ft.CrossAxisAlignment.START)
 
-        self._body = ft.Container(self._board, expand=True, bgcolor=theme.bg,
+        self._body = ft.Container(expand=True, bgcolor=theme.bg,
             padding=ft.padding.all(s(12)))
 
         self.page.add(ft.Container(content=ft.Column([
@@ -132,7 +192,6 @@ class TaskBoardWindowApp:
     # ── 数据刷新 ──
 
     def _refresh(self):
-        from app.core.state import state
         ff = theme.font_family
 
         col_width = max(s(160), (self.page.width - s(40)) // len(_COLUMN_IDS))
@@ -246,5 +305,6 @@ class TaskBoardWindowApp:
     def _minimize(self, e=None): self.page.window.minimized = True; self.page.update()
     def _maximize(self, e=None): self.page.window.maximized = not self.page.window.maximized; self.page.update(); self._update_maximize_button()
     def _do_close(self):
-        if self._state_sync: self._state_sync.stop_polling()
+        """关闭窗口（由 socket 断开触发，在 poll 线程内调用）。"""
+        self._client = None
         self.page.window.close()
