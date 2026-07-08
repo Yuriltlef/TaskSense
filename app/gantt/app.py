@@ -161,7 +161,7 @@ class GanttWindowApp:
             d = min_date + timedelta(days=i)
             label = d.strftime("%m/%d")
             header_cells.append(ft.Container(
-                ft.Text(label, size=s(10), color=theme.text_secondary, font_family=ff,
+                ft.Text(label, size=s(12), color=theme.text_secondary, font_family=ff,
                         text_align=ft.TextAlign.CENTER),
                 width=day_width))
         header_row = ft.Row(header_cells, spacing=0)
@@ -171,9 +171,9 @@ class GanttWindowApp:
         for t in sorted(scheduled, key=lambda x: (x.planned_start or datetime.max)):
             cells = [ft.Container(
                 ft.Column([
-                    ft.Text(t.title[:28], size=s(11), color=theme.text_primary, font_family=ff, max_lines=1),
+                    ft.Text(t.title[:28], size=s(13), color=theme.text_primary, font_family=ff, max_lines=1),
                     ft.Text(f"{t.employee_name or ''}  {t.priority.value.upper()}", 
-                            size=s(9), color=theme.text_secondary, font_family=ff),
+                            size=s(11), color=theme.text_secondary, font_family=ff),
                 ], spacing=s(2), tight=True),
                 width=s(240), padding=ft.padding.only(left=s(8), right=s(4)))]
 
@@ -185,7 +185,7 @@ class GanttWindowApp:
 
             bar_cells = [ft.Container(width=offset_days * day_width)]
             bar_cells.append(ft.Container(
-                ft.Text(t.title[:12], size=s(9), color=ft.Colors.WHITE, font_family=ff),
+                ft.Text(t.title[:12], size=s(11), color=ft.Colors.WHITE, font_family=ff),
                 width=bar_days * day_width - s(4), height=s(22),
                 bgcolor=ft.Colors.with_opacity(0.75, bar_color),
                 border_radius=s(4), alignment=ft.alignment.center,

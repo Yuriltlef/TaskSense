@@ -11,9 +11,9 @@ _PRI_COLORS = {
     "aog": "#f44747", "cat_a": "#e88400", "cat_b": "#e0b800",
     "cat_c": "#5294e2", "cat_d": "#808080",
 }
-_COLUMN_IDS = ["backlog", "triage", "scheduled", "in_progress", "inspection", "completed"]
-_COLUMN_TITLES = {"backlog": "待处理", "triage": "已分类", "scheduled": "已排程",
-                   "in_progress": "进行中", "inspection": "验收中", "completed": "已完成"}
+_COLUMN_IDS = ["scheduled", "ready", "in_progress", "inspection", "parts_hold", "completed"]
+_COLUMN_TITLES = {"scheduled": "已排程", "ready": "就绪", "in_progress": "执行中",
+                   "inspection": "验收中", "parts_hold": "阻塞中", "completed": "已完成"}
 
 
 class TaskBoardWindowApp:
@@ -152,20 +152,20 @@ class TaskBoardWindowApp:
                                 ft.Container(width=s(3), height=s(24), bgcolor=pri_color,
                                              border_radius=s(2)),
                                 ft.Container(width=s(6)),
-                                ft.Text(t.title[:20], size=s(11), color=theme.text_primary,
-                                        font_family=ff, max_lines=2, expand=True),
+                            ft.Text(t.title[:20], size=s(13), color=theme.text_primary,
+                                    font_family=ff, max_lines=2, expand=True),
                             ], spacing=0),
                             ft.Container(height=s(4)),
                             ft.Row([
-                                ft.Text(t.priority.value.upper(), size=s(9),
-                                        color=pri_color, font_family=ff),
-                                ft.Container(width=s(8)),
-                                ft.Text(t.employee_name or "", size=s(9),
-                                        color=theme.text_secondary, font_family=ff),
+                            ft.Text(t.priority.value.upper(), size=s(11),
+                                    color=pri_color, font_family=ff),
+                            ft.Container(width=s(8)),
+                            ft.Text(t.employee_name or "", size=s(11),
+                                    color=theme.text_secondary, font_family=ff),
                                 ft.Container(expand=True),
                             ]),
-                            ft.Text(t.ata_chapter or "", size=s(9),
-                                    color=theme.text_disabled, font_family=ff),
+                        ft.Text(t.ata_chapter or "", size=s(11),
+                                color=theme.text_disabled, font_family=ff),
                         ], spacing=0, tight=True),
                         bgcolor=theme.card, border_radius=s(6),
                         border=ft.border.all(1, theme.border),
@@ -175,11 +175,11 @@ class TaskBoardWindowApp:
 
             col_header = ft.Container(
                 ft.Row([
-                    ft.Text(_COLUMN_TITLES.get(cid, cid), size=s(12),
-                            weight=ft.FontWeight.W_600, color=theme.text_primary, font_family=ff),
-                    ft.Container(width=s(6)),
-                    ft.Container(ft.Text(str(len(tasks)), size=s(10), color=theme.text_secondary,
-                                         font_family=ff),
+                ft.Text(_COLUMN_TITLES.get(cid, cid), size=s(14),
+                        weight=ft.FontWeight.W_600, color=theme.text_primary, font_family=ff),
+                ft.Container(width=s(6)),
+                ft.Container(ft.Text(str(len(tasks)), size=s(12), color=theme.text_secondary,
+                                     font_family=ff),
                                  bgcolor=theme.border_active, border_radius=s(10),
                                  padding=ft.padding.symmetric(horizontal=s(8), vertical=s(2))),
                 ]),
