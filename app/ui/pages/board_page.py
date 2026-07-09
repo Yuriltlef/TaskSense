@@ -1896,17 +1896,35 @@ class BoardPage:
 
     def _on_undo(self, page):
         """Ctrl+Z 撤销。"""
-        from app.core.logging import log
+        from app.core.services.undo_manager import undo_manager
         from app.ui.widgets.toast import Toast
-        log.info("kb.undo", "Ctrl+Z pressed — undo not yet implemented")
-        Toast.show(page, "撤销 (Ctrl+Z) — 功能开发中", "info")
+        from app.core.logging import log
+        if undo_manager.can_undo:
+            desc = undo_manager.undo_description
+            if undo_manager.undo():
+                log.info("kb.undo", f"undone: {desc}")
+                Toast.show(page, f"撤销: {desc}", "info")
+                self._refresh_board()
+            else:
+                Toast.show(page, "撤销失败", "warning")
+        else:
+            Toast.show(page, "没有可撤销的操作", "info")
 
     def _on_redo(self, page):
         """Ctrl+Y / Ctrl+Shift+Z 重做。"""
-        from app.core.logging import log
+        from app.core.services.undo_manager import undo_manager
         from app.ui.widgets.toast import Toast
-        log.info("kb.redo", "Ctrl+Y pressed — redo not yet implemented")
-        Toast.show(page, "重做 (Ctrl+Y) — 功能开发中", "info")
+        from app.core.logging import log
+        if undo_manager.can_redo:
+            desc = undo_manager.redo_description
+            if undo_manager.redo():
+                log.info("kb.redo", f"redone: {desc}")
+                Toast.show(page, f"重做: {desc}", "info")
+                self._refresh_board()
+            else:
+                Toast.show(page, "重做失败", "warning")
+        else:
+            Toast.show(page, "没有可重做的操作", "info")
 
     # ═══════════════════════ 对话框 ═══════════════════════
 

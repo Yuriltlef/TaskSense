@@ -139,14 +139,24 @@ class AppState:
             description=f"创建任务: {task.title}",
         )
         self._notify()
+
+        # ── 撤销记录 ──
+        self._record_undo_create(task_id)
+
         return task
 
     def update_task(self, task_id: str, **changes) -> Optional[Task]:
         """更新任务字段。"""
+        old_values: dict = {}
         with self._lock:
             task = self._tasks.get(task_id)
             if not task:
                 return None
+
+            # 快照旧值
+            for key in changes:
+                if hasattr(task, key):
+                    old_values[key] = getattr(task, key)
 
             for key, value in changes.items():
                 if hasattr(task, key):
@@ -172,6 +182,11 @@ class AppState:
             details=changes,
         )
         self._notify()
+
+        # ── 撤销记录 ──
+        if old_values:
+            self._record_undo_update(task_id, old_values, changes)
+
         return task
 
     def move_task(self, task_id: str, to_col: str,
@@ -190,9 +205,11 @@ class AppState:
 
             # 找到当前列
             from_col = None
+            old_idx = -1
             for col_id, task_ids in self._task_order.items():
                 if task_id in task_ids:
                     from_col = col_id
+                    old_idx = task_ids.index(task_id)
                     break
 
             if from_col is None:
@@ -204,8 +221,10 @@ class AppState:
             # 添加
             if index < 0 or index >= len(self._task_order[to_col]):
                 self._task_order[to_col].append(task_id)
+                new_idx = len(self._task_order[to_col]) - 1
             else:
                 self._task_order[to_col].insert(index, task_id)
+                new_idx = index
 
             # 更新任务状态
             old_status = task.status
@@ -238,16 +257,29 @@ class AppState:
             details={"from_col": from_col, "to_col": to_col},
         )
         self._notify()
+
+        # ── 撤销记录 ──
+        self._record_undo_move(task_id, from_col, old_idx, to_col, new_idx,
+                               old_status.value, changed_by)
+
         return task
 
     def delete_task(self, task_id: str) -> bool:
         """删除任务（从所有列移除，不保留数据）。"""
+        # 先快照（在锁外使用）
+        snapshot = None
+        from_col = None
         with self._lock:
             task = self._tasks.get(task_id)
             if not task:
                 return False
 
             task_title = task.title
+            snapshot = task.to_dict()
+            for cid, task_ids in self._task_order.items():
+                if task_id in task_ids:
+                    from_col = cid
+                    break
 
             for task_ids in self._task_order.values():
                 if task_id in task_ids:
@@ -270,6 +302,11 @@ class AppState:
             description=f"删除任务: {task_title}",
         )
         self._notify()
+
+        # ── 撤销记录 ──
+        if snapshot and from_col:
+            self._record_undo_delete(task_id, snapshot, from_col)
+
         return True
 
     def reorder_column(self, col_id: str, task_ids: list[str]):
@@ -277,6 +314,104 @@ class AppState:
         if col_id in self._task_order:
             self._task_order[col_id] = task_ids
             self._notify()
+
+    # ═══════════════════════════════════════════════════
+    # 撤销/重做 记录
+    # ═══════════════════════════════════════════════════
+
+    @staticmethod
+    def _record_undo_move(task_id, from_col, old_idx, to_col, new_idx,
+                          old_status, changed_by):
+        from app.core.services.undo_manager import undo_manager
+        if undo_manager._replaying:
+            return
+        from app.core.state import state as s
+
+        def _undo():
+            t = s.get_task(task_id)
+            if not t:
+                return
+            # 移回原位
+            for cid, ids in s._task_order.items():
+                if task_id in ids:
+                    ids.remove(task_id)
+                    break
+            if old_idx < 0 or old_idx >= len(s._task_order[from_col]):
+                s._task_order[from_col].append(task_id)
+            else:
+                s._task_order[from_col].insert(old_idx, task_id)
+            t.transition_to(TaskStatus(old_status), "undo")
+            s._notify()
+
+        def _redo():
+            t = s.get_task(task_id)
+            if not t:
+                return
+            for cid, ids in s._task_order.items():
+                if task_id in ids:
+                    ids.remove(task_id)
+                    break
+            if new_idx < 0 or new_idx >= len(s._task_order[to_col]):
+                s._task_order[to_col].append(task_id)
+            else:
+                s._task_order[to_col].insert(new_idx, task_id)
+            t.transition_to(TaskStatus(to_col), "redo")
+            s._notify()
+
+        undo_manager.push(
+            f"移动 → {to_col}",
+            _undo, _redo,
+        )
+
+    @staticmethod
+    def _record_undo_create(task_id):
+        from app.core.services.undo_manager import undo_manager
+        if undo_manager._replaying:
+            return
+        from app.core.state import state as s
+
+        def _undo():
+            s.delete_task(task_id)
+
+        def _redo():
+            # 简单重做：从快照恢复不可能（已删除），标记为不可重做
+            pass
+
+        undo_manager.push("创建任务", _undo, _redo)
+
+    @staticmethod
+    def _record_undo_update(task_id, old_values, new_values):
+        from app.core.services.undo_manager import undo_manager
+        if undo_manager._replaying:
+            return
+        from app.core.state import state as s
+
+        def _undo():
+            s.update_task(task_id, **old_values)
+
+        def _redo():
+            s.update_task(task_id, **new_values)
+
+        fields = ", ".join(new_values.keys())
+        undo_manager.push(f"编辑 {fields}", _undo, _redo)
+
+    @staticmethod
+    def _record_undo_delete(task_id, snapshot, from_col):
+        from app.core.services.undo_manager import undo_manager
+        if undo_manager._replaying:
+            return
+        from app.core.state import state as s
+
+        def _undo():
+            t = Task.from_dict(snapshot)
+            s._tasks[task_id] = t
+            s._task_order[from_col].append(task_id)
+            s._notify()
+
+        def _redo():
+            s.delete_task(task_id)
+
+        undo_manager.push("删除任务", _undo, _redo)
 
     # ═══════════════════════════════════════════════════
     # 看板操作
