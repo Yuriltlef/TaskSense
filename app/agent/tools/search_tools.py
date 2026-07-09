@@ -103,3 +103,37 @@ def lookup_ata_chapter(ata_code: str) -> str:
         lines.append(f"\n--- {i} (相关度: {r.get('score', 0):.0%}) ---\n{text}...")
 
     return "\n".join(lines)
+
+
+@tool
+def search_operation_log(query: str, limit: int = 20) -> str:
+    """搜索最近的操作日志。
+
+    查找历史上类似任务的处理方式和结果。
+    用于了解过去类似故障的维修过程、排故方法等。
+
+    Args:
+        query: 搜索关键词（任务标题、ATA、机号等）
+        limit: 返回结果数（默认 20）
+    """
+    from app.core.services.log_service import log_service
+
+    logs = log_service.search_logs(query, limit=limit)
+    if not logs:
+        return f"未找到与 '{query}' 相关的操作记录。可以尝试更宽泛的关键词。"
+
+    lines = [f"操作日志 — '{query}' 找到 {len(logs)} 条记录:"]
+    for i, entry in enumerate(logs, 1):
+        ts = entry.timestamp.strftime("%m-%d %H:%M") if entry.timestamp else ""
+        lines.append(
+            f"{i}. [{ts}] [{entry.log_type.value}] {entry.description}"
+        )
+        if entry.details:
+            detail_str = ", ".join(
+                f"{k}={v}" for k, v in entry.details.items()
+                if v is not None and k != "description"
+            )
+            if detail_str:
+                lines.append(f"   详情: {detail_str}")
+
+    return "\n".join(lines)

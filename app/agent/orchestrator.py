@@ -44,6 +44,7 @@ class ToolExecutor:
         "get_task_detail": ("board_tools", "get_task_detail"),
         "search_related_tasks": ("board_tools", "search_related_tasks"),
         "search_employees": ("board_tools", "search_employees"),
+        "search_operation_log": ("_oplog", ""),
         "create_task": ("write_tools", "create_task"),
         "update_task": ("write_tools", "update_task"),
         "classify_task": ("write_tools", "classify_task"),
@@ -64,6 +65,8 @@ class ToolExecutor:
                 return ToolExecutor._search_kb(params)
             if module_ref == "_ata":
                 return ToolExecutor._lookup_ata(params)
+            if module_ref == "_oplog":
+                return ToolExecutor._search_operation_log(params)
             # 动态导入工具模块
             mod = __import__(f"app.agent.tools.{module_ref}",
                            fromlist=[func_name])
@@ -138,6 +141,13 @@ class ToolExecutor:
             text = r.get("text", "")[:300]
             lines.append(f"\n--- {i} (relevance {r.get('score', 0):.0%}) ---\n{text}...")
         return "\n".join(lines)
+
+    @staticmethod
+    def _search_operation_log(params: dict) -> str:
+        from app.agent.tools.search_tools import search_operation_log
+        query = params.get("query", "")
+        limit = int(params.get("limit", 20))
+        return search_operation_log.invoke({"query": query, "limit": limit})
 
 
 # ── 工具调用解析 ──
