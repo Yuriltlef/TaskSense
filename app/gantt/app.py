@@ -227,6 +227,11 @@ class GanttWindowApp:
         total_days = (max_date - min_date).days + 1
         day_width = s(96)
         label_width = s(240)
+        view_w = self.page.width or round(1200 * SCALE)
+        min_days = max(1, (view_w - label_width) // day_width)
+        if total_days < min_days:
+            total_days = int(min_days)
+            max_date = min_date + timedelta(days=total_days - 1)
         total_width = label_width + total_days * day_width
 
         # 表头
