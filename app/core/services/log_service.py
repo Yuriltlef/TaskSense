@@ -169,7 +169,7 @@ class LogService:
         return self.get_logs(log_type=log_type, limit=limit)
 
     def search_logs(self, query: str, limit: int = 50) -> list[LogEntry]:
-        """全文搜索日志。"""
+        """全文搜索日志（描述/标题/ID/用户/详情）。"""
         self._ensure_loaded()
         q = query.lower()
         with self._lock:
@@ -179,6 +179,7 @@ class LogService:
                 or q in e.task_title.lower()
                 or q in e.task_id.lower()
                 or q in e.user.lower()
+                or (e.details and q in json.dumps(e.details, ensure_ascii=False).lower())
             ]
         results.sort(key=lambda e: e.timestamp, reverse=True)
         return results[:limit]

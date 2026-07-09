@@ -125,13 +125,14 @@ def search_operation_log(query: str, limit: int = 20) -> str:
     lines = [f"操作日志 — '{query}' 找到 {len(logs)} 条记录:"]
     for i, entry in enumerate(logs, 1):
         ts = entry.timestamp.strftime("%m-%d %H:%M") if entry.timestamp else ""
+        title_hint = f" [{entry.task_title[:20]}]" if entry.task_title else ""
         lines.append(
-            f"{i}. [{ts}] [{entry.log_type.value}] {entry.description}"
+            f"{i}. [{ts}] [{entry.log_type.value}]{title_hint} {entry.description}"
         )
         if entry.details:
             detail_str = ", ".join(
                 f"{k}={v}" for k, v in entry.details.items()
-                if v is not None and k != "description"
+                if v is not None
             )
             if detail_str:
                 lines.append(f"   详情: {detail_str}")
