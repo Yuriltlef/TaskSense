@@ -187,12 +187,20 @@ class SidePanel(ft.Container):
                 if rem < 0:
                     cd_label = "已逾期"
                     cd_color = theme.error
-                    rem_str = f"-{int(abs(rem) // 60)}h {int(abs(rem) % 60)}m"
+                    total_s = int(abs(rem))
+                    if total_s >= 86400:
+                        rem_str = f"-{total_s // 86400}d {(total_s % 86400) // 3600}h"
+                    else:
+                        rem_str = f"-{total_s // 3600}h {(total_s % 3600) // 60}m"
                 else:
                     cd_label = "剩余时间"
                     cd_color = theme.success if rem > 14400 else (
                         theme.warning if rem > 3600 else theme.error)
-                    rem_str = f"{int(rem // 60)}h {int(rem % 60)}m"
+                    total_s = int(rem)
+                    if total_s >= 86400:
+                        rem_str = f"{total_s // 86400}d {(total_s % 86400) // 3600}h"
+                    else:
+                        rem_str = f"{total_s // 3600}h {(total_s % 3600) // 60}m"
                 time_items.append(_kv(cd_label, rem_str, color=cd_color,
                                        icon=ft.Icons.TIMER_OUTLINED))
         time_items.append(_kv("创建时间", t.created_at.strftime("%Y-%m-%d %H:%M")))

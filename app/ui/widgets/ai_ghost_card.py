@@ -313,6 +313,17 @@ class AIGhostCard(ft.Container):
                               ai_acceptance_recommendation=None,
                               ai_acceptance_reason=None)
 
+        # 结构化日志
+        from app.core.services.log_service import log_service
+        from app.core.models.log_entry import LogType
+        log_service.log(
+            LogType.AI_PROPOSAL_REJECT,
+            task_id=tid or "",
+            task_title=td.get("title", ""),
+            user="ai_agent",
+            description=f"AI 提案被拒绝: {ptype}",
+        )
+
         event_bus.emit(AppEvent(
             type=EventType.AI_PROPOSAL_REJECTED,
             data={"proposal_id": self.proposal.id},

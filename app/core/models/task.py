@@ -291,6 +291,11 @@ class Task:
             v = d.get(key)
             return datetime.fromisoformat(v) if v else None
 
+        ata_chapter = d.get("ata_chapter", "")
+        ata_section = d.get("ata_section", "")
+        if not ata_section and ata_chapter:
+            ata_section = ata_chapter.split("-")[0]
+
         task = cls(
             id=d.get("id", ""),
             work_order_id=d.get("work_order_id", ""),
@@ -298,8 +303,8 @@ class Task:
             description=d.get("description", ""),
             aircraft_reg=d.get("aircraft_reg", ""),
             aircraft_model=d.get("aircraft_model", ""),
-            ata_chapter=d.get("ata_chapter", ""),
-            ata_section=d.get("ata_section", ""),
+            ata_chapter=ata_chapter,
+            ata_section=ata_section,
             ata_page_block=d.get("ata_page_block", ""),
             zone=d.get("zone", ""),
             fault_code=d.get("fault_code", ""),

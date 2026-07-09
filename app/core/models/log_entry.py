@@ -14,6 +14,7 @@ class LogType(str, Enum):
     CREATE_TASK = "create_task"
     DELETE_TASK = "delete_task"
     EDIT_TASK = "edit_task"
+    ACCEPT_TASK = "accept_task"         # 员工接单
     KANBAN_MOVE = "kanban_move"
     SUBMISSION = "submission"           # 提交到验收
     BLOCK = "block"                     # 阻塞
@@ -21,6 +22,7 @@ class LogType(str, Enum):
     REVIEW_APPROVE = "review_approve"   # 审核通过
     REVIEW_REJECT = "review_reject"     # 审核驳回
     REVIEW_AI_SUGGEST = "review_ai"     # AI 审核建议
+    AI_PROPOSAL_REJECT = "ai_proposal_reject"  # AI 提案被拒绝
     SYSTEM_AUTO = "system_auto"         # 系统自动流转
 
 

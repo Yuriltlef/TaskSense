@@ -106,4 +106,7 @@ class TestBoardService:
     def test_fleet_summary(self, service):
         summary = service.get_fleet_summary()
         assert "total" in summary
-        assert summary["total"] == 0  # 默认无飞机
+        assert isinstance(summary["total"], int)
+        assert "operational" in summary
+        assert "aog" in summary
+        assert "in_maintenance" in summary

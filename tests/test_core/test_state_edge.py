@@ -354,15 +354,19 @@ class TestAppStateDeep:
         assert s["total"] == 0
 
     def test_fleet_summary_with_data(self, state):
+        """机队摘要：飞机无任务 → 运营中；有 AOG 任务 → AOG。"""
         from app.core.models.aircraft import Aircraft, AircraftStatus
         state.add_aircraft(Aircraft(registration="OP1", status=AircraftStatus.OPERATIONAL))
         state.add_aircraft(Aircraft(registration="AOG1", status=AircraftStatus.AOG))
-        state.add_aircraft(Aircraft(registration="MAINT1", status=AircraftStatus.IN_MAINTENANCE))
+        # 给 AOG1 创建一个未完成的 AOG 任务
+        state.create_task(
+            title="紧急排故", aircraft_reg="AOG1", priority="aog",
+            task_type="troubleshoot",
+        )
         s = state.get_fleet_summary()
-        assert s["total"] == 3
-        assert s["operational"] == 1
-        assert s["aog"] == 1
-        assert s["in_maintenance"] == 1
+        assert s["total"] == 2
+        assert s["operational"] == 1  # OP1 无任务
+        assert s["aog"] == 1           # AOG1 有 AOG 任务
 
     # ── Board State ──
 

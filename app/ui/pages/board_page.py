@@ -148,6 +148,8 @@ class BoardPage:
         self.ai_chat = AIChatPanel(on_close=self._on_side_panel_close)
         self.command_bar = CommandBar(on_execute=self._on_command_execute)
         self.fleet_status = FleetStatusBar()
+        from app.ui.components.ai_suggestion import set_filter_clear_callback
+        set_filter_clear_callback(self._clear_filters)
         self.status_bar = BottomStatusBar(
             on_task_click=self._on_status_task_click,
             on_task_cancel=self._on_status_task_cancel,
@@ -350,8 +352,12 @@ class BoardPage:
             pass
         if not self.kanban_board:
             return
+        # 设置全局筛选标志，TaskCard 渲染时自行添加绿色边框
+        from app.ui.components.task_card import TaskCard
+        TaskCard.filter_active = board_service.get_board().filters.is_active
         from app.ui.services.board_renderer import BoardRenderer
         BoardRenderer.refresh_incremental(self.kanban_board, self.fleet_status)
+        self._update_fleet_with_filters()
 
     def _on_drag_start(self, e):
         """记录拖拽起始状态（面板宽度 + 光标绝对位置）。"""
@@ -770,12 +776,7 @@ class BoardPage:
         _spawn_queue.put(("taskboard", "taskboard_app.py"))
 
     def _on_filter_click(self, e):
-        f = board_service.get_board().filters
-        if f.is_active:
-            board_service.set_filters(FilterState())
-            Toast.show(self._page, "筛选已清除", "info")
-        else:
-            self._dlg_filter()
+        self._dlg_filter()
 
     # ── 内联搜索 ──
 
@@ -1773,3 +1774,20 @@ class BoardPage:
     def _dlg_filter(self):
         from app.ui.dialogs.filter_dialog import open as dlg_filter
         dlg_filter(self._page)
+
+    # ── 筛选 ──
+
+    def _update_fleet_with_filters(self):
+        """更新机队状态栏——含筛选条件指示。"""
+        if not self.fleet_status:
+            return
+        f = board_service.get_board().filters
+        summary = board_service.get_fleet_summary()
+        self.fleet_status.update_summary(summary, f)
+
+    def _clear_filters(self):
+        board_service.set_filters(FilterState())
+        Toast.show(self._page, "筛选已清除", "info")
+        self._refresh_board()
+
+

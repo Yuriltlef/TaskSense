@@ -1,7 +1,11 @@
-"""Pytest 全局配置 — 跳过慢测试的条件标记。"""
+"""Pytest 全局配置 — 跳过慢测试的条件标记，离线模型缓存。"""
 
 import pytest
 from pathlib import Path
+
+# 在导入测试模块前配置模型缓存（与 main.py 逻辑一致）
+from app.knowledge.cache_utils import setup_model_cache
+setup_model_cache(Path(__file__).parent.parent)
 
 
 def _kb_has_data() -> bool:
