@@ -28,7 +28,6 @@ class CommandBar:
             {"l": "AI 验收任务", "i": ft.Icons.VERIFIED_OUTLINED, "a": "/acceptance", "g": "AI 工具"},
             {"l": "AI 生成报告", "i": ft.Icons.ASSESSMENT_OUTLINED, "a": "/report", "g": "AI 工具"},
             {"l": "AI 任务审核", "i": ft.Icons.FACT_CHECK_OUTLINED, "a": "/review", "g": "AI 工具"},
-            {"l": "搜索知识库 (/kb)", "i": ft.Icons.SEARCH, "a": "/kb", "g": "AI 工具"},
             # 看板
             {"l": "看板摘要 (/summary)", "i": ft.Icons.DASHBOARD_OUTLINED, "a": "/summary", "g": "命令"},
             {"l": "切换严格模式", "i": ft.Icons.SHIELD_OUTLINED, "a": "toggle_strict", "g": "命令"},
