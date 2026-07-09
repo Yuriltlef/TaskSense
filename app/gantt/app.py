@@ -204,10 +204,11 @@ class GanttWindowApp:
             except Exception:
                 return
         ff = theme.font_family
-        scheduled = [t for t in state.get_all_tasks() if t.status.value == "scheduled"]
+        scheduled = [t for t in state.get_all_tasks()
+                      if t.status.value in ("scheduled", "in_progress")]
         if not scheduled:
             self._body.content = ft.Container(
-                ft.Text("暂无已排程任务", size=s(13), color=theme.text_secondary, font_family=ff),
+                ft.Text("暂无已排程/进行中任务", size=s(13), color=theme.text_secondary, font_family=ff),
                 expand=True, alignment=ft.alignment.center, bgcolor=theme.bg)
             try: self._body.update()
             except: pass
@@ -243,9 +244,11 @@ class GanttWindowApp:
         for t in sorted(scheduled, key=lambda x: (x.planned_start or datetime.max)):
             cells = [ft.Container(
                 ft.Column([
-                    ft.Text(t.title[:28], size=s(13), color=theme.text_primary, font_family=ff, max_lines=1),
+                    ft.Text(t.title[:40], size=s(13), color=theme.text_primary, font_family=ff,
+                            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                     ft.Text(f"{t.employee_name or ''}  {t.priority.value.upper()}", 
-                            size=s(11), color=theme.text_secondary, font_family=ff),
+                            size=s(11), color=theme.text_secondary, font_family=ff,
+                            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                 ], spacing=s(2), tight=True),
                 width=s(240), padding=ft.padding.only(left=s(8), right=s(4)))]
 
@@ -257,7 +260,8 @@ class GanttWindowApp:
 
             bar_cells = [ft.Container(width=offset_days * day_width)]
             bar_cells.append(ft.Container(
-                ft.Text(t.title[:12], size=s(11), color=ft.Colors.WHITE, font_family=ff),
+                ft.Text(t.title, size=s(11), color=ft.Colors.WHITE, font_family=ff,
+                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                 width=bar_days * day_width - s(4), height=s(22),
                 bgcolor=ft.Colors.with_opacity(0.75, bar_color),
                 border_radius=s(4), alignment=ft.alignment.center,
@@ -272,7 +276,7 @@ class GanttWindowApp:
                 padding=ft.padding.symmetric(vertical=s(3)),
                 border=ft.border.only(bottom=ft.BorderSide(1, theme.border))))
 
-        self._title_text.value = f"甘特图  -  {len(scheduled)} 个已排程任务"
+        self._title_text.value = f"甘特图  -  {len(scheduled)} 个任务"
         content = ft.Column([
             ft.Container(header_row, padding=ft.padding.only(bottom=s(6)),
                          border=ft.border.only(bottom=ft.BorderSide(1, theme.divider))),
