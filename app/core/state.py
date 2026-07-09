@@ -1,5 +1,6 @@
 """全局状态管理器 — 单一状态树."""
 
+import threading
 import uuid
 from collections import defaultdict
 from datetime import datetime
@@ -17,12 +18,15 @@ class AppState:
     """全局应用状态。
 
     所有状态变更通过本类方法执行，确保：
+    - 线程安全（多线程：主UI、调度器、Socket服务端工作线程）
     - 变更可追踪
     - 变更后自动通知监听器
     - 事件自动发布到 EventBus
     """
 
     def __init__(self):
+        self._lock = threading.RLock()  # 可重入锁，_notify 回调可能调回 state
+
         # ── 看板 ──
         self._columns: dict[str, ColumnConfig] = {}
         self._tasks: dict[str, Task] = {}
@@ -105,19 +109,20 @@ class AppState:
         # 自动生成工卡号
         wo_id = kwargs.pop("work_order_id", None) or _generate_work_order_id()
 
-        task = Task(
-            id=task_id,
-            work_order_id=wo_id,
-            created_at=now,
-            updated_at=now,
-            status=TaskStatus.BACKLOG,
-            **kwargs,
-        )
-        # 自动从 ata_chapter 提取 ata_section
-        if task.ata_chapter and not task.ata_section:
-            task.ata_section = task.ata_chapter.split("-")[0]
-        self._tasks[task_id] = task
-        self._task_order["backlog"].insert(0, task_id)  # 新任务排最前
+        with self._lock:
+            task = Task(
+                id=task_id,
+                work_order_id=wo_id,
+                created_at=now,
+                updated_at=now,
+                status=TaskStatus.BACKLOG,
+                **kwargs,
+            )
+            # 自动从 ata_chapter 提取 ata_section
+            if task.ata_chapter and not task.ata_section:
+                task.ata_section = task.ata_chapter.split("-")[0]
+            self._tasks[task_id] = task
+            self._task_order["backlog"].insert(0, task_id)  # 新任务排最前
         log.info("state.create_task", task_id=task_id, wo=wo_id, title=task.title[:30])
 
         event_bus.emit(AppEvent(
@@ -138,16 +143,17 @@ class AppState:
 
     def update_task(self, task_id: str, **changes) -> Optional[Task]:
         """更新任务字段。"""
-        task = self._tasks.get(task_id)
-        if not task:
-            return None
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return None
 
-        for key, value in changes.items():
-            if hasattr(task, key):
-                setattr(task, key, value)
+            for key, value in changes.items():
+                if hasattr(task, key):
+                    setattr(task, key, value)
 
-        task.updated_at = datetime.now()
-        self._tasks[task_id] = task
+            task.updated_at = datetime.now()
+            self._tasks[task_id] = task
         log.info("state.update_task", task_id=task_id, fields=",".join(list(changes.keys())[:5]))
 
         event_bus.emit(AppEvent(
@@ -171,38 +177,39 @@ class AppState:
     def move_task(self, task_id: str, to_col: str,
                   index: int = -1, changed_by: str = "system") -> Optional[Task]:
         """移动任务到目标列（含状态转换验证）。"""
-        task = self._tasks.get(task_id)
-        if not task:
-            return None
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return None
 
-        # 状态转换验证（同列重排序跳过）
-        if task.status.value != to_col:
-            from app.core.validators import TaskValidators
-            columns = list(self._columns.values())
-            TaskValidators.validate_transition(task, to_col, columns)
+            # 状态转换验证（同列重排序跳过）
+            if task.status.value != to_col:
+                from app.core.validators import TaskValidators
+                columns = list(self._columns.values())
+                TaskValidators.validate_transition(task, to_col, columns)
 
-        # 找到当前列
-        from_col = None
-        for col_id, task_ids in self._task_order.items():
-            if task_id in task_ids:
-                from_col = col_id
-                break
+            # 找到当前列
+            from_col = None
+            for col_id, task_ids in self._task_order.items():
+                if task_id in task_ids:
+                    from_col = col_id
+                    break
 
-        if from_col is None:
-            return None
+            if from_col is None:
+                return None
 
-        # 移除
-        self._task_order[from_col].remove(task_id)
+            # 移除
+            self._task_order[from_col].remove(task_id)
 
-        # 添加
-        if index < 0 or index >= len(self._task_order[to_col]):
-            self._task_order[to_col].append(task_id)
-        else:
-            self._task_order[to_col].insert(index, task_id)
+            # 添加
+            if index < 0 or index >= len(self._task_order[to_col]):
+                self._task_order[to_col].append(task_id)
+            else:
+                self._task_order[to_col].insert(index, task_id)
 
-        # 更新任务状态
-        old_status = task.status
-        task.transition_to(TaskStatus(to_col), changed_by)
+            # 更新任务状态
+            old_status = task.status
+            task.transition_to(TaskStatus(to_col), changed_by)
         log.info("state.move_task", task_id=task_id, from_col=from_col, to_col=to_col, by=changed_by)
 
         event_bus.emit(AppEvent(
@@ -235,18 +242,19 @@ class AppState:
 
     def delete_task(self, task_id: str) -> bool:
         """删除任务（从所有列移除，不保留数据）。"""
-        task = self._tasks.get(task_id)
-        if not task:
-            return False
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return False
 
-        task_title = task.title
+            task_title = task.title
+
+            for task_ids in self._task_order.values():
+                if task_id in task_ids:
+                    task_ids.remove(task_id)
+
+            del self._tasks[task_id]
         log.info("state.delete_task", task_id=task_id, title=task_title[:30])
-
-        for task_ids in self._task_order.values():
-            if task_id in task_ids:
-                task_ids.remove(task_id)
-
-        del self._tasks[task_id]
 
         event_bus.emit(AppEvent(
             type=EventType.TASK_DELETED,
@@ -334,16 +342,48 @@ class AppState:
                 TaskStatus.COMPLETED, TaskStatus.ARCHIVED
             ):
                 continue
-            if f.ata_chapters and task.ata_section not in f.ata_chapters:
-                continue
+            if f.ata_chapters:
+                actual_section = task.ata_section or (
+                    task.ata_chapter.split("-")[0] if task.ata_chapter else "")
+                if actual_section not in f.ata_chapters:
+                    continue
             if f.aircraft_regs and task.aircraft_reg not in f.aircraft_regs:
                 continue
             if f.priorities and task.priority.value not in f.priorities:
                 continue
             if f.task_types and task.task_type.value not in f.task_types:
                 continue
-            if f.assignees and task.assignee not in f.assignees:
+            if f.assignees:
+                if not task.assignee or not any(
+                    a.lower() in task.assignee.lower() for a in f.assignees
+                ):
+                    continue
+            if f.employee_ids:
+                if not task.employee_id or task.employee_id.upper() not in (
+                    eid.upper() for eid in f.employee_ids
+                ):
+                    continue
+            if f.statuses and task.status.value not in f.statuses:
                 continue
+            # 日期范围：from 用当天 00:00，to 用当天 23:59
+            if f.start_date_from and (
+                not task.planned_start
+                or task.planned_start < f.start_date_from
+            ):
+                continue
+            if f.start_date_to:
+                end_of_day = f.start_date_to.replace(hour=23, minute=59, second=59)
+                if not task.planned_start or task.planned_start > end_of_day:
+                    continue
+            if f.due_date_from and (
+                not task.due_date
+                or task.due_date < f.due_date_from
+            ):
+                continue
+            if f.due_date_to:
+                end_of_day = f.due_date_to.replace(hour=23, minute=59, second=59)
+                if not task.due_date or task.due_date > end_of_day:
+                    continue
             if f.search_query:
                 q = f.search_query.lower()
                 if not (
@@ -371,27 +411,46 @@ class AppState:
         self._notify()
 
     def get_fleet_summary(self) -> dict:
-        """机队状态摘要。"""
+        """机队状态摘要（从实际任务实时计算，合并存储的飞机列表）。"""
+        active_statuses = (TaskStatus.COMPLETED, TaskStatus.ARCHIVED)
+
+        # 合并两个来源：存储的飞机 + 任务中引用的机号
+        all_regs: set[str] = {ac.registration for ac in self._aircraft.values()}
+        for t in self._tasks.values():
+            if t.aircraft_reg:
+                all_regs.add(t.aircraft_reg.upper())
+
         summary = {
-            "total": len(self._aircraft),
+            "total": len(all_regs),
             "operational": 0,
             "in_maintenance": 0,
             "aog": 0,
             "stored": 0,
-            "total_open_defects": 0,
             "total_overdue": 0,
+            "total_open_defects": 0,
         }
-        for ac in self._aircraft.values():
-            if ac.status == AircraftStatus.OPERATIONAL:
+
+        for reg in all_regs:
+            # 查找该飞机的所有未关闭任务
+            open_tasks = [
+                t for t in self._tasks.values()
+                if t.aircraft_reg and t.aircraft_reg.upper() == reg
+                and t.status not in active_statuses
+            ]
+            if not open_tasks:
                 summary["operational"] += 1
-            elif ac.status == AircraftStatus.IN_MAINTENANCE:
-                summary["in_maintenance"] += 1
-            elif ac.status == AircraftStatus.AOG:
+                continue
+
+            open_count = len(open_tasks)
+            summary["total_open_defects"] += open_count
+            summary["total_overdue"] += sum(1 for t in open_tasks if t.is_overdue)
+
+            has_aog = any(t.priority == Priority.AOG for t in open_tasks)
+            if has_aog:
                 summary["aog"] += 1
             else:
-                summary["stored"] += 1
-            summary["total_open_defects"] += ac.open_defects
-            summary["total_overdue"] += ac.overdue_tasks_count
+                summary["in_maintenance"] += 1
+
         return summary
 
     # ═══════════════════════════════════════════════════
@@ -418,62 +477,64 @@ class AppState:
     # ═══════════════════════════════════════════════════
 
     def to_dict(self) -> dict:
-        """将完整状态序列化为字典。"""
-        return {
-            "columns": {
-                cid: {
-                    "id": col.id,
-                    "title": col.title,
-                    "wip_limit": col.wip_limit,
-                    "order": col.order,
-                    "visible": col.visible,
-                }
-                for cid, col in self._columns.items()
-            },
-            "tasks": {tid: t.to_dict() for tid, t in self._tasks.items()},
-            "task_order": {cid: list(ids) for cid, ids in self._task_order.items()},
-            "aircraft": [
-                {
-                    "registration": ac.registration,
-                    "model": ac.model,
-                    "msn": ac.msn,
-                    "status": ac.status.value,
-                    "total_hours": ac.total_hours,
-                    "total_cycles": ac.total_cycles,
-                    "current_location": ac.current_location,
-                    "open_defects": ac.open_defects,
-                    "due_tasks_count": ac.due_tasks_count,
-                    "overdue_tasks_count": ac.overdue_tasks_count,
-                }
-                for ac in self._aircraft.values()
-            ],
-        }
+        """将完整状态序列化为字典（线程安全）。"""
+        with self._lock:
+            return {
+                "columns": {
+                    cid: {
+                        "id": col.id,
+                        "title": col.title,
+                        "wip_limit": col.wip_limit,
+                        "order": col.order,
+                        "visible": col.visible,
+                    }
+                    for cid, col in self._columns.items()
+                },
+                "tasks": {tid: t.to_dict() for tid, t in self._tasks.items()},
+                "task_order": {cid: list(ids) for cid, ids in self._task_order.items()},
+                "aircraft": [
+                    {
+                        "registration": ac.registration,
+                        "model": ac.model,
+                        "msn": ac.msn,
+                        "status": ac.status.value,
+                        "total_hours": ac.total_hours,
+                        "total_cycles": ac.total_cycles,
+                        "current_location": ac.current_location,
+                        "open_defects": ac.open_defects,
+                        "due_tasks_count": ac.due_tasks_count,
+                        "overdue_tasks_count": ac.overdue_tasks_count,
+                    }
+                    for ac in self._aircraft.values()
+                ],
+            }
 
     def load_from_dict(self, data: dict):
-        """从字典恢复状态。"""
-        # 恢复列
-        for col_id, col_data in data.get("columns", {}).items():
-            if col_id in self._columns:
-                self._columns[col_id].title = col_data.get("title", col_id)
-                self._columns[col_id].wip_limit = col_data.get("wip_limit")
-                self._columns[col_id].order = col_data.get("order", 0)
-                self._columns[col_id].visible = col_data.get("visible", True)
+        """从字典恢复状态（线程安全）。"""
+        with self._lock:
+            # 恢复列
+            for col_id, col_data in data.get("columns", {}).items():
+                if col_id in self._columns:
+                    self._columns[col_id].title = col_data.get("title", col_id)
+                    self._columns[col_id].wip_limit = col_data.get("wip_limit")
+                    self._columns[col_id].order = col_data.get("order", 0)
+                    self._columns[col_id].visible = col_data.get("visible", True)
 
-        # 恢复任务
-        self._tasks.clear()
-        self._task_order.clear()
-        for col_id in self._columns:
-            self._task_order[col_id] = []
+            # 恢复任务
+            self._tasks.clear()
+            self._task_order.clear()
+            for col_id in self._columns:
+                self._task_order[col_id] = []
 
-        for tid, tdict in data.get("tasks", {}).items():
-            task = Task.from_dict(tdict)
-            self._tasks[tid] = task
+            for tid, tdict in data.get("tasks", {}).items():
+                task = Task.from_dict(tdict)
+                self._tasks[tid] = task
 
-        for col_id, task_ids in data.get("task_order", {}).items():
-            if col_id in self._task_order:
-                self._task_order[col_id] = [
-                    tid for tid in task_ids if tid in self._tasks
-                ]
+            for col_id, task_ids in data.get("task_order", {}).items():
+                if col_id in self._task_order:
+                    self._task_order[col_id] = [
+                        tid for tid in task_ids if tid in self._tasks
+                    ]
 
         # 恢复飞机
         self._aircraft.clear()

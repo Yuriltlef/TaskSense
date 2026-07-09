@@ -240,6 +240,20 @@ class SocketServer:
         from app.core.services.persistence_service import persistence_service
         persistence_service.save()
 
+        from app.core.models.log_entry import LogType
+        from app.core.services.log_service import log_service
+        log_service.log(
+            LogType.ACCEPT_TASK,
+            task_id=tid,
+            task_title=task.title,
+            user=ename,
+            description=f"接单: {task.title[:30]}",
+            details={
+                "employee_id": params.get("employee_id", ""),
+                "employee_name": ename,
+            },
+        )
+
         log.info("srv.accept", f"#{cid} task={tid[:8]} worker={ename}")
         return self._handle_get_state()
 
@@ -292,6 +306,22 @@ class SocketServer:
 
         from app.core.services.persistence_service import persistence_service
         persistence_service.save()
+
+        from app.core.models.log_entry import LogType
+        from app.core.services.log_service import log_service
+        log_service.log(
+            LogType.SUBMISSION,
+            task_id=tid,
+            task_title=task.title,
+            user=ename,
+            description=f"提交验收: {task.title[:30]}",
+            details={
+                "employee_id": params.get("employee_id", ""),
+                "employee_name": ename,
+                "actual_hours": actual_hours,
+                "handover_log": handover_log[:200],
+            },
+        )
 
         log.info("srv.submit", f"#{cid} task={tid[:8]} worker={ename} hours={actual_hours}")
         return self._handle_get_state()

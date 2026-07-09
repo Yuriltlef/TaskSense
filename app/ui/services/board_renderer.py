@@ -119,7 +119,8 @@ class BoardRenderer:
         kanban_board.render_board(bs, tasks_map, do_update=False)
         BoardRenderer.render_ghost_cards(kanban_board, ai_proposed)
         if fleet_status:
-            fleet_status._build(board_service.get_fleet_summary())
+            fleet_status.update_summary(
+                board_service.get_fleet_summary(), bs.filters)
 
     # ── 增量刷新 ──
 
@@ -146,7 +147,8 @@ class BoardRenderer:
             kanban_board.render_board(bs, tasks_map)
             BoardRenderer.render_ghost_cards(kanban_board, ai_proposed)
             if fleet_status:
-                fleet_status.update_summary(board_service.get_fleet_summary())
+                fleet_status.update_summary(
+                    board_service.get_fleet_summary(), bs.filters)
             return
 
         # 后续刷新 → 列级原地更新
@@ -162,6 +164,7 @@ class BoardRenderer:
             task_ids = bs.tasks.get(col.column.id, [])
             col_tasks = [tasks_map[tid] for tid in task_ids if tid in tasks_map]
             col.column.task_count = len(col_tasks)
+            col._update_count_text()
             new_cards = col._build_cards(col_tasks)
             col.card_list.controls = ghosts_in_col + new_cards
 
@@ -187,7 +190,8 @@ class BoardRenderer:
         except Exception:
             pass
         if fleet_status:
-            fleet_status.update_summary(board_service.get_fleet_summary())
+            fleet_status.update_summary(
+                board_service.get_fleet_summary(), bs.filters)
 
     # ── 幽灵卡注入 ──
 

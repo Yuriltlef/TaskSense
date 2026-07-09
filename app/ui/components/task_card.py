@@ -8,6 +8,8 @@ from app.ui.widgets.badge import ATABadge, PriorityBadge, TaskTypeBadge
 
 
 class TaskCard(ft.Container):
+    # 类级别筛选激活标志，由 BoardPage 在渲染前设置
+    filter_active: bool = False
 
     def __init__(self, task: Task, on_click=None, ghost: bool = False, **_kw):
         self.task = task
@@ -37,6 +39,8 @@ class TaskCard(ft.Container):
         )
         if self._highlight:
             self.border = ft.border.all(2, self._highlight)
+        elif TaskCard.filter_active and not ghost:
+            self.border = ft.border.all(2, theme.success)
         elif ghost:
             self.border = ft.border.all(1.5, theme.border)
             self.opacity = 0.45
@@ -123,7 +127,7 @@ class TaskCard(ft.Container):
 
     def _handle_hover(self, e):
         if self._ghost or self._highlight:
-            return  # 幽灵卡和高亮卡不响应悬停
+            return
         if e.data == "true":
             self.border = ft.border.all(1, theme.info)
             self.bgcolor = theme.card_hover
@@ -132,7 +136,11 @@ class TaskCard(ft.Container):
                                        offset=ft.Offset(0, 2))
             self.scale = 1.01
         else:
-            self.border = None
+            # 恢复默认或筛选边框
+            if TaskCard.filter_active:
+                self.border = ft.border.all(2, theme.success)
+            else:
+                self.border = None
             self.bgcolor = theme.card
             self.shadow = ft.BoxShadow(spread_radius=0, blur_radius=4,
                                        color=theme.card_shadow_color,
@@ -141,4 +149,4 @@ class TaskCard(ft.Container):
         try:
             self.update()
         except AssertionError:
-            pass  # 拖拽中看板刷新后旧卡片已移出页面
+            pass

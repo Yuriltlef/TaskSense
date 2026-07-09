@@ -255,11 +255,11 @@ class TaskSenseApp:
             ft.Container(width=s(6)),
             icon_btn(ft.Icons.REFRESH, lambda e: bp._refresh_board(), "刷新看板"),
             ft.Container(width=s(4)),
-            icon_btn(ft.Icons.FILTER_LIST, bp._on_filter_click, "筛选任务"),
+            icon_btn(ft.Icons.FILTER_ALT_OUTLINED, bp._on_filter_click, "筛选任务"),
             ft.Container(width=s(4)),
             self._build_ai_menu_button(bp),
             ft.Container(width=s(4)),
-            icon_btn(ft.Icons.CALENDAR_VIEW_WEEK, lambda e: bp._open_gantt_page(), "甘特图"),
+            icon_btn(ft.Icons.INSERT_CHART_OUTLINED, lambda e: bp._open_gantt_page(), "甘特图"),
             ft.Container(width=s(4)),
             icon_btn(ft.Icons.VIEW_COLUMN, lambda e: bp._open_taskboard_page(), "任务看板"),
         ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -267,7 +267,7 @@ class TaskSenseApp:
         # ── 右侧功能区 ──
         right_group = ft.Row([
             icon_btn(ft.Icons.PSYCHOLOGY_OUTLINED, lambda e: bp._open_ai_panel(),
-                     "AI 助手", icon_color=theme.ai_icon),
+                     "AI 助手"),
             icon_btn(ft.Icons.SETTINGS_OUTLINED, bp._on_settings_click, "设置"),
             icon_btn(ft.Icons.PERSON_OUTLINE, lambda e: bp._open_employee_page(), "员工工作台"),
         ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -379,7 +379,7 @@ class TaskSenseApp:
         """AI 工具菜单按钮 + overlay 下拉。"""
         H = s(34); btn_w = s(36)
         btn = ft.IconButton(
-            icon=ft.Icons.MENU, icon_size=s(16), icon_color=ft.Colors.GREY_400,
+            icon=ft.Icons.AUTO_AWESOME_OUTLINED, icon_size=s(16), icon_color=ft.Colors.GREY_400,
             width=btn_w, height=H,
             style=ft.ButtonStyle(
                 bgcolor=ft.Colors.TRANSPARENT,

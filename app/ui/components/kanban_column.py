@@ -65,6 +65,10 @@ class KanbanColumn(ft.Container):
         # 当前高亮的目标
         self._highlighted_target: ft.DragTarget | None = None
 
+        self._count_text = ft.Text(
+            "", size=theme.font_xs, color=theme.text_secondary,
+            weight=ft.FontWeight.W_400, font_family=theme.font_family)
+
         self.card_list = ft.ListView(
             controls=self._build_cards(tasks),
             spacing=s(8),
@@ -156,15 +160,7 @@ class KanbanColumn(ft.Container):
     def _header(self):
         col = self.column
         ff = theme.font_family
-        wc = wcol = theme.text_secondary
-        txt = ""
-        if col.wip_limit:
-            txt = f" {col.task_count}/{col.wip_limit}"
-            if col.wip_exceeded:
-                wcol = theme.error
-            elif col.wip_percentage > 0.7:
-                wcol = theme.warning
-
+        self._update_count_text()
         return ft.Container(
             content=ft.Row([
                 ft.Container(width=3, height=s(18),
@@ -172,10 +168,7 @@ class KanbanColumn(ft.Container):
                 ft.Text(col.title, size=theme.font_sm,
                         weight=ft.FontWeight.W_600,
                         color=theme.text_primary, font_family=ff),
-                ft.Text(txt, size=theme.font_xs, color=wcol,
-                        weight=ft.FontWeight.W_600
-                        if col.wip_exceeded else ft.FontWeight.W_400,
-                        font_family=ff),
+                self._count_text,
                 ft.Container(expand=True),
                 ft.IconButton(
                     icon=ft.Icons.MORE_HORIZ, icon_size=s(16),
@@ -198,6 +191,21 @@ class KanbanColumn(ft.Container):
             padding=ft.padding.only(left=s(12), top=s(6),
                                     right=s(6), bottom=s(6)),
         )
+
+    def _update_count_text(self):
+        """更新列头任务计数（增量刷新时调用）。"""
+        col = self.column
+        if col.wip_limit:
+            self._count_text.value = f" {col.task_count}/{col.wip_limit}"
+            if col.wip_exceeded:
+                self._count_text.color = theme.error
+                self._count_text.weight = ft.FontWeight.W_600
+            elif col.wip_percentage > 0.7:
+                self._count_text.color = theme.warning
+                self._count_text.weight = ft.FontWeight.W_600
+            else:
+                self._count_text.color = theme.text_secondary
+                self._count_text.weight = ft.FontWeight.W_400
 
     def _toggle_collapse(self, e):
         self._collapsed = not self._collapsed

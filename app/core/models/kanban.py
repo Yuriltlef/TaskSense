@@ -47,7 +47,10 @@ class FilterState:
     priorities: list[str] = field(default_factory=list)
     task_types: list[str] = field(default_factory=list)
     assignees: list[str] = field(default_factory=list)
+    employee_ids: list[str] = field(default_factory=list)
     statuses: list[str] = field(default_factory=list)
+    start_date_from: Optional[datetime] = None
+    start_date_to: Optional[datetime] = None
     due_date_from: Optional[datetime] = None
     due_date_to: Optional[datetime] = None
     show_completed: bool = False
@@ -62,7 +65,10 @@ class FilterState:
             or self.priorities
             or self.task_types
             or self.assignees
+            or self.employee_ids
             or self.statuses
+            or self.start_date_from
+            or self.start_date_to
             or self.due_date_from
             or self.due_date_to
         )
@@ -77,9 +83,40 @@ class FilterState:
         if self.priorities: count += 1
         if self.task_types: count += 1
         if self.assignees: count += 1
+        if self.employee_ids: count += 1
         if self.statuses: count += 1
+        if self.start_date_from or self.start_date_to: count += 1
         if self.due_date_from or self.due_date_to: count += 1
         return count
+
+    @property
+    def summary(self) -> list[str]:
+        """人类可读的筛选条件摘要列表。"""
+        items = []
+        if self.search_query:
+            items.append(f"搜索: {self.search_query}")
+        if self.ata_chapters:
+            items.append(f"ATA: {', '.join(self.ata_chapters)}")
+        if self.priorities:
+            labels = {"aog": "AOG", "cat_a": "Cat A", "cat_b": "Cat B", "cat_c": "Cat C"}
+            items.append(f"优先级: {', '.join(labels.get(p, p) for p in self.priorities)}")
+        if self.task_types:
+            items.append(f"类型: {', '.join(self.task_types)}")
+        if self.assignees:
+            items.append(f"负责人: {', '.join(self.assignees)}")
+        if self.employee_ids:
+            items.append(f"员工: {', '.join(self.employee_ids)}")
+        if self.statuses:
+            items.append(f"状态: {', '.join(self.statuses)}")
+        if self.start_date_from:
+            items.append(f"开始≥{self.start_date_from.strftime('%m-%d')}")
+        if self.start_date_to:
+            items.append(f"开始≤{self.start_date_to.strftime('%m-%d')}")
+        if self.due_date_from:
+            items.append(f"截止≥{self.due_date_from.strftime('%m-%d')}")
+        if self.due_date_to:
+            items.append(f"截止≤{self.due_date_to.strftime('%m-%d')}")
+        return items
 
 
 @dataclass
