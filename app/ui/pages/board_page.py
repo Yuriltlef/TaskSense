@@ -1856,7 +1856,18 @@ class BoardPage:
 
         k = e.key.lower()
         ctrl = e.ctrl or e.meta
-        if ctrl and k == "k":
+        shift = e.shift
+
+        if ctrl and k == "z":
+            if shift:
+                self._on_redo(page)
+            else:
+                self._on_undo(page)
+            e.handled = True
+        elif ctrl and k == "y":
+            self._on_redo(page)
+            e.handled = True
+        elif ctrl and k == "k":
             if self.command_bar: self.command_bar.show(page)
             e.handled = True
         elif k == "escape":
@@ -1865,6 +1876,20 @@ class BoardPage:
             if self.side_panel and self.side_panel.is_open:
                 self.side_panel.close(); self._refresh_board()
             e.handled = True
+
+    def _on_undo(self, page):
+        """Ctrl+Z 撤销。"""
+        from app.core.logging import log
+        from app.ui.widgets.toast import Toast
+        log.info("kb.undo", "Ctrl+Z pressed — undo not yet implemented")
+        Toast.show(page, "撤销 (Ctrl+Z) — 功能开发中", "info")
+
+    def _on_redo(self, page):
+        """Ctrl+Y / Ctrl+Shift+Z 重做。"""
+        from app.core.logging import log
+        from app.ui.widgets.toast import Toast
+        log.info("kb.redo", "Ctrl+Y pressed — redo not yet implemented")
+        Toast.show(page, "重做 (Ctrl+Y) — 功能开发中", "info")
 
     # ═══════════════════════ 对话框 ═══════════════════════
 

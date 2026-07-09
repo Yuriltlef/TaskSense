@@ -107,6 +107,4 @@ class CommandBar(ft.AlertDialog):
     def show(self, page: ft.Page):
         self.search.value = ""
         self._refresh()
-        page.dialog = self
-        self.open = True
-        page.update()
+        page.open(self)  # Flet 0.28.3: page.dialog 不可用，用 page.open
