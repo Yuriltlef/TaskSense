@@ -281,16 +281,20 @@ class GanttWindowApp:
 
         self._title_text.value = f"甘特图  -  {len(scheduled)} 个任务"
         avail_h = (self.page.height or round(750 * SCALE)) - s(34) - s(1)
+        fill_w = max(total_width, self.page.width or round(1200 * SCALE))
         content = ft.Row([
-            ft.Column([
-                ft.Container(header_row, padding=ft.padding.only(bottom=s(6)),
-                             border=ft.border.only(bottom=ft.BorderSide(1, theme.divider))),
-                ft.ListView(task_rows, expand=True, spacing=0,
-                            padding=ft.padding.only(top=s(4))),
-            ], spacing=0, width=total_width, height=avail_h),
+            ft.Container(
+                ft.Column([
+                    ft.Container(header_row, padding=ft.padding.only(bottom=s(6)),
+                                 border=ft.border.only(bottom=ft.BorderSide(1, theme.divider))),
+                    ft.ListView(task_rows, expand=True, spacing=0,
+                                padding=ft.padding.only(top=s(4))),
+                ], spacing=0, width=total_width, height=avail_h),
+                width=fill_w, height=avail_h, bgcolor=theme.bg,
+                alignment=ft.alignment.top_left),
         ], scroll=ft.ScrollMode.ALWAYS, expand=True)
 
-        self._body.content = content
+        self._body.content = ft.Container(content, expand=True, bgcolor=theme.bg)
         try: self._body.update()
         except: pass
 
