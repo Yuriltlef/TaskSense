@@ -119,8 +119,23 @@ def open(page: ft.Page, tid: str, col=None, index=-1, move_to=True):
         start_date_clr(); due_date_clr()
         for c, h in [(hours_f, "计划工时 (h)，如 4.5"), (assignee_id_f, "员工 ID，如 ZH001"), (assignee_name_f, "姓名，如 张工")]:
             c.border_color = theme.border; c.hint_text = h
-        if not start_dt: start_date_err("请选择开始日期"); return
-        if not due_dt: due_date_err("请选择完成日期"); return
+        # 日期和时间都必须填写
+        start_has_date = bool(start_date_state.get("date"))
+        start_has_time = bool((start_hour_f.value or "").strip()) and bool((start_min_f.value or "").strip())
+        if not start_has_date:
+            start_date_err("请选择开始日期"); return
+        if not start_has_time:
+            start_date_err("请填写开始时间（时/分）"); return
+
+        due_has_date = bool(due_date_state.get("date"))
+        due_has_time = bool((due_hour_f.value or "").strip()) and bool((due_min_f.value or "").strip())
+        if not due_has_date:
+            due_date_err("请选择完成日期"); return
+        if not due_has_time:
+            due_date_err("请填写完成时间（时/分）"); return
+
+        if not start_dt: return
+        if not due_dt: return
         if not hs: hours_f.border_color = theme.error; hours_f.hint_text = "请输入计划工时"; hours_f.update(); return
         if not aid: assignee_id_f.border_color = theme.error; assignee_id_f.hint_text = "请输入员工 ID"; assignee_id_f.update(); return
         if not aname: assignee_name_f.border_color = theme.error; assignee_name_f.hint_text = "请输入姓名"; assignee_name_f.update(); return

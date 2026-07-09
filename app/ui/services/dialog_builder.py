@@ -125,19 +125,19 @@ def clamp_time_field(tf: ft.TextField, max_val: int):
 
 def build_datetime(date_state: dict, h_f: ft.TextField,
                    m_f: ft.TextField):
-    """从日期状态 + 时/分字段构建 datetime。"""
+    """从日期状态 + 时/分字段构建 datetime。时/分为空时返回 None。"""
     from datetime import datetime as dt
     d = date_state.get("date")
     if not d:
         return None
     h = (h_f.value or "").strip()
     m = (m_f.value or "").strip()
-    if h and m:
-        try:
-            return dt(d.year, d.month, d.day, int(h), int(m))
-        except (ValueError, TypeError):
-            pass
-    return d
+    if not h or not m:
+        return None  # 日期存在但时间未填 → 无效
+    try:
+        return dt(d.year, d.month, d.day, int(h), int(m))
+    except (ValueError, TypeError):
+        return None
 
 def make_date_picker(page, initial_date=None, locked: bool = False,
                     on_pick_callback=None) -> tuple:

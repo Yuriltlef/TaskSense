@@ -302,10 +302,10 @@ def open(page: ft.Page, task):
         if not d: return None
         h = (h_f.value or "").strip()
         m = (m_f.value or "").strip()
-        if h and m:
-            try: return dt(d.year, d.month, d.day, int(h), int(m))
-            except: pass
-        return d
+        if not h or not m:
+            return None  # 时/分为空 → 无效
+        try: return dt(d.year, d.month, d.day, int(h), int(m))
+        except: return None
 
     def _recalc_hours():
         if _TIME_LOCKED: return
