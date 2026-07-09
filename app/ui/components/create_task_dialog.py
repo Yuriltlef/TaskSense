@@ -217,7 +217,7 @@ class CreateTaskDialog:
                     try: hours_f.update()
                     except Exception: pass
                 else:
-                    # 开始时间不早于完成时间 → 清除错误的重选
+                    due_date_state["date"] = None
                     eh.value = ""; em.value = ""
                     try: eh.update(); em.update()
                     except Exception: pass
@@ -225,6 +225,8 @@ class CreateTaskDialog:
                     hours_f.value = ""
                     try: hours_f.update()
                     except Exception: pass
+                    from app.ui.widgets.toast import Toast
+                    Toast.show(page, "完成时间必须晚于开始时间", "warning")
 
         # ── 时/分字段：blur 时先 clamp 再重算工时 ──
         def _clamp_tf(tf, hi):

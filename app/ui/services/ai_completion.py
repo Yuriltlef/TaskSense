@@ -34,20 +34,27 @@ class AICompletionService:
         self._cached_suggestions: list[dict] | None = None
 
     def on_input_changed(self, text: str, field: str, ctx: dict | None = None):
-        """字段值变化 / 获得焦点时调用。上下文不变则走缓存。"""
+        """字段值变化 / 获得焦点时调用。
+
+        缓存策略：仅标题和描述变更时使缓存失效。
+        其他字段（ATA/员工/区域）变更时保持缓存，避免 chip 选中后建议消失。
+        """
         ctx = ctx or {}
         text = (text or "").strip()
 
-        # ── 缓存：同输入+同上下文 → 即时返回 ──
-        cache_key = f"{field}|{text}|" + "|".join(
-            f"{k}={v}" for k, v in sorted(ctx.items()))
+        # 缓存键仅含标题+描述（核心推理输入），不含其他辅助字段
+        cache_key = f"{field}|{text}|{ctx.get('title','')}|{ctx.get('description','')}"
         if cache_key == self._cache_key and self._cached_suggestions is not None:
             if self._cached_suggestions:
-                self._on_ready(self._cached_suggestions, "cache")
+                # 过滤掉已填字段的建议（如已选 ATA 就不再建议 ATA）
+                filtered = [
+                    s for s in self._cached_suggestions
+                    if not ctx.get(s["field"])
+                ]
+                self._on_ready(filtered, "cache")
             return
 
-        # 即使当前字段为空，也可能从其他字段推断出建议
-        if not text and not ctx:
+        if not text and not any(ctx.values()):
             self._on_ready([], "empty")
             self._cache_key = cache_key
             self._cached_suggestions = []
@@ -60,7 +67,7 @@ class AICompletionService:
         if quick:
             self._on_ready(quick, "keyword")
 
-        # 第二层：LLM Agent 防抖
+        # 第二层：LLM Agent 防抖（仅标题/描述变更时触发深度推理）
         if self._debounce_timer:
             self._debounce_timer.cancel()
 
