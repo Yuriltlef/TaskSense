@@ -225,10 +225,17 @@ class GanttWindowApp:
         if max_date <= min_date:
             max_date = min_date + timedelta(days=7)
         total_days = (max_date - min_date).days + 1
-        day_width = max(80, min(160, (self.page.width - s(280)) // max(total_days, 1)))
+        day_width = s(96)
+        label_width = s(240)
+        view_w = self.page.width or round(1200 * SCALE)
+        min_days = max(1, (view_w - label_width) // day_width)
+        if total_days < min_days:
+            total_days = int(min_days)
+            max_date = min_date + timedelta(days=total_days - 1)
+        total_width = label_width + total_days * day_width
 
         # 表头
-        header_cells = [ft.Container(width=s(240))]
+        header_cells = [ft.Container(width=label_width)]
         for i in range(total_days):
             d = min_date + timedelta(days=i)
             label = d.strftime("%m/%d")
@@ -236,7 +243,7 @@ class GanttWindowApp:
                 ft.Text(label, size=s(12), color=theme.text_secondary, font_family=ff,
                         text_align=ft.TextAlign.CENTER),
                 width=day_width))
-        header_row = ft.Row(header_cells, spacing=0)
+        header_row = ft.Row(header_cells, spacing=0, width=total_width)
 
         # 任务行
 
@@ -250,7 +257,7 @@ class GanttWindowApp:
                             size=s(11), color=theme.text_secondary, font_family=ff,
                             max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                 ], spacing=s(2), tight=True),
-                width=s(240), padding=ft.padding.only(left=s(8), right=s(4)))]
+                width=label_width, padding=ft.padding.only(left=s(8), right=s(4)))]
 
             t_start = t.planned_start or now
             t_end = t.planned_end or (t_start + timedelta(hours=max(1, t.estimated_hours or 1)))
@@ -273,18 +280,26 @@ class GanttWindowApp:
             cells.extend(bar_cells)
             task_rows.append(ft.Container(
                 ft.Row(cells, spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                width=total_width,
                 padding=ft.padding.symmetric(vertical=s(3)),
                 border=ft.border.only(bottom=ft.BorderSide(1, theme.border))))
 
         self._title_text.value = f"甘特图  -  {len(scheduled)} 个任务"
-        content = ft.Column([
-            ft.Container(header_row, padding=ft.padding.only(bottom=s(6)),
-                         border=ft.border.only(bottom=ft.BorderSide(1, theme.divider))),
-            ft.ListView(task_rows, expand=True, spacing=0,
-                        padding=ft.padding.only(top=s(4))),
-        ], spacing=0, tight=True, expand=True)
+        avail_h = (self.page.height or round(750 * SCALE)) - s(34) - s(1)
+        fill_w = max(total_width, self.page.width or round(1200 * SCALE))
+        content = ft.Row([
+            ft.Container(
+                ft.Column([
+                    ft.Container(header_row, padding=ft.padding.only(bottom=s(6)),
+                                 border=ft.border.only(bottom=ft.BorderSide(1, theme.divider))),
+                    ft.ListView(task_rows, expand=True, spacing=0,
+                                padding=ft.padding.only(top=s(4))),
+                ], spacing=0, width=total_width, height=avail_h),
+                width=fill_w, height=avail_h, bgcolor=theme.bg,
+                alignment=ft.alignment.top_left),
+        ], scroll=ft.ScrollMode.ALWAYS, expand=True)
 
-        self._body.content = content
+        self._body.content = ft.Container(content, expand=True, bgcolor=theme.bg)
         try: self._body.update()
         except: pass
 
