@@ -114,6 +114,7 @@ class BoardPage:
         self._search_field: ft.TextField | None = None
         self._search_box: ft.Container | None = None
         self._search_clear_btn = None               # 由 app.py 外部赋值
+        self._search_cmd_dd: ft.Container | None = None  # 命令补全下拉
         self._drag_start_width: float | None = None
         self._drag_start_x: float | None = None
         self._agent_busy = False
@@ -167,7 +168,7 @@ class BoardPage:
 
         # ── 搜索字段（由 app.py 统一标题栏引用）──
         self._search_field = ft.TextField(
-            hint_text="搜索任务、ATA 章节、飞机注册号...",
+            hint_text="搜索 / 输入 /kb /report /summary ...",
             border=ft.InputBorder.NONE,
             border_color=ft.Colors.TRANSPARENT,
             focused_border_color=ft.Colors.TRANSPARENT,
@@ -789,37 +790,161 @@ class BoardPage:
         if self._search_box:
             self._search_box.border = ft.border.all(1, theme.border_active)
             self._search_box.update()
+        # 延迟关闭下拉，给点击事件时间触发
+        import threading
+        threading.Timer(0.15, self._hide_cmd_dropdown).start()
 
     def _on_search_clear(self, e):
         if self._search_field:
             self._search_field.value = ""
             self._search_field.update()
-            board_service.set_filters(FilterState())
-            if self._search_clear_btn:
-                self._search_clear_btn.visible = False
-                self._search_clear_btn.update()
+        self._hide_cmd_dropdown()
+        board_service.set_filters(FilterState())
+        if self._search_clear_btn:
+            self._search_clear_btn.visible = False
+            self._search_clear_btn.update()
+
+    # ── 搜索框命令补全 ──
+
+    _COMMANDS = [
+        ("/kb", "搜索知识库", ft.Icons.SEARCH),
+        ("/report", "生成日报", ft.Icons.ASSESSMENT_OUTLINED),
+        ("/compliance", "合规检查", ft.Icons.FACT_CHECK_OUTLINED),
+        ("/summary", "看板摘要", ft.Icons.DASHBOARD_OUTLINED),
+        ("/outline", "AI 生成大纲", ft.Icons.ARTICLE_OUTLINED),
+        ("/classify", "AI 分类任务", ft.Icons.LABEL_OUTLINED),
+        ("/schedule", "AI 排程任务", ft.Icons.CALENDAR_MONTH_OUTLINED),
+        ("/review", "任务审核", ft.Icons.VERIFIED_OUTLINED),
+    ]
 
     def _on_search_input(self, e):
         val = (e.control.value or "").strip()
         if self._search_clear_btn:
             self._search_clear_btn.visible = len(val) > 0
             self._search_clear_btn.update()
-        if len(val) >= 1:
-            board_service.set_filters(FilterState(search_query=val))
+
+        if val.startswith("/"):
+            # 命令模式：显示补全下拉
+            self._show_cmd_dropdown(val.lower())
+            board_service.set_filters(FilterState())  # 命令模式清筛选
         else:
-            board_service.set_filters(FilterState())
+            self._hide_cmd_dropdown()
+            if len(val) >= 1:
+                board_service.set_filters(FilterState(search_query=val))
+            else:
+                board_service.set_filters(FilterState())
 
     def _on_search_submit(self, e):
         val = (e.control.value or "").strip()
-        if val.startswith(">"):
-            # AI query
-            self._do_agent_query(val[1:].strip())
-        elif val.startswith("/"):
+        self._hide_cmd_dropdown()
+        if val.startswith("/"):
             parts = val.split(maxsplit=1)
-            self._do_command(parts[0].lower(), parts[1] if len(parts) > 1 else "")
+            cmd = parts[0].lower()
+            arg = parts[1] if len(parts) > 1 else ""
+
+            # 精确匹配 → 执行
+            if any(cmd == c[0] for c in self._COMMANDS):
+                self._execute_search_cmd(cmd, arg)
+            else:
+                # 模糊匹配 → 取第一个匹配项
+                matches = [c for c in self._COMMANDS if c[0].startswith(cmd)]
+                if matches:
+                    self._execute_search_cmd(matches[0][0], arg)
+        elif val.startswith(">"):
+            self._do_agent_query(val[1:].strip())
         elif val:
             board_service.set_filters(FilterState(search_query=val))
             Toast.show(self._page, f"搜索: {val}", "info")
+
+    def _show_cmd_dropdown(self, prefix: str):
+        """在搜索框下方显示命令补全。"""
+        ff = theme.font_family
+        matches = [(c, d, i) for c, d, i in self._COMMANDS if c.startswith(prefix)]
+        if not matches:
+            self._hide_cmd_dropdown()
+            return
+
+        items = []
+        for cmd, desc, icon in matches[:6]:
+            items.append(ft.Container(
+                content=ft.Row([
+                    ft.Icon(icon, size=s(13), color=theme.info),
+                    ft.Text(cmd, size=s(12), color=theme.text_primary,
+                            font_family=ff, weight=ft.FontWeight.W_600),
+                    ft.Text(desc, size=s(11), color=theme.text_secondary,
+                            font_family=ff),
+                ], spacing=s(8)),
+                padding=ft.padding.symmetric(horizontal=s(10), vertical=s(6)),
+                border_radius=s(4),
+                on_click=lambda e, c=cmd: self._select_cmd(c),
+                ink=True,
+            ))
+
+        dd = ft.Container(
+            content=ft.Column(items, spacing=0, tight=True),
+            bgcolor=theme.surface,
+            border=ft.border.all(1, theme.border_active),
+            border_radius=s(6),
+            padding=ft.padding.symmetric(vertical=s(4)),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=12,
+                                color=theme.menu_shadow_color),
+            width=320,
+            top=s(34) + 2,  # 标题栏高度 + 间距
+            left=self._page.width // 2 - 160 if self._page else 400,
+        )
+
+        # 放在搜索框正下方
+        if self._search_cmd_dd:
+            self._hide_cmd_dropdown()
+
+        self._search_cmd_dd = dd
+        self._page.overlay.append(dd)
+        self._page.update()
+
+    def _hide_cmd_dropdown(self):
+        if self._search_cmd_dd:
+            try:
+                self._page.overlay.remove(self._search_cmd_dd)
+            except (ValueError, AssertionError):
+                pass
+            self._search_cmd_dd = None
+            self._page.update()
+
+    def _select_cmd(self, cmd: str):
+        """从下拉选中命令 → 填入搜索框并执行。"""
+        if self._search_field:
+            self._search_field.value = cmd + " "
+            self._search_field.update()
+            self._search_field.focus()
+        self._hide_cmd_dropdown()
+
+    def _execute_search_cmd(self, cmd: str, arg: str):
+        """执行搜索框命令。"""
+        # 即时响应命令（不走 Agent 菜单）
+        if cmd == "/kb":
+            from app.ui.services.agent_service import AgentService
+            result = AgentService.search_knowledge(arg or "")
+            self._show_ai_in_panel(f"知识库: {arg}" if arg else "知识库", result)
+            return
+        if cmd == "/summary":
+            from app.ui.services.agent_service import AgentService
+            result = AgentService.get_board_summary()
+            self._show_ai_in_panel("看板摘要", result)
+            return
+
+        # 其余命令 → 统一走 AI 工具菜单
+        action = {
+            "/report": "report",
+            "/compliance": "review",
+            "/review": "review",
+            "/outline": "outline",
+            "/classify": "classify",
+            "/schedule": "schedule",
+        }.get(cmd)
+        if action:
+            self._run_agent_command(action)
+        else:
+            Toast.show(self._page, f"未知命令: {cmd}", "warning")
 
     # ── 命令面板 ──
 
@@ -837,26 +962,6 @@ class BoardPage:
             self._do_agent_query(value)
         else:
             Toast.show(self._page, f"操作: {action}", "info")
-
-    def _do_command(self, cmd, arg):
-        if cmd == "/report":
-            try:
-                from app.ui.services.agent_service import AgentService
-                report = AgentService.get_daily_report()
-                self._show_ai_in_panel("每日维护报告", report)
-            except Exception as e:
-                Toast.show(self._page, f"报告生成失败: {e}", "warning")
-        elif cmd == "/compliance":
-            self._show_ai_in_panel("合规检查", "正在检查 AD/SB 状态...")
-        elif cmd == "/kb":
-            try:
-                from app.ui.services.agent_service import AgentService
-                result = AgentService.search_knowledge(arg or "aviation maintenance")
-                self._show_ai_in_panel(f"知识库: {arg}", result)
-            except Exception as e:
-                Toast.show(self._page, f"检索失败: {e}", "warning")
-        else:
-            Toast.show(self._page, f"未知命令: {cmd}", "warning")
 
     # ═══════════════════════════════════════════
     # AI 命令辅助 — 已迁移到 app/ui/services/ai_command_runner.py ──

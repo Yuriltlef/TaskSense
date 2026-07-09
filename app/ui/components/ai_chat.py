@@ -132,8 +132,6 @@ class AIChatPanel(ft.Container):
                 ft.Row([
                     self._mode_btn,
                     self._chip("搜索知识库", ft.Icons.SEARCH, "/kb "),
-                    self._chip("生成报告", ft.Icons.DESCRIPTION, "/report"),
-                    self._chip("合规检查", ft.Icons.VERIFIED_USER, "/compliance"),
                     ft.Container(expand=True),
                 ], spacing=8),
             ], spacing=8),
@@ -161,7 +159,7 @@ class AIChatPanel(ft.Container):
         self._strict_mode = not self._strict_mode
         self._mode_label.value = self._mode_text()
         self._mode_label.color = theme.priority_cat_a if self._strict_mode else theme.info
-        self._mode_btn.content.controls[0].name = (
+        self._mode_btn.content.controls[0].icon = (
             ft.Icons.SHIELD_OUTLINED if self._strict_mode else ft.Icons.LANGUAGE_OUTLINED
         )
         self._mode_btn.content.controls[0].color = self._mode_label.color
@@ -499,9 +497,7 @@ class AIChatPanel(ft.Container):
         from app.ui.services.agent_service import AgentService
         if cancel_event.is_set():
             return "回答已中断"
-        if txt.startswith("/report"): return AgentService.get_daily_report()
-        elif txt.startswith("/kb "): return AgentService.search_knowledge(txt[4:])
-        elif txt.startswith("/compliance"): return "合规检查: 符合 AD/SB。"
+        if txt.startswith("/kb "): return AgentService.search_knowledge(txt[4:])
         elif txt.startswith("/summary"): return AgentService.get_board_summary()
         else: return self._ask(txt, cancel_event)
 
