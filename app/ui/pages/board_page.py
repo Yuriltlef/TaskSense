@@ -808,13 +808,13 @@ class BoardPage:
 
     _COMMANDS = [
         ("/kb", "搜索知识库", ft.Icons.SEARCH),
-        ("/report", "生成日报", ft.Icons.ASSESSMENT_OUTLINED),
-        ("/compliance", "合规检查", ft.Icons.FACT_CHECK_OUTLINED),
+        ("/report", "AI 生成报告", ft.Icons.ASSESSMENT_OUTLINED),
+        ("/review", "AI 任务审核", ft.Icons.FACT_CHECK_OUTLINED),
         ("/summary", "看板摘要", ft.Icons.DASHBOARD_OUTLINED),
         ("/outline", "AI 生成大纲", ft.Icons.ARTICLE_OUTLINED),
+        ("/gen", "AI 生成任务", ft.Icons.PLAYLIST_ADD_OUTLINED),
         ("/classify", "AI 分类任务", ft.Icons.LABEL_OUTLINED),
         ("/schedule", "AI 排程任务", ft.Icons.CALENDAR_MONTH_OUTLINED),
-        ("/review", "任务审核", ft.Icons.VERIFIED_OUTLINED),
     ]
 
     def _on_search_input(self, e):
@@ -940,6 +940,8 @@ class BoardPage:
             "/outline": "outline",
             "/classify": "classify",
             "/schedule": "schedule",
+            "/gen": "gen_tasks",
+            "/acceptance": "acceptance",
         }.get(cmd)
         if action:
             self._run_agent_command(action)
@@ -949,19 +951,28 @@ class BoardPage:
     # ── 命令面板 ──
 
     def _on_command_execute(self, action, value):
-        if action == "create_task":
+        # 面板
+        if action == "open_ai":
+            if self.ai_chat:
+                self.ai_chat.open()
+        elif action == "open_filter":
+            self._dlg_filter()
+        elif action == "open_employee":
+            self._open_employee_page()
+        elif action == "toggle_strict":
+            if self.ai_chat:
+                self.ai_chat._toggle_mode()
+                label = self.ai_chat._mode_text()
+                Toast.show(self._page, f"已切换为{label}", "info")
+        # AI 工具 → 走统一路由
+        elif action.startswith("/"):
+            self._execute_search_cmd(action, "")
+        # 搜索
+        elif action == "create_task":
             from app.ui.components.create_task_dialog import CreateTaskDialog
             CreateTaskDialog.open(self._page)
-        elif action == "generate_report": self._do_command("/report", "")
-        elif action == "check_compliance": self._do_command("/compliance", "")
-        elif action.startswith("filter_ata_"):
-            ata = action.replace("filter_ata_", "")
-            board_service.set_filters(FilterState(ata_chapters=[ata]))
-            Toast.show(self._page, f"已筛选 ATA {ata}", "info")
-        elif action == "nl_query":
-            self._do_agent_query(value)
         else:
-            Toast.show(self._page, f"操作: {action}", "info")
+            self._do_agent_query(value)
 
     # ═══════════════════════════════════════════
     # AI 命令辅助 — 已迁移到 app/ui/services/ai_command_runner.py ──
@@ -1870,7 +1881,13 @@ class BoardPage:
         elif ctrl and k == "k":
             if self.command_bar: self.command_bar.show(page)
             e.handled = True
+            return
         elif k == "escape":
+            # 关闭命令面板
+            if self.command_bar and self.command_bar._overlay:
+                self.command_bar.close()
+                e.handled = True
+                return
             from app.ui.widgets.context_menu import close_current_menu
             close_current_menu()
             if self.side_panel and self.side_panel.is_open:
