@@ -202,10 +202,10 @@ class CreateTaskDialog:
             if not d: return None
             h = (h_f.value or "").strip()
             m = (m_f.value or "").strip()
-            if h and m:
-                try: return dt(d.year, d.month, d.day, int(h), int(m))
-                except: pass
-            return d
+            if not h or not m:
+                return None  # 时/分为空 → 无效
+            try: return dt(d.year, d.month, d.day, int(h), int(m))
+            except: return None
 
         def _recalc_hours():
             sd_dt = _get_dt(start_date_state, sh, sm)
@@ -217,7 +217,7 @@ class CreateTaskDialog:
                     try: hours_f.update()
                     except Exception: pass
                 else:
-                    due_date_state["date"] = None
+                    # 开始时间不早于完成时间 → 清除错误的重选
                     eh.value = ""; em.value = ""
                     try: eh.update(); em.update()
                     except Exception: pass
@@ -225,8 +225,6 @@ class CreateTaskDialog:
                     hours_f.value = ""
                     try: hours_f.update()
                     except Exception: pass
-                    from app.ui.widgets.toast import Toast
-                    Toast.show(page, "完成时间必须晚于开始时间", "warning")
 
         # ── 时/分字段：blur 时先 clamp 再重算工时 ──
         def _clamp_tf(tf, hi):
@@ -279,6 +277,17 @@ class CreateTaskDialog:
             if eid:
                 try:TaskValidators.validate_employee(eid)
                 except BusinessRuleError as e:_err(emp_id_f,e.message);return
+
+            # 日期和时间都必须填写（或都不填）
+            start_has_date = bool(start_date_state.get("date"))
+            start_has_time = bool((sh.value or "").strip()) and bool((sm.value or "").strip())
+            due_has_date = bool(due_date_state.get("date"))
+            due_has_time = bool((eh.value or "").strip()) and bool((em.value or "").strip())
+
+            if start_has_date and not start_has_time:
+                start_date_err("请填写开始时间（时/分）"); return
+            if due_has_date and not due_has_time:
+                due_date_err("请填写完成时间（时/分）"); return
 
             ps = _get_dt(start_date_state, sh, sm)
             pe = _get_dt(due_date_state, eh, em)
