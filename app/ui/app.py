@@ -35,7 +35,7 @@ class TaskSenseApp:
         from app.ui.pages.board_page import BoardPage
 
         employee_service.load()
-        persistence_service.set_path("data/board_state.json")
+        persistence_service.set_path("data/board_state.db")
         from app.core.logging import log
         log.section("TaskSense 启动")
         log.info("boot", f"employees={employee_service.employee_count()}")
