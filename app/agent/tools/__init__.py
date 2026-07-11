@@ -3,6 +3,7 @@ from app.agent.tools.board_tools import (
     get_task_detail,
     search_related_tasks,
     search_employees,
+    search_tasks_by_title,
 )
 from app.agent.tools.search_tools import (
     search_knowledge_base,
@@ -18,6 +19,7 @@ __all__ = [
     "get_task_detail",
     "search_related_tasks",
     "search_employees",
+    "search_tasks_by_title",
     "search_knowledge_base",
     "lookup_ata_chapter",
     "search_operation_log",

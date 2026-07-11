@@ -64,6 +64,12 @@ Search employee information by ID, name, or trade/specialty. Use this to find av
 Parameters:
 - `query` (optional): Search keyword (employee ID like "ZH001", name, or trade like "avionics"). Leave empty to list all available employees.
 
+### search_tasks_by_title
+Search for tasks by title keyword. Use this to quickly locate a specific task when the user mentions a task name. Returns matching tasks with ID, status, ATA, aircraft, and priority.
+
+Parameters:
+- `query` (required): Task title keyword (supports partial match). Also matches work order ID.
+
 ### create_task
 Create one or more tasks in the backlog column.
 

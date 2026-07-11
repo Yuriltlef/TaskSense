@@ -44,6 +44,7 @@ class ToolExecutor:
         "get_task_detail": ("board_tools", "get_task_detail"),
         "search_related_tasks": ("board_tools", "search_related_tasks"),
         "search_employees": ("board_tools", "search_employees"),
+        "search_tasks_by_title": ("board_tools", "search_tasks_by_title"),
         "search_operation_log": ("_oplog", ""),
         "create_task": ("write_tools", "create_task"),
         "update_task": ("write_tools", "update_task"),

@@ -129,6 +129,15 @@ def update_task(task_id: str, fields_json: str) -> str:
         return (f"[Error] 所有请求字段被安全策略拒绝: {rejected}。"
                 f"允许的字段: {sorted(_UPDATE_ALLOWED)}")
 
+    # 日期时间字段类型转换：LLM 传字符串 → datetime 对象
+    _DATETIME_FIELDS = {"due_date", "planned_start", "planned_end", "completed_at"}
+    for k in _DATETIME_FIELDS:
+        if k in allowed_fields and isinstance(allowed_fields[k], str):
+            try:
+                allowed_fields[k] = datetime.fromisoformat(allowed_fields[k])
+            except (ValueError, TypeError):
+                pass  # 保持原值，后续保存/渲染时自然暴露问题
+
     try:
         task_service.update_task(task_id, **allowed_fields)
         result = {

@@ -35,6 +35,22 @@ class SidePanel(ft.Container):
         else:
             self.open_task(task)
 
+    def refresh_if_open(self):
+        """状态变更后自动刷新：重新拉取任务数据并重建面板。"""
+        if not self.visible or not self._task:
+            return
+        from app.core.state import state
+        t = state.get_task(self._task.id)
+        if t:
+            self._task = t
+            self.content = self._build()
+            try:
+                self.update()
+            except AssertionError:
+                pass
+        else:
+            self.close()
+
     def _build(self):
         t = self._task
         if not t:
@@ -297,9 +313,9 @@ class SidePanel(ft.Container):
                     on_click=lambda e, tid=t.id: self._unblock(tid)))
             sections.append(_section("阻塞状态", block_items))
 
-        # ── 交接班日志 ──
+        # ── 提交日志 ──
         if t.shift_handover_log:
-            sections.append(_section("交接班日志", [
+            sections.append(_section("提交日志", [
                 ft.Text(t.shift_handover_log, size=s(12), color=theme.text_content, font_family=ff),
             ]))
 

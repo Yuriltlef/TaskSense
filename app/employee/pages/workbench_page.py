@@ -425,14 +425,14 @@ class WorkbenchPage:
         self._show_submit_dialog(task)
 
     def _show_submit_dialog(self, task):
-        """提交验收 — OverlayDimmer 模态弹窗（含交接班日志表单）。"""
+        """提交验收 — OverlayDimmer 模态弹窗（含提交日志表单）。"""
         ff = theme.font_family
         PANEL_W, PANEL_H = 520, 480
         close_ref = [None]
         btn_st = ft.TextStyle(size=s(12), font_family=ff)
 
         log_field = ft.TextField(
-            label="交接班日志",
+            label="提交日志",
             hint_text="描述完成情况、发现的问题、遗留事项...",
             multiline=True, min_lines=4, max_lines=8,
             border_color=theme.border,
@@ -466,7 +466,7 @@ class WorkbenchPage:
         def do_submit(e):
             log = (log_field.value or "").strip()
             if not log:
-                Toast.show(self._page, "请填写交接班日志", "warning")
+                Toast.show(self._page, "请填写提交日志", "warning")
                 return
             try:
                 actual_hours = float(hours_field.value or "0")
