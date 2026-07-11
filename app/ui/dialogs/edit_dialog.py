@@ -343,13 +343,13 @@ def open(page: ft.Page, task):
     #zone='{task.zone}' locked={_ZONE_LOCKED}")
     _fields["zone"] = zone_f
 
-    # ── 交接班日志 ──
+    # ── 提交日志 ──
     if _LOG_LOCKED:
         log_f = ft.Text(task.shift_handover_log or "—", size=s(13),
                         color=theme.text_disabled, font_family=ff)
     else:
         log_f = ft.TextField(
-            label="交接班日志", value=task.shift_handover_log or "",
+            label="提交日志", value=task.shift_handover_log or "",
             border_color=theme.border, focused_border_color=theme.info,
             text_style=ft.TextStyle(color=theme.form_text, size=s(13), font_family=ff),
             bgcolor=theme.card, multiline=True, min_lines=2, max_lines=5,
@@ -441,7 +441,7 @@ def open(page: ft.Page, task):
             ft.Container(height=s(4)),
             _date_row("完成", due_date_ctrl, eh, em), sep,
             ft.Row([_col(_label("区域"), zone_f)], spacing=s(12)), sep,
-            _label("交接班日志"), log_f,
+            _label("提交日志"), log_f,
         ], spacing=s(4), tight=True),
         padding=ft.padding.only(left=s(14), top=s(14), right=s(14), bottom=s(14)),
     )

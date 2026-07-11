@@ -359,6 +359,8 @@ class BoardPage:
         from app.ui.services.board_renderer import BoardRenderer
         BoardRenderer.refresh_incremental(self.kanban_board, self.fleet_status)
         self._update_fleet_with_filters()
+        if self.side_panel:
+            self.side_panel.refresh_if_open()
 
     def _on_drag_start(self, e):
         """记录拖拽起始状态（面板宽度 + 光标绝对位置）。"""

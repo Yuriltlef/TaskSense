@@ -43,16 +43,27 @@ class TaskSenseApp:
         os.makedirs(log_dir, exist_ok=True)
         log_service.set_path(
             f"{log_dir}/log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+
+        # ── 首次启动：从旧 JSON 迁移到 SQLite ──
         loaded = persistence_service.load()
-        log.info("boot", f"persistence loaded={loaded}")
+        if not loaded:
+            json_path = "data/board_state.json"
+            if os.path.exists(json_path):
+                log.info("boot", "检测到旧 JSON 数据，开始迁移到 SQLite...")
+                if persistence_service.migrate_from_json(json_path):
+                    loaded = persistence_service.load()
+                    log.info("boot", f"迁移完成，persistence loaded={loaded}")
+                else:
+                    log.error("boot", "JSON → SQLite 迁移失败")
+            else:
+                log.info("boot", "新数据库，无历史数据")
 
         self.board_page = BoardPage(api_ready=api_ready)
         if not loaded:
-            log.error("boot", "board_state.json not found")
+            log.warn("boot", "数据库为空，看板无历史数据")
         else:
             from app.core.state import state
-            if len(state.get_all_tasks()) == 0:
-                log.warn("boot", "board_state.json is empty")
+            log.info("boot", f"已加载 {len(state.get_all_tasks())} 个任务")
         persistence_service.start_auto_save(debounce_seconds=5.0)
 
         # ── 启动自动流转调度器 ──
@@ -359,13 +370,17 @@ class TaskSenseApp:
     def _close_window(self, e):
         """自定义标题栏关闭按钮：通知子进程并关闭服务端。"""
         from app.core.services.socket_server import socket_server
+        from app.core.services.persistence_service import persistence_service
         socket_server.stop()
+        persistence_service.save_if_dirty()
         self.page.window.close()
 
     def _on_window_close(self):
         """系统关闭按钮回调。"""
         from app.core.services.socket_server import socket_server
+        from app.core.services.persistence_service import persistence_service
         socket_server.stop()
+        persistence_service.save_if_dirty()
 
     # ═══════════════════════════════
     # 键盘

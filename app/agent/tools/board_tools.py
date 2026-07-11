@@ -109,3 +109,34 @@ def search_employees(query: str = "") -> str:
             f"{avail} | 机型: {certs}"
         )
     return "\n".join(lines)
+
+
+@tool
+def search_tasks_by_title(query: str) -> str:
+    """根据任务标题搜索任务，用于快速定位特定任务。
+
+    当用户提到某个任务名称（如"检查左主起落架轮胎压力"）时，
+    用此工具搜索匹配的任务，获取任务 ID 和状态信息。
+
+    Args:
+        query: 任务标题关键词（支持部分匹配）
+    """
+    all_tasks = state.get_all_tasks()
+    q = query.lower()
+    matched = [t for t in all_tasks
+               if q in t.title.lower()
+               or q in t.work_order_id.lower()]
+
+    if not matched:
+        return f"未找到标题包含 '{query}' 的任务"
+
+    lines = [f"找到 {len(matched)} 个匹配 '{query}' 的任务:"]
+    for t in matched[:20]:
+        lines.append(
+            f"  [{t.id}] {t.title} | 状态: {t.status.value} | "
+            f"ATA: {t.ata_chapter or '无'} | {t.aircraft_reg or '未指定'} | "
+            f"优先级: {t.priority.value}"
+        )
+    if len(matched) > 20:
+        lines.append(f"  ... 还有 {len(matched) - 20} 个结果")
+    return "\n".join(lines)

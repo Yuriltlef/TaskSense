@@ -14,7 +14,7 @@ def open(page: ft.Page, tid: str, changed_by: str = "user"):
     ff = theme.font_family
 
     result_f = ft.TextField(
-        label="交接班日志", hint_text="描述完成情况、发现的问题、遗留事项...",
+        label="提交日志", hint_text="描述完成情况、发现的问题、遗留事项...",
         multiline=True, min_lines=4, max_lines=8,
         border_color=theme.border, focused_border_color=theme.info,
         text_style=ft.TextStyle(color=theme.form_text, size=s(12), font_family=ff),
@@ -36,7 +36,7 @@ def open(page: ft.Page, tid: str, changed_by: str = "user"):
 
     def submit(_):
         result = (result_f.value or "").strip()
-        if not result: Toast.show(page, "请填写交接班日志", "warning"); return
+        if not result: Toast.show(page, "请填写提交日志", "warning"); return
         try: actual_hours = float(hours_f.value or "0")
         except ValueError: actual_hours = 0
         try:
@@ -53,7 +53,7 @@ def open(page: ft.Page, tid: str, changed_by: str = "user"):
     body = ft.Container(ft.Column([
         ft.Text(t.title[:40], size=s(13), weight=ft.FontWeight.W_500,
                 color=theme.text_primary, font_family=ff),
-        ft.Text("交接班日志将作为 AI 审核的提交材料", size=s(11),
+        ft.Text("提交日志将作为 AI 审核的提交材料", size=s(11),
                 color=theme.text_secondary, font_family=ff),
         ft.Container(height=s(10)), result_f, ft.Container(height=s(8)), hours_f,
     ], spacing=0, tight=True), padding=ft.padding.all(s(14)))
