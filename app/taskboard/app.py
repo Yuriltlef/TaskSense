@@ -186,7 +186,7 @@ class TaskBoardWindowApp:
             border=ft.border.only(bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.10, ft.Colors.WHITE))))
 
         self._board = ft.Row([], spacing=s(8), expand=True,
-            scroll=ft.ScrollMode.HIDDEN, vertical_alignment=ft.CrossAxisAlignment.START)
+            scroll=None, vertical_alignment=ft.CrossAxisAlignment.START)
 
         self._body = ft.Container(expand=True, bgcolor=theme.bg,
             padding=ft.padding.all(s(12)))
@@ -206,7 +206,8 @@ class TaskBoardWindowApp:
                 return
         ff = theme.font_family
 
-        col_width = max(s(160), (self.page.width - s(40)) // len(_COLUMN_IDS))
+        total_gap = s(8) * (len(_COLUMN_IDS) - 1)
+        col_width = max(s(160), (self.page.width - s(40) - total_gap) // len(_COLUMN_IDS))
         columns = []
 
         total = 0
