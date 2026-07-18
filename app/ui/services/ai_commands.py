@@ -159,9 +159,7 @@ class AICommands:
                         busy_seen = True
                         self.ai_chat.update_task_card("正在生成大纲...", border_color=theme.warning)
                     elif busy_seen:
-                        self.ai_chat.update_task_card("生成完成", border_color=theme.success)
-                        self.ai_chat.mark_task_done()
-                        self.ai_chat.show_status_bubble("生成大纲 完成", theme.success)
+                        self._finish_task_card("生成大纲", "完成", theme.success)
                         break
             except Exception as ex:
                 self._finish_task_card("生成大纲", f"失败: {ex}", theme.error)
@@ -208,6 +206,8 @@ class AICommands:
                         if new_tasks:
                             self.bp._refresh_board()
                             self.bp._poll_ghost_resolution("生成任务", {t.id for t in new_tasks}, cancel)
+                        else:
+                            self._finish_task_card("生成任务", "完成（无幽灵任务）", theme.success)
                         break
             except Exception as ex:
                 traceback.print_exc()

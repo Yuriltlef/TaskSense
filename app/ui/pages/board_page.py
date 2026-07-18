@@ -1022,42 +1022,6 @@ class BoardPage:
     def _cmd_outline(self):
         self._ai._cmd_outline()
 
-        
-        def _do_outline():
-            cancel = self._runner.get_cancel()
-            try:
-                from app.ui.services.agent_service import AgentService
-                from app.agent.orchestrator import _load_prompt
-                self.ai_chat.update_task_card("正在分析需求...")
-                prompt = _load_prompt("generate_outline_interactive.md")
-                result = AgentService.ask(
-                    prompt, session_id="outline", strict=True,
-                    cancel_event=cancel)
-                if cancel and cancel.is_set():
-                    self._finish_task_card("生成大纲", "已取消", theme.text_disabled)
-                    return
-                self.ai_chat.show_prompt_bubble(result)
-                self.ai_chat.update_task_card("请回复上方紫色气泡中的问题...")
-                busy_seen = False
-                for _ in range(300):
-                    if cancel and cancel.is_set():
-                        self._finish_task_card("生成大纲", "已取消", theme.text_disabled)
-                        return
-                    time.sleep(1)
-                    if not self.ai_chat: break
-                    if self.ai_chat._busy:
-                        busy_seen = True
-                        self.ai_chat.update_task_card("正在生成大纲...", border_color=theme.warning)
-                    elif busy_seen:
-                        self.ai_chat.update_task_card("生成完成 — 点击「完成」关闭", border_color=theme.success)
-                        self.ai_chat.mark_task_done()
-                        self.ai_chat.show_status_bubble("生成大纲 完成", theme.success)
-                        break
-            except Exception as ex:
-                self._finish_task_card("生成大纲", f"失败: {ex}", theme.error)
-
-        threading.Thread(target=_do_outline, daemon=True).start()
-
     # ═══════════════════════════════════════════
     # 2. 生成任务 → AI 面板交互
     # ═══════════════════════════════════════════
@@ -1091,54 +1055,6 @@ class BoardPage:
 
     def _cmd_gen_tasks(self):
         self._ai._cmd_gen_tasks()
-
-        
-        def _do_gen():
-            cancel = self._runner.get_cancel() if self.ai_chat else None
-            if cancel is None:
-                self.ai_chat.hide_task_card() if self.ai_chat else None
-                return
-            try:
-                from app.ui.services.agent_service import AgentService
-                from app.agent.orchestrator import _load_prompt
-                self.ai_chat.update_task_card("正在分析需求...")
-                prompt = _load_prompt("generate_tasks_interactive.md")
-                result = AgentService.ask(
-                    prompt, session_id="gen_tasks", strict=True,
-                    cancel_event=cancel)
-                if cancel and cancel.is_set():
-                    self._finish_task_card("生成任务", "已取消", theme.text_disabled)
-                    return
-
-                # 显示 Agent 提问为紫色需求气泡
-                self.ai_chat.show_prompt_bubble(result)
-                self.ai_chat.update_task_card("请回复上方紫色气泡中的问题...")
-                known_before = {t.id for t in state.get_all_tasks()}
-                busy_seen = False
-                for _ in range(300):
-                    if cancel and cancel.is_set():
-                        self._finish_task_card("生成任务", "已取消", theme.text_disabled)
-                        return
-                    time.sleep(1)
-                    if not self.ai_chat: break
-                    if self.ai_chat._busy:
-                        busy_seen = True
-                        self.ai_chat.update_task_card("正在生成任务...", border_color=theme.warning)
-                    elif busy_seen:
-                        new_tasks = [t for t in state.get_all_tasks()
-                                      if t.ai_proposed and t.id not in known_before]
-                        if new_tasks:
-                            self._refresh_board()
-                            self._poll_ghost_resolution("生成任务", {t.id for t in new_tasks}, cancel)
-                        break
-            except Exception as ex:
-                traceback.print_exc()
-                try:
-                    self._finish_task_card("生成任务", f"失败: {ex}", theme.error)
-                except Exception:
-                    self.ai_chat.hide_task_card() if self.ai_chat else None
-
-        threading.Thread(target=_do_gen, daemon=True).start()
 
     # ═══════════════════════════════════════════
     # 3. 自动分类 → AI 面板交互
