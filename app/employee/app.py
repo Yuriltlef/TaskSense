@@ -278,6 +278,10 @@ class EmployeeWindowApp:
         )
         self._body.content = self._login_page.build()
         self._title_text.value = "员工工作台 - 请登录"
+        try:
+            self._title_text.update()
+        except Exception:
+            pass
         self._body.update()
 
     def show_workbench(self, employee_id: str, employee_name: str):
@@ -299,6 +303,10 @@ class EmployeeWindowApp:
         )
         self._body.content = self._workbench_page.build()
         self._title_text.value = f"员工工作台 - {employee_name}"
+        try:
+            self._title_text.update()
+        except Exception:
+            pass
         self._body.update()
 
     # ── 外部变更回调 ──
