@@ -304,8 +304,9 @@ class BoardPage:
             return
         # 所有幽灵卡片已处理 → 完成状态栏中等待/进行中的任务
         for t in self._task_registry.get_all():
-            if t.get("status") in ("等待确认", "准备中..."):
+            if t.get("status") in ("等待确认", "准备中...", "正在分析"):
                 label = t["label"]
+                # 先更新状态，防止 _poll_ghost_resolution 重复完成
                 self._task_registry.update_status(t["id"], "已完成", 1.0)
                 if self.ai_chat:
                     try:
@@ -452,6 +453,12 @@ class BoardPage:
             remaining = [tid for tid in pending_ids
                          if state.get_task(tid) and state.get_task(tid).ai_proposed]
             if len(remaining) == 0:
+                # 检查是否已被 _check_ghost_pending_completion 处理过
+                tid = self._task_registry.find_by_label(label)
+                if tid:
+                    reg = next((t for t in self._task_registry.get_all() if t["id"] == tid), None)
+                    if reg and reg.get("status") in ("已完成", "全部已确认"):
+                        return  # 已处理，避免重复气泡
                 self._finish_task_card(label, "全部已确认", theme.success)
                 return
             if i % 5 == 0:
